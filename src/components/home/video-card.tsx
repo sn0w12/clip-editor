@@ -280,10 +280,7 @@ export function VideoCard({
             </div>
             <div className="p-4">
                 <div className="flex items-center justify-between">
-                    <h3
-                        className="line-clamp-1 text-lg font-medium"
-                        title={video.name}
-                    >
+                    <h3 className="group relative line-clamp-1 text-lg font-medium">
                         {video.name}
                     </h3>
                     {videoGroupMap[video.path]?.length > 0 && (

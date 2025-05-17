@@ -93,5 +93,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - [FFmpeg](https://ffmpeg.org/) for video processing capabilities
 - [Electron](https://www.electronjs.org/) for enabling cross-platform desktop apps
-- [React](https://reactjs.org/) for UI components
 - [shadcn/ui](https://ui.shadcn.com/) for beautiful UI components

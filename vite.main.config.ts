@@ -5,7 +5,7 @@ import path from "path";
 export default defineConfig({
     build: {
         rollupOptions: {
-            external: ["ffmpeg-static"],
+            external: ["ffmpeg-static", "update-electron-app"],
         },
     },
     resolve: {

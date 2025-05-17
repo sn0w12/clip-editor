@@ -10,9 +10,9 @@ import {
 } from "electron-devtools-installer";
 import { shell } from "electron";
 import { APP_CONFIG } from "./config";
+import { updateElectronApp } from "update-electron-app";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-require("update-electron-app")({
+updateElectronApp({
     repo: "sn0w12/clip-editor",
     updateInterval: "1 hour",
     notifyUser: true,

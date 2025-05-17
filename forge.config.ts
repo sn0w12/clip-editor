@@ -16,6 +16,7 @@ const config: ForgeConfig = {
         asar: false,
         icon: "./src/assets/icons/icon",
         extraResource: ["splash.html", "src/assets/fonts"],
+        executableName: "clip-editor",
     },
     hooks: {
         packageAfterPrune: async (config, build_path) => {

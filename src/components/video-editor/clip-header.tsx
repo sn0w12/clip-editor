@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSteam } from "@/contexts/steam-context";
 import { imgSrc, normalizeGameName } from "@/utils/games";
+import { useSetting } from "@/utils/settings";
 
 export function ClipHeader() {
     const [width, setWidth] = useState<number | undefined>(undefined);
@@ -22,6 +23,7 @@ export function ClipHeader() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
     const { videos, thumbnails } = useVideoStore();
     const { games, gameImages, loading } = useSteam();
+    const isCustomWindow = useSetting("windowIconsStyle") === "custom";
     const mainElement = useMainElement();
     const navigate = useNavigate();
 
@@ -249,7 +251,7 @@ export function ClipHeader() {
                 <Button
                     variant="outline"
                     size="icon"
-                    className="relative top-2.5 h-5 w-32"
+                    className={`${isCustomWindow ? "relative top-2.5 h-5 w-32" : "h-9.5 w-25 self-end"}`}
                     onClick={handleNext}
                     disabled={
                         surroundingVideos.currentIndex >=

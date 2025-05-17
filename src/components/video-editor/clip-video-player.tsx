@@ -610,86 +610,147 @@ export function ClipVideoPlayer({
                                     </div>
 
                                     <div className="flex items-center space-x-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                            onClick={skipBackward}
-                                        >
-                                            <SkipBack className="h-5 w-5" />
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                                                    onClick={skipBackward}
+                                                >
+                                                    <SkipBack className="h-5 w-5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                Skip back 5 seconds
+                                            </TooltipContent>
+                                        </Tooltip>
 
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                            onClick={togglePlayPause}
-                                        >
-                                            {isPlaying ? (
-                                                <Pause className="h-6 w-6" />
-                                            ) : (
-                                                <Play className="h-6 w-6" />
-                                            )}
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                                                    onClick={togglePlayPause}
+                                                >
+                                                    {isPlaying ? (
+                                                        <Pause className="h-6 w-6" />
+                                                    ) : (
+                                                        <Play className="h-6 w-6" />
+                                                    )}
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                {isPlaying ? "Pause" : "Play"}
+                                            </TooltipContent>
+                                        </Tooltip>
 
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                            onClick={skipForward}
-                                        >
-                                            <SkipForward className="h-5 w-5" />
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                                                    onClick={skipForward}
+                                                >
+                                                    <SkipForward className="h-5 w-5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                Skip forward 5 seconds
+                                            </TooltipContent>
+                                        </Tooltip>
                                     </div>
 
                                     <div className="flex items-center space-x-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                            onClick={toggleMute}
-                                        >
-                                            {isMuted || volume === 0 ? (
-                                                <VolumeX className="h-5 w-5" />
-                                            ) : (
-                                                <Volume2 className="h-5 w-5" />
-                                            )}
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                                                    onClick={toggleMute}
+                                                >
+                                                    {isMuted || volume === 0 ? (
+                                                        <VolumeX className="h-5 w-5" />
+                                                    ) : (
+                                                        <Volume2 className="h-5 w-5" />
+                                                    )}
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                {isMuted ? "Unmute" : "Mute"}
+                                            </TooltipContent>
+                                        </Tooltip>
 
                                         <div className="relative w-20">
-                                            <Slider
-                                                value={[isMuted ? 0 : volume]}
-                                                min={0}
-                                                max={1}
-                                                step={0.01}
-                                                onValueChange={(value) =>
-                                                    handleVolumeChange(value)
-                                                }
-                                                className="h-1.5"
-                                            />
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Slider
+                                                        value={[
+                                                            isMuted
+                                                                ? 0
+                                                                : volume,
+                                                        ]}
+                                                        min={0}
+                                                        max={1}
+                                                        step={0.01}
+                                                        onValueChange={(
+                                                            value,
+                                                        ) =>
+                                                            handleVolumeChange(
+                                                                value,
+                                                            )
+                                                        }
+                                                        className="h-1.5"
+                                                    />
+                                                </TooltipTrigger>
+                                                <TooltipContent side="top">
+                                                    Adjust volume
+                                                </TooltipContent>
+                                            </Tooltip>
                                         </div>
 
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className={cn(
-                                                "h-8 w-8 p-0 text-white hover:bg-white/20",
-                                                playSelectedOnly &&
-                                                    "bg-white/30",
-                                            )}
-                                            onClick={togglePlaySelectedOnly}
-                                        >
-                                            <RepeatIcon className="h-5 w-5" />
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className={cn(
+                                                        "h-8 w-8 p-0 text-white hover:bg-white/20",
+                                                        playSelectedOnly &&
+                                                            "bg-white/30",
+                                                    )}
+                                                    onClick={
+                                                        togglePlaySelectedOnly
+                                                    }
+                                                >
+                                                    <RepeatIcon className="h-5 w-5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                {playSelectedOnly
+                                                    ? "Disable loop"
+                                                    : "Loop selection"}
+                                            </TooltipContent>
+                                        </Tooltip>
 
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                            onClick={toggleFullScreen}
-                                        >
-                                            <Minimize className="h-5 w-5" />
-                                        </Button>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                                                    onClick={toggleFullScreen}
+                                                >
+                                                    <Minimize className="h-5 w-5" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="top">
+                                                Exit fullscreen
+                                            </TooltipContent>
+                                        </Tooltip>
                                     </div>
                                 </div>
                             </div>
@@ -726,48 +787,76 @@ export function ClipVideoPlayer({
                             <span className="font-mono">
                                 {formatTime(timeRange.start)}
                             </span>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0"
-                                onClick={jumpToStart}
-                            >
-                                <ChevronFirst className="h-4 w-4" />
-                            </Button>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={jumpToStart}
+                                    >
+                                        <ChevronFirst className="h-4 w-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    Jump to clip start
+                                </TooltipContent>
+                            </Tooltip>
                         </div>
                         <div className="absolute left-1/2 flex -translate-x-1/2 flex-col items-center">
                             <span className="font-mono">
                                 {formatTime(currentTime)}
                             </span>
                             <div className="mt-1 flex items-center space-x-1">
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={skipBackward}
-                                >
-                                    <SkipBack className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={togglePlayPause}
-                                >
-                                    {isPlaying ? (
-                                        <Pause className="h-4 w-4" />
-                                    ) : (
-                                        <Play className="h-4 w-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={skipForward}
-                                >
-                                    <SkipForward className="h-4 w-4" />
-                                </Button>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
+                                            onClick={skipBackward}
+                                        >
+                                            <SkipBack className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">
+                                        Skip back 5 seconds
+                                    </TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
+                                            onClick={togglePlayPause}
+                                        >
+                                            {isPlaying ? (
+                                                <Pause className="h-4 w-4" />
+                                            ) : (
+                                                <Play className="h-4 w-4" />
+                                            )}
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">
+                                        {isPlaying ? "Pause" : "Play"}
+                                    </TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
+                                            onClick={skipForward}
+                                        >
+                                            <SkipForward className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">
+                                        Skip forward 5 seconds
+                                    </TooltipContent>
+                                </Tooltip>
                             </div>
                         </div>
                         <div className="flex flex-col items-end">
@@ -796,11 +885,24 @@ export function ClipVideoPlayer({
                                             : "Loop selection"}
                                     </TooltipContent>
                                 </Tooltip>
-                                <AudioTrackSelector
-                                    tracks={audioTracks}
-                                    selectedTrack={selectedAudioTrack}
-                                    onTrackChange={handleAudioTrackChange}
-                                />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div>
+                                            <AudioTrackSelector
+                                                tracks={audioTracks}
+                                                selectedTrack={
+                                                    selectedAudioTrack
+                                                }
+                                                onTrackChange={
+                                                    handleAudioTrackChange
+                                                }
+                                            />
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">
+                                        Select audio track
+                                    </TooltipContent>
+                                </Tooltip>
                                 <div className="relative">
                                     <Tooltip>
                                         <TooltipTrigger asChild>
@@ -894,17 +996,32 @@ export function ClipVideoPlayer({
                                         }}
                                     >
                                         <Card className="w-7 p-2">
-                                            <Slider
-                                                value={[isMuted ? 0 : volume]}
-                                                orientation="vertical"
-                                                min={0}
-                                                max={1}
-                                                step={0.01}
-                                                onValueChange={(value) =>
-                                                    handleVolumeChange(value)
-                                                }
-                                                className="h-20 w-full"
-                                            />
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Slider
+                                                        value={[
+                                                            isMuted
+                                                                ? 0
+                                                                : volume,
+                                                        ]}
+                                                        orientation="vertical"
+                                                        min={0}
+                                                        max={1}
+                                                        step={0.01}
+                                                        onValueChange={(
+                                                            value,
+                                                        ) =>
+                                                            handleVolumeChange(
+                                                                value,
+                                                            )
+                                                        }
+                                                        className="h-20 w-full"
+                                                    />
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right">
+                                                    Adjust volume
+                                                </TooltipContent>
+                                            </Tooltip>
                                         </Card>
                                     </div>
                                 </div>
@@ -924,17 +1041,26 @@ export function ClipVideoPlayer({
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom">
-                                        Enter Fullscreen
+                                        {isFullScreen
+                                            ? "Exit fullscreen"
+                                            : "Enter fullscreen"}
                                     </TooltipContent>
                                 </Tooltip>
-                                <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={jumpToEnd}
-                                >
-                                    <ChevronLast className="h-4 w-4" />
-                                </Button>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0"
+                                            onClick={jumpToEnd}
+                                        >
+                                            <ChevronLast className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">
+                                        Jump to clip end
+                                    </TooltipContent>
+                                </Tooltip>
                             </div>
                         </div>
                     </div>

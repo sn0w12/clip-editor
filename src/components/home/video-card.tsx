@@ -96,17 +96,37 @@ export function VideoCard({
                 lastPlaybackPositionRef.current = 0;
             }
         }
+
+        // Start updating progress immediately after video is loaded
+        if (videoRef.current && showVideo) {
+            videoRef.current.play().catch((error) => {
+                console.log("Video autoplay prevented:", error);
+            });
+
+            // Start progress animation if not already running
+            if (!progressAnimationRef.current) {
+                progressAnimationRef.current =
+                    requestAnimationFrame(updateProgressBar);
+            }
+        }
     };
 
     const updateProgressBar = () => {
-        if (videoRef.current && showVideo && videoLoaded) {
-            const currentTime = videoRef.current.currentTime;
-            const duration = videoRef.current.duration || 1;
-            const progressPercent = (currentTime / duration) * 100;
-            setProgress(progressPercent);
+        if (videoRef.current && showVideo) {
+            // Only update if video is actually loaded and has duration
+            if (videoLoaded && videoRef.current.duration) {
+                const currentTime = videoRef.current.currentTime;
+                const duration = videoRef.current.duration || 1;
+                const progressPercent = (currentTime / duration) * 100;
+                setProgress(progressPercent);
+            }
 
             progressAnimationRef.current =
                 requestAnimationFrame(updateProgressBar);
+        } else if (progressAnimationRef.current) {
+            // If video is not showing anymore, cancel animation
+            cancelAnimationFrame(progressAnimationRef.current);
+            progressAnimationRef.current = null;
         }
     };
 
@@ -139,9 +159,11 @@ export function VideoCard({
                 console.log("Video autoplay prevented:", error);
             });
 
-            // Start updating progress
-            progressAnimationRef.current =
-                requestAnimationFrame(updateProgressBar);
+            // Start updating progress if not already running
+            if (!progressAnimationRef.current) {
+                progressAnimationRef.current =
+                    requestAnimationFrame(updateProgressBar);
+            }
         } else if (!showVideo && videoRef.current) {
             videoRef.current.pause();
 

@@ -1,6 +1,6 @@
 import { clipboard, dialog, ipcMain } from "electron";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
+import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 
 interface ExportOptions {

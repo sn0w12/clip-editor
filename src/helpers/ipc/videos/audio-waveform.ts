@@ -1,7 +1,7 @@
 import { ipcMain, app } from "electron";
 import fs from "fs";
 import path from "path";
-import ffmpeg from "fluent-ffmpeg";
+import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import { v4 as uuidv4 } from "uuid";
 

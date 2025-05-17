@@ -2,7 +2,7 @@ import { app, dialog, ipcMain } from "electron";
 import fs from "fs/promises";
 import path from "path";
 import { VideoFile } from "@/types/video";
-import ffmpeg from "fluent-ffmpeg";
+import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import crypto from "crypto";
 
@@ -167,11 +167,14 @@ export function addVideosEventListeners() {
             };
         } catch (error: unknown) {
             console.error("Error deleting video files:", error);
-            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred while deleting files";
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : "Unknown error occurred while deleting files";
             return {
                 success: false,
                 failed: videoPaths,
-                error: errorMessage
+                error: errorMessage,
             };
         }
     });

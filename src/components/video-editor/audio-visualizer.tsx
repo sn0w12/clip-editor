@@ -57,6 +57,23 @@ export function AudioVisualizer({
     // Use either the external audio ref or the internal one
     const audioRef = externalAudioRef || internalAudioRef;
 
+    useEffect(() => {
+        return () => {
+            // Clean up on component unmount
+            if (analyserRef.current) {
+                try {
+                    analyserRef.current.disconnect();
+                } catch (e) {
+                    console.log("Error disconnecting analyzer:", e);
+                }
+                analyserRef.current = null;
+            }
+
+            // Clear large arrays
+            setAudioData([]);
+        };
+    }, []);
+
     // Parse CSS variables for color
     useEffect(() => {
         if (color && color.startsWith("var(--")) {

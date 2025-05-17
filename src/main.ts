@@ -11,6 +11,13 @@ import {
 import { shell } from "electron";
 import { APP_CONFIG } from "./config";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require("update-electron-app")({
+    repo: "sn0w12/clip-editor",
+    updateInterval: "1 hour",
+    notifyUser: true,
+});
+
 const inDevelopment = process.env.NODE_ENV === "development";
 
 // Original protocol name, no longer used directly

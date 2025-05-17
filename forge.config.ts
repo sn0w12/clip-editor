@@ -114,6 +114,7 @@ const config: ForgeConfig = {
                 },
                 prerelease: false,
                 draft: true,
+                releaseNotes: process.env.RELEASE_NOTES,
             },
         },
     ],

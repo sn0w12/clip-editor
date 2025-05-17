@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Loading...</title>
+        <style>
+            :root {
+                --background: oklch(0.145 0 0);
+                --foreground: oklch(0.985 0 0);
+                --sidebar-primary: oklch(0.488 0.243 264.376);
+                --accent-positive: #74c4c9;
+            }
+
+            body,
+            html {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                background-color: var(--background);
+                color: var(--foreground);
+                overflow: hidden;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                user-select: none;
+                -webkit-user-select: none;
+            }
+
+            .splash-container {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 24px;
+                animation: fadeIn 0.6s ease-out forwards;
+            }
+
+            .loader {
+                position: relative;
+                width: 60vw;
+                height: 3px;
+                background-color: rgba(255, 255, 255, 0.15);
+                border-radius: 2px;
+                overflow: hidden;
+            }
+
+            .loader::after {
+                content: "";
+                position: absolute;
+                left: 0;
+                top: 0;
+                height: 100%;
+                width: 0;
+                background-color: var(--accent-positive);
+                animation: progress 1.8s ease-in-out infinite;
+                border-radius: 2px;
+            }
+
+            .app-name {
+                font-family: "Tomorrow", Geist, sans-serif;
+                font-size: 18px;
+                font-weight: 700;
+                letter-spacing: 0.2px;
+            }
+
+            @keyframes progress {
+                0% {
+                    width: 0%;
+                    left: 0;
+                }
+                50% {
+                    width: 100%;
+                    left: 0;
+                }
+                100% {
+                    width: 0%;
+                    left: 100%;
+                }
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="splash-container">
+            <div class="app-name" id="app-name">Loading</div>
+            <div class="loader"></div>
+        </div>
+
+        <script>
+            // Get app name from URL params (if provided)
+            const urlParams = new URLSearchParams(window.location.search);
+            const appName = urlParams.get("appName");
+
+            // Update the app name element if a name was provided
+            if (appName) {
+                document.getElementById("app-name").textContent = appName;
+            }
+        </script>
+    </body>
+</html>

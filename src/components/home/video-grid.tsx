@@ -122,7 +122,7 @@ export function VideoGrid({
     return (
         <div className="space-y-6">
             {videosByDate.map((dateGroup) => (
-                <div key={dateGroup.date} className="space-y-4">
+                <div key={dateGroup.date} className="mb-0 space-y-4">
                     <div className="bg-background sticky top-0 z-10 mb-0 flex items-center overflow-hidden py-2">
                         <h3 className="pr-2 text-lg font-medium text-nowrap">
                             {dateGroup.formattedDate}

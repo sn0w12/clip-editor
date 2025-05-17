@@ -43,7 +43,7 @@ interface VideoStoreContextType {
     setSelectedGroupIds: React.Dispatch<React.SetStateAction<string[]>>;
     setIsCreateGroupDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
     handleSelectDirectory: () => Promise<void>;
-    handleCreateGroup: (name: string) => string;
+    handleCreateGroup: (name: string, color?: string) => string;
     handleDeleteGroup: (groupId: string) => void;
     handleAddToGroup: (videoPaths: string[], groupId: string) => void;
     handleRemoveFromGroup: (videoPaths: string[], groupId: string) => void;
@@ -182,11 +182,11 @@ export function VideoStoreProvider({
         });
     }, [gameFilteredVideos, selectedGroupIds, videoGroupMap]);
 
-    const handleCreateGroup = (name: string) => {
+    const handleCreateGroup = (name: string, color?: string) => {
         const newGroup: VideoGroup = {
             id: uuidv4(),
             name,
-            color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
+            color: color || `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
         };
 
         const updatedGroups = [...groups, newGroup];

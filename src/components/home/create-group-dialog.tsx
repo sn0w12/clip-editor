@@ -11,11 +11,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { ColorPicker } from "@/components/ui/color-picker";
 
 interface CreateGroupDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    onCreateGroup: (name: string) => void;
+    onCreateGroup: (name: string, color?: string) => void;
 }
 
 export function CreateGroupDialog({
@@ -24,6 +25,7 @@ export function CreateGroupDialog({
     onCreateGroup,
 }: CreateGroupDialogProps) {
     const [groupName, setGroupName] = useState("");
+    const [groupColor, setGroupColor] = useState("#3B82F6"); // Default blue color
     const [error, setError] = useState<string | null>(null);
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -34,14 +36,16 @@ export function CreateGroupDialog({
             return;
         }
 
-        onCreateGroup(groupName.trim());
+        onCreateGroup(groupName.trim(), groupColor);
         setGroupName("");
+        setGroupColor("#3B82F6");
         setError(null);
         onOpenChange(false);
     };
 
     const handleClose = () => {
         setGroupName("");
+        setGroupColor("#3B82F6");
         setError(null);
         onOpenChange(false);
     };
@@ -77,6 +81,17 @@ export function CreateGroupDialog({
                                     {error}
                                 </p>
                             )}
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="group-color" className="col-span-3">
+                                Group Color
+                            </Label>
+                            <ColorPicker
+                                id="group-color"
+                                value={groupColor}
+                                onChange={setGroupColor}
+                                className="h-10 w-10"
+                            />
                         </div>
                     </div>
                     <DialogFooter>

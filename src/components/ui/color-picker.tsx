@@ -52,7 +52,7 @@ const ColorPicker = forwardRef<
                         <div />
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-full">
+                <PopoverContent className="pointer-events-auto w-full">
                     <HexColorPicker
                         color={parsedValue}
                         onChange={onChange}

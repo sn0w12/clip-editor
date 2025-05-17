@@ -12,8 +12,13 @@ jobs:
             matrix:
                 os: [windows-latest, ubuntu-latest]
 
+        permissions:
+            contents: write
+            packages: write
+            issues: write
+
         steps:
-            - uses: actions/checkout@v3
+            - uses: actions/checkout@v4
 
             - name: Setup Node.js
               uses: actions/setup-node@v3
@@ -22,9 +27,6 @@ jobs:
 
             - name: Install dependencies
               run: npm install
-
-            - name: Make distributables
-              run: npm run make
 
             - name: Publish to GitHub Releases
               env:

@@ -167,10 +167,10 @@ export function ClipHeader() {
                         <Button
                             variant="secondary"
                             size="icon"
-                            className="mr-auto h-8 w-24 max-w-48 flex-grow self-end"
+                            className="bg-sidebar group mr-auto h-8 w-24 max-w-48 flex-grow self-end"
                             onClick={() => navigate({ to: "/" })}
                         >
-                            Clips
+                            <div className="bg-border group-hover:bg-secondary-foreground mx-6 h-0.5 w-full transition-colors duration-200"></div>
                         </Button>
                         <Button
                             variant="outline"

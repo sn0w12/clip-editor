@@ -245,7 +245,7 @@ export function ExportSettings({
                         </div>
                         <div className="space-y-1">
                             <Label className="text-muted-foreground text-xs">
-                                Original Resolution
+                                Resolution
                             </Label>
                             <div className="font-mono text-sm">
                                 {videoMetadata

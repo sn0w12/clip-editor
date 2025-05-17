@@ -187,6 +187,11 @@ export default function GroupsPage() {
                     <Plus className="mr-2 h-4 w-4" />
                     Create Group
                 </Button>
+                <CreateGroupDialog
+                    open={isCreateGroupDialogOpen}
+                    onOpenChange={setIsCreateGroupDialogOpen}
+                    onCreateGroup={handleCreateGroup}
+                />
             </div>
         );
     }

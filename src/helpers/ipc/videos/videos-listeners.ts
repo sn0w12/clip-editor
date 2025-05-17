@@ -85,7 +85,9 @@ export function addVideosEventListeners() {
             console.error("Error getting videos:", error);
             return [];
         }
-    }); // Handle thumbnail generation
+    });
+
+    // Handle thumbnail generation
     ipcMain.handle("videos:get-thumbnail", async (_, videoPath) => {
         const thumbnailFilename = getThumbnailFilename(videoPath);
         const thumbnailPath = path.join(THUMBNAIL_DIR, thumbnailFilename);
@@ -124,6 +126,53 @@ export function addVideosEventListeners() {
                 console.error("Error generating thumbnail:", thumbnailError);
                 return "";
             }
+        }
+    });
+
+    ipcMain.handle("videos:delete-files", async (_, videoPaths: string[]) => {
+        const failed: string[] = [];
+
+        try {
+            for (const videoPath of videoPaths) {
+                try {
+                    // Also delete the thumbnail if it exists
+                    const thumbnailFilename = getThumbnailFilename(videoPath);
+                    const thumbnailPath = path.join(
+                        THUMBNAIL_DIR,
+                        thumbnailFilename,
+                    );
+
+                    try {
+                        await fs.access(thumbnailPath);
+                        await fs.unlink(thumbnailPath);
+                    } catch (error) {
+                        // Thumbnail doesn't exist or cannot be deleted, continue anyway
+                        console.warn(
+                            `Could not delete thumbnail for ${videoPath}:`,
+                            error,
+                        );
+                    }
+
+                    // Delete the video file
+                    await fs.unlink(videoPath);
+                } catch (error) {
+                    console.error(`Failed to delete ${videoPath}:`, error);
+                    failed.push(videoPath);
+                }
+            }
+
+            return {
+                success: failed.length === 0,
+                failed,
+            };
+        } catch (error: unknown) {
+            console.error("Error deleting video files:", error);
+            const errorMessage = error instanceof Error ? error.message : "Unknown error occurred while deleting files";
+            return {
+                success: false,
+                failed: videoPaths,
+                error: errorMessage
+            };
         }
     });
 }

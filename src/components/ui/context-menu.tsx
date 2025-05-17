@@ -156,34 +156,51 @@ function ContextMenuItem({
     className,
     inset,
     variant = "default",
+    confirmDescription = null,
     onClick,
     ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Item> & {
     inset?: boolean;
     variant?: "default" | "destructive";
+    confirmDescription?: string | null;
 }) {
     const { confirm } = useConfirm();
+    // Store the pending action in a ref to execute after menu closes
+    const pendingActionRef = React.useRef<
+        ((event: React.MouseEvent<HTMLDivElement>) => void) | null
+    >(null);
 
+    // This gets called when user clicks the menu item
     const handleClick = React.useCallback(
-        async (event: React.MouseEvent<HTMLDivElement>) => {
+        (event: React.MouseEvent<HTMLDivElement>) => {
             if (variant === "destructive") {
-                event.preventDefault();
-                const confirmed = await confirm({
-                    title: "Confirm Action",
-                    description:
-                        "Are you sure you want to proceed with this action?",
-                    confirmText: "Proceed",
-                    cancelText: "Cancel",
-                    variant: "destructive",
-                });
+                // Store the onClick handler to be executed later if confirmed
+                pendingActionRef.current = onClick || null;
+                setTimeout(async () => {
+                    const confirmed = await confirm({
+                        title: "Confirm Action",
+                        description:
+                            confirmDescription ??
+                            "Are you sure you want to proceed with this action?",
+                        confirmText: "Proceed",
+                        cancelText: "Cancel",
+                        variant: "destructive",
+                    });
 
-                if (!confirmed) {
-                    return;
-                }
+                    // If confirmed and we have a pending action, execute it
+                    if (confirmed && pendingActionRef.current) {
+                        pendingActionRef.current(event);
+                        pendingActionRef.current = null;
+                    }
+                }, 100);
+
+                return;
             }
+
+            // For non-destructive actions, proceed normally
             onClick?.(event);
         },
-        [onClick, variant, confirm],
+        [onClick, variant, confirm, confirmDescription],
     );
 
     return (

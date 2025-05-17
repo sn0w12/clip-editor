@@ -35,6 +35,11 @@ interface VideosAPI {
         directoryPath: string,
     ) => Promise<import("./types/video").VideoFile[]>;
     getVideoThumbnail: (videoPath: string) => Promise<string>;
+    deleteVideoFiles: (videoPaths: string[]) => Promise<{
+        success: boolean;
+        failed: string[];
+        error?: string;
+    }>;
 }
 
 interface VideoEditorAPI {

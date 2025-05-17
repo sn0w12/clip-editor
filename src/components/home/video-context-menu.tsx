@@ -9,21 +9,24 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Check, Plus, Tag } from "lucide-react";
-import { VideoGroup } from "@/types/video";
+import { Check, Plus, Tag, Trash2 } from "lucide-react";
+import { VideoFile, VideoGroup } from "@/types/video";
+import { useVideoStore } from "@/contexts/video-store-context";
 
 interface VideoContextMenuProps {
     children: React.ReactNode;
+    videos: VideoFile[];
     videoIds: string[];
     groups: VideoGroup[];
     videoGroupMap: Record<string, string[]>;
     onAddToGroup: (videoIds: string[], groupId: string) => void;
-    onShowCreateGroup: () => void; // Changed to trigger external dialog
+    onShowCreateGroup: () => void;
     onRemoveFromGroup: (videoIds: string[], groupId: string) => void;
 }
 
 export function VideoContextMenu({
     children,
+    videos,
     videoIds,
     groups,
     videoGroupMap,
@@ -31,6 +34,23 @@ export function VideoContextMenu({
     onShowCreateGroup,
     onRemoveFromGroup,
 }: VideoContextMenuProps) {
+    const { handleDeleteVideos } = useVideoStore();
+
+    function deleteVideosDescription(videoPaths: string[]) {
+        const videoNames = videoPaths.map((path) => {
+            const video = videos.find((v) => v.path === path);
+            return video ? video.name : path;
+        });
+
+        return `Are you sure you want to delete ${
+            videoPaths.length > 1
+                ? `these ${videoPaths.length} videos`
+                : `"${videoNames[0]}"`
+        }? This will permanently remove ${
+            videoPaths.length > 1 ? "them" : "it"
+        } from your drive.`;
+    }
+
     return (
         <ContextMenu>
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
@@ -91,6 +111,18 @@ export function VideoContextMenu({
                         })}
                     </ContextMenuSubContent>
                 </ContextMenuSub>
+
+                <ContextMenuSeparator />
+
+                <ContextMenuItem
+                    className="flex items-center gap-2"
+                    variant="destructive"
+                    confirmDescription={deleteVideosDescription(videoIds)}
+                    onClick={() => handleDeleteVideos(videoIds)}
+                >
+                    <Trash2 size={16} />
+                    Delete {videoIds.length > 1 ? `(${videoIds.length})` : ""}
+                </ContextMenuItem>
             </ContextMenuContent>
         </ContextMenu>
     );

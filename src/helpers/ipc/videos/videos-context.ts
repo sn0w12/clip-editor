@@ -28,5 +28,18 @@ export function exposeVideosContext() {
         getVideoThumbnail: async (videoPath: string): Promise<string> => {
             return ipcRenderer.invoke("videos:get-thumbnail", videoPath);
         },
+
+        /**
+         * Deletes a video file from the filesystem
+         */
+        deleteVideoFiles: async (
+            videoPaths: string[],
+        ): Promise<{
+            success: boolean;
+            failed: string[];
+            error?: string;
+        }> => {
+            return ipcRenderer.invoke("videos:delete-files", videoPaths);
+        },
     });
 }

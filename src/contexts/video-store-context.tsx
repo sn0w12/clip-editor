@@ -47,6 +47,7 @@ interface VideoStoreContextType {
     handleDeleteGroup: (groupId: string) => void;
     handleAddToGroup: (videoPaths: string[], groupId: string) => void;
     handleRemoveFromGroup: (videoPaths: string[], groupId: string) => void;
+    handleDeleteVideos: (videoPaths: string[]) => Promise<void>;
     clearAllFilters: () => void;
     loadVideosFromDirectory: (dirPath: string) => Promise<void>;
 }
@@ -382,6 +383,63 @@ export function VideoStoreProvider({
         }
     };
 
+    const handleDeleteVideos = async (videoPaths: string[]) => {
+        if (!videoPaths.length) return;
+
+        try {
+            const result = await window.videos.deleteVideoFiles(videoPaths);
+
+            if (result.success) {
+                // Remove deleted videos from state
+                setVideos((currentVideos) =>
+                    currentVideos.filter(
+                        (video) => !videoPaths.includes(video.path),
+                    ),
+                );
+
+                // Clear selections if they were deleted
+                setSelectedVideos((current) =>
+                    current.filter(
+                        (videoPath) => !videoPaths.includes(videoPath),
+                    ),
+                );
+
+                // Remove thumbnails for deleted videos
+                setThumbnails((current) => {
+                    const newThumbnails = { ...current };
+                    videoPaths.forEach((path) => {
+                        delete newThumbnails[path];
+                    });
+                    return newThumbnails;
+                });
+
+                // Remove metadata for deleted videos
+                setVideoMetadata((current) => {
+                    const newMetadata = { ...current };
+                    videoPaths.forEach((path) => {
+                        delete newMetadata[path];
+                    });
+                    return newMetadata;
+                });
+
+                // Remove group assignments for deleted videos
+                const updatedAssignments = videoGroupAssignments.filter(
+                    (assignment) => !videoPaths.includes(assignment.videoPath),
+                );
+                setVideoGroupAssignments(updatedAssignments);
+                localStorage.setItem(
+                    SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
+                    JSON.stringify(updatedAssignments),
+                );
+            } else if (result.failed.length > 0) {
+                console.error("Failed to delete some videos:", result.failed);
+                // Handle partial failure if needed
+            }
+        } catch (error) {
+            console.error("Error deleting videos:", error);
+        }
+    };
+
     useEffect(() => {
         if (initialMountRef.current && directoryPath) {
             loadVideosFromDirectory(directoryPath);
@@ -453,6 +511,7 @@ export function VideoStoreProvider({
         handleAddToGroup,
         handleRemoveFromGroup,
         handleDeleteGroup,
+        handleDeleteVideos,
         clearAllFilters,
         loadVideosFromDirectory,
     };

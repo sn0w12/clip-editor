@@ -346,7 +346,10 @@ export function VideoCard({
                         {(video.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
                     <p className="text-muted-foreground text-sm">
-                        {format(new Date(video.lastModified), "MMM d, yyyy")}
+                        {format(
+                            new Date(video.lastModified),
+                            "MMM d, yyyy, HH:mm",
+                        )}
                     </p>
                 </div>
             </div>

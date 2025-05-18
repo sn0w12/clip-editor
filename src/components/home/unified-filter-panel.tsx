@@ -66,7 +66,9 @@ export function UnifiedFilterPanel({
         return games.map((game) => {
             const normalizedName = normalizeGameName(game);
             const appId =
-                !loading && normalizedName ? steamGames[normalizedName] : null;
+                !loading && normalizedName
+                    ? steamGames[normalizedName].appid
+                    : null;
             const gameImage = appId ? gameImages[appId] : null;
 
             return {

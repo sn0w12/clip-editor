@@ -50,6 +50,7 @@ interface VideoStoreContextType {
     handleDeleteVideos: (videoPaths: string[]) => Promise<void>;
     clearAllFilters: () => void;
     loadVideosFromDirectory: (dirPath: string) => Promise<void>;
+    handleUpdateVideoGames: (videoPaths: string[], game: string) => void;
 }
 
 const VideoStoreContext = createContext<VideoStoreContextType | undefined>(
@@ -440,6 +441,84 @@ export function VideoStoreProvider({
         }
     };
 
+    const handleUpdateVideoGames = async (
+        videoPaths: string[],
+        game: string,
+    ) => {
+        const updatedVideos = [...videos];
+        const renamePromises: Promise<{
+            success: boolean;
+            oldPath: string;
+            newPath?: string;
+        }>[] = [];
+
+        for (const videoPath of videoPaths) {
+            renamePromises.push(window.videos.renameFile(videoPath, game));
+        }
+
+        const renameResults = await Promise.all(renamePromises);
+        for (const result of renameResults) {
+            if (result.success && result.newPath) {
+                const videoIndex = updatedVideos.findIndex(
+                    (v) => v.path === result.oldPath,
+                );
+
+                if (videoIndex !== -1) {
+                    updatedVideos[videoIndex] = {
+                        ...updatedVideos[videoIndex],
+                        path: result.newPath,
+                        name: result.newPath.split(/[/\\]/).pop() || "",
+                        game: game,
+                    };
+
+                    // Update any thumbnail references
+                    if (thumbnails[result.oldPath]) {
+                        setThumbnails((prev) => {
+                            const updated = { ...prev };
+                            updated[result.newPath!] = prev[result.oldPath];
+                            delete updated[result.oldPath];
+                            return updated;
+                        });
+                    }
+
+                    // Update any metadata references
+                    if (videoMetadata[result.oldPath]) {
+                        setVideoMetadata((prev) => {
+                            const updated = { ...prev };
+                            updated[result.newPath!] = prev[result.oldPath];
+                            delete updated[result.oldPath];
+                            return updated;
+                        });
+                    }
+
+                    // Update selected videos if this one was selected
+                    setSelectedVideos((prev) =>
+                        prev.map((p) =>
+                            p === result.oldPath ? result.newPath! : p,
+                        ),
+                    );
+
+                    // Update group assignments
+                    setVideoGroupAssignments((prev) =>
+                        prev.map((assignment) =>
+                            assignment.videoPath === result.oldPath
+                                ? { ...assignment, videoPath: result.newPath! }
+                                : assignment,
+                        ),
+                    );
+                }
+            }
+        }
+
+        setVideos(updatedVideos);
+
+        // Update the localStorage for group assignments if they've changed
+        localStorage.setItem(
+            SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
+            JSON.stringify(videoGroupAssignments),
+        );
+    };
+
     useEffect(() => {
         if (initialMountRef.current && directoryPath) {
             loadVideosFromDirectory(directoryPath);
@@ -512,6 +591,7 @@ export function VideoStoreProvider({
         handleRemoveFromGroup,
         handleDeleteGroup,
         handleDeleteVideos,
+        handleUpdateVideoGames,
         clearAllFilters,
         loadVideosFromDirectory,
     };

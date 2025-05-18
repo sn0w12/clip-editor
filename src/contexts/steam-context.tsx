@@ -17,7 +17,7 @@ interface GameImage {
 }
 
 interface SteamContextType {
-    games: Record<string, string>;
+    games: Record<string, { appid: string; displayName: string }>;
     libraryFolders: string[];
     gameImages: Record<string, GameImage>;
     loading: boolean;
@@ -39,7 +39,9 @@ interface SteamProviderProps {
 }
 
 export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
-    const [games, setGames] = useState<Record<string, string>>({});
+    const [games, setGames] = useState<
+        Record<string, { appid: string; displayName: string }>
+    >({});
     const [libraryFolders, setLibraryFolders] = useState<string[]>([]);
     const [gameImages, setGameImages] = useState<Record<string, GameImage>>({});
     const [loading, setLoading] = useState(true);

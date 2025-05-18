@@ -189,4 +189,85 @@ export function addVideosEventListeners() {
             return false;
         }
     });
+
+    // Handle renaming a file when game is updated
+    ipcMain.handle(
+        "videos:rename-file",
+        async (_, oldPath: string, newGameName: string) => {
+            try {
+                const dirPath = path.dirname(oldPath);
+                const fileName = path.basename(oldPath);
+                const extension = path.extname(fileName);
+
+                // Determine the naming pattern
+                // Example: Replay 2025-05-17 00-39-49_Counter-Strike 2.mp4
+                const nameMatch = fileName.match(/^(.+?)_(.+?)(\..+)$/);
+
+                if (!nameMatch) {
+                    // If filename doesn't match expected pattern, return the old path
+                    console.warn(
+                        `File ${fileName} doesn't match expected pattern for renaming`,
+                    );
+                    return {
+                        success: false,
+                        oldPath,
+                        newPath: oldPath,
+                        error: "Filename pattern not recognized",
+                    };
+                }
+
+                // nameMatch[1] is the prefix with date (e.g., "Replay 2025-05-17 00-39-49")
+                // nameMatch[3] is the extension with dot (e.g., ".mp4")
+                const prefix = nameMatch[1];
+                const newFileName = `${prefix}_${newGameName}${extension}`;
+                const newPath = path.join(dirPath, newFileName);
+
+                // Don't rename if the new path would be the same
+                if (newPath === oldPath) {
+                    return { success: true, oldPath, newPath };
+                }
+
+                // Rename the file
+                await fs.rename(oldPath, newPath);
+
+                // Also rename the thumbnail if it exists
+                const thumbnailFilename = getThumbnailFilename(oldPath);
+                const newThumbnailFilename = getThumbnailFilename(newPath);
+                const thumbnailPath = path.join(
+                    THUMBNAIL_DIR,
+                    thumbnailFilename,
+                );
+                const newThumbnailPath = path.join(
+                    THUMBNAIL_DIR,
+                    newThumbnailFilename,
+                );
+
+                try {
+                    await fs.access(thumbnailPath);
+                    await fs.rename(thumbnailPath, newThumbnailPath);
+                } catch (error) {
+                    // Thumbnail doesn't exist or can't be renamed, continue anyway
+                    console.warn(
+                        `Could not rename thumbnail for ${oldPath}:`,
+                        error,
+                    );
+                }
+
+                return { success: true, oldPath, newPath };
+            } catch (error) {
+                console.error(
+                    `Error renaming file from ${oldPath} to game ${newGameName}:`,
+                    error,
+                );
+                return {
+                    success: false,
+                    oldPath,
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Unknown error during rename",
+                };
+            }
+        },
+    );
 }

@@ -84,8 +84,8 @@ async function parseAppManifest(
  */
 async function getAllSteamGames(
     steamDir: string,
-): Promise<Record<string, string>> {
-    const games: Record<string, string> = {};
+): Promise<Record<string, { appid: string; displayName: string }>> {
+    const games: Record<string, { appid: string; displayName: string }> = {};
     const libraryPaths = await getSteamLibraryFolders(steamDir);
 
     for (const libraryPath of libraryPaths) {
@@ -106,7 +106,15 @@ async function getAllSteamGames(
                             .toLowerCase()
                             .replace(/[^a-z0-9]/g, "");
 
-                        games[normalizedName] = gameInfo.appid;
+                        const displayName = gameInfo.name.replace(
+                            /[\\/:*?"<>|]/g,
+                            "",
+                        );
+
+                        games[normalizedName] = {
+                            appid: gameInfo.appid,
+                            displayName,
+                        };
                     }
                 }
             }

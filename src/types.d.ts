@@ -41,6 +41,15 @@ interface VideosAPI {
         error?: string;
     }>;
     showInFolder: (videoPath: string) => Promise<void>;
+    renameFile: (
+        oldPath: string,
+        newGameName: string,
+    ) => Promise<{
+        success: boolean;
+        oldPath: string;
+        newPath?: string;
+        error?: string;
+    }>;
 }
 
 interface VideoEditorAPI {
@@ -86,7 +95,9 @@ interface GameImage {
 }
 
 interface SteamAPI {
-    getAllSteamGames: (steamDir: string) => Promise<Record<string, string>>;
+    getAllSteamGames: (
+        steamDir: string,
+    ) => Promise<Record<string, { appid: string; displayName: string }>>;
     getSteamLibraryFolders: (steamDir: string) => Promise<string[]>;
     getAllGameImages: (steamDir: string) => Promise<Record<string, GameImage>>;
     getGameImages: (

@@ -41,7 +41,7 @@ export default function EditPage() {
         if (loading || !currentVideo?.game) return null;
 
         const normalizedName = normalizeGameName(currentVideo.game);
-        const appId = normalizedName ? games[normalizedName] : undefined;
+        const appId = normalizedName ? games[normalizedName].appid : undefined;
         const gameImage = appId && gameImages[appId];
 
         return {

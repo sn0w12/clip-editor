@@ -112,7 +112,7 @@ export function ClipHeader() {
             const normalizedGameName = normalizeGameName(video.game);
             const appId =
                 !loading && normalizedGameName
-                    ? games[normalizedGameName]
+                    ? games[normalizedGameName].appid
                     : undefined;
 
             if (appId === undefined) return;

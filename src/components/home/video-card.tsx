@@ -39,7 +39,9 @@ export function VideoCard({
     // Only attempt to get appId if we have game data and a game name
     const normalizedGameName = video.game ? normalizeGameName(video.game) : "";
     const appId =
-        !loading && normalizedGameName ? games[normalizedGameName] : undefined;
+        !loading && normalizedGameName
+            ? games[normalizedGameName].appid
+            : undefined;
 
     // Determine if we can show the game icon
     const hasGameIcon = appId && gameImages[appId]?.icon;

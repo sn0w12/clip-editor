@@ -31,7 +31,7 @@ export default function GameDetailPage() {
         if (loading) return null;
 
         const normalizedName = normalizeGameName(decodedGameName);
-        const appId = normalizedName ? games[normalizedName] : undefined;
+        const appId = normalizedName ? games[normalizedName].appid : undefined;
         const gameImage = appId && gameImages[appId];
 
         return {

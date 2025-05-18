@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
     ContextMenu,
     ContextMenuContent,
@@ -9,10 +9,19 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Check, ExternalLink, Folder, Plus, Tag, Trash2 } from "lucide-react";
+import {
+    Check,
+    ExternalLink,
+    Folder,
+    Plus,
+    Tag,
+    Trash2,
+    Gamepad2,
+} from "lucide-react";
 import { VideoFile, VideoGroup } from "@/types/video";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate } from "@tanstack/react-router";
+import { useSteam } from "@/contexts/steam-context";
 
 interface VideoContextMenuProps {
     children: React.ReactNode;
@@ -38,7 +47,8 @@ export function VideoContextMenu({
     onRemoveFromGroup,
 }: VideoContextMenuProps) {
     const navigate = useNavigate();
-    const { handleDeleteVideos } = useVideoStore();
+    const { handleDeleteVideos, handleUpdateVideoGames } = useVideoStore();
+    const { games } = useSteam();
 
     function deleteVideosDescription(videoPaths: string[]) {
         const videoNames = videoPaths.map((path) => {
@@ -66,6 +76,23 @@ export function VideoContextMenu({
     // Only allow showing in folder when a single video is selected
     const canShowInFolder = videoIds.length === 1;
 
+    // Get current game for the selected videos
+    const currentGame =
+        videoIds.length === 1
+            ? videos.find((v) => v.path === videoIds[0])?.game || "Unknown"
+            : "";
+
+    // Create sorted list of game names from the keys
+    const sortedGames = useMemo(() => {
+        return Object.entries(games)
+            .map(([slug, { appid, displayName }]) => ({
+                id: appid,
+                slug,
+                name: displayName,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [games]);
+
     return (
         <ContextMenu>
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
@@ -85,6 +112,30 @@ export function VideoContextMenu({
                     <ExternalLink size={16} />
                     Open
                 </ContextMenuItem>
+
+                <ContextMenuSub>
+                    <ContextMenuSubTrigger className="flex items-center gap-2">
+                        <Gamepad2 size={16} />
+                        Set Game
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+                        {sortedGames.map((game) => (
+                            <ContextMenuItem
+                                key={game.slug}
+                                className="flex items-center justify-between"
+                                onClick={() =>
+                                    handleUpdateVideoGames(videoIds, game.name)
+                                }
+                            >
+                                <span className="truncate">{game.name}</span>
+                                {game.name === currentGame && (
+                                    <Check size={16} />
+                                )}
+                            </ContextMenuItem>
+                        ))}
+                    </ContextMenuSubContent>
+                </ContextMenuSub>
+
                 <ContextMenuSub>
                     <ContextMenuSubTrigger className="flex items-center gap-2">
                         <Tag size={16} />

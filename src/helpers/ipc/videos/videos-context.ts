@@ -45,5 +45,24 @@ export function exposeVideosContext() {
         showInFolder: (videoPath: string) => {
             ipcRenderer.invoke("videos:show-in-folder", videoPath);
         },
+
+        /**
+         * Renames a video file when the game is updated
+         */
+        renameFile: async (
+            oldPath: string,
+            newGameName: string,
+        ): Promise<{
+            success: boolean;
+            oldPath: string;
+            newPath?: string;
+            error?: string;
+        }> => {
+            return ipcRenderer.invoke(
+                "videos:rename-file",
+                oldPath,
+                newGameName,
+            );
+        },
     });
 }

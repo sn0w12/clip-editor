@@ -75,7 +75,7 @@ export default function GamesPage() {
                 const normalizedName = normalizeGameName(gameName);
                 const appId =
                     !loading && normalizedName
-                        ? games[normalizedName]
+                        ? games[normalizedName].appid
                         : undefined;
                 const gameImage = appId && gameImages[appId];
 

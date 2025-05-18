@@ -225,7 +225,7 @@ export function VideoCard({
                         muted
                         loop
                         playsInline
-                        preload="auto"
+                        preload="metadata"
                         crossOrigin="anonymous"
                         onLoadedData={handleVideoLoad}
                     />

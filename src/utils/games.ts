@@ -22,12 +22,26 @@ export function imgSrc(src: string | null | undefined) {
 
 export function getGameId(
     name: string,
-    games: Record<string, { appid: string }>,
+    games: Record<string, { appid: string; displayName: string }>,
     loading: boolean,
 ) {
-    const normalizedName = normalizeGameName(name);
-    const appId =
-        !loading && normalizedName ? games[normalizedName]?.appid : null;
+    if (loading || !name) return null;
 
-    return appId;
+    const normalizedName = normalizeGameName(name);
+    for (const [, game] of Object.entries(games)) {
+        if (normalizeGameName(game.displayName) === normalizedName) {
+            return game.appid;
+        }
+    }
+
+    // If not found and it's a custom game, create a custom ID
+    if (name && !loading) {
+        for (const [, game] of Object.entries(games)) {
+            if (game.displayName === name) {
+                return game.appid;
+            }
+        }
+    }
+
+    return null;
 }

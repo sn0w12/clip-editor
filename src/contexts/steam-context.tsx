@@ -25,6 +25,11 @@ interface SteamContextType {
     error: string | null;
     refreshSteamData: () => Promise<void>;
     addCustomGame: (gameName: string) => void;
+    setCustomGameImage: (
+        appId: string,
+        imageUrl: string,
+        imageType: keyof GameImage,
+    ) => void;
 }
 
 const SteamContext = createContext<SteamContextType>({
@@ -35,6 +40,7 @@ const SteamContext = createContext<SteamContextType>({
     error: null,
     refreshSteamData: async () => {},
     addCustomGame: () => {},
+    setCustomGameImage: () => {},
 });
 
 const CUSTOM_GAMES_KEY = "clip-editor-custom-games";
@@ -114,14 +120,25 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
                 setGames(mergedGames);
                 setLibraryFolders(foldersResult);
 
-                // Add empty image entries for custom games
+                // Load custom images from localStorage
+                const customImagesKey = `${CUSTOM_GAMES_KEY}-images`;
+                const storedImages = localStorage.getItem(customImagesKey);
+                const customImages = storedImages
+                    ? JSON.parse(storedImages)
+                    : {};
+
+                // Add empty image entries for custom games and merge with custom images
                 const mergedImages = { ...imagesResult };
                 Object.keys(customGames).forEach((id) => {
-                    mergedImages[id] = mergedImages[id] || {};
+                    mergedImages[id] = {
+                        ...(mergedImages[id] || {}),
+                        ...(customImages[id] || {}),
+                    };
                 });
+
                 setGameImages(mergedImages);
             } else {
-                // Handle case where Steam API isn't available (e.g., in browser)
+                // Handle case where Steam API isn't available
                 setError("Steam API not available in this environment");
             }
         } catch (err) {
@@ -133,6 +150,45 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
             console.error("Error loading Steam data:", err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const setCustomGameImage = (
+        appId: string,
+        imageUrl: string,
+        imageType: keyof GameImage,
+    ) => {
+        if (!appId.startsWith("custom-")) {
+            console.error("Cannot set image for non-custom game");
+            return;
+        }
+
+        // Update the game images state
+        setGameImages((prev) => ({
+            ...prev,
+            [appId]: {
+                ...prev[appId],
+                [imageType]: imageUrl,
+            },
+        }));
+
+        // Save to localStorage
+        try {
+            const customImagesKey = `${CUSTOM_GAMES_KEY}-images`;
+            const storedImages = localStorage.getItem(customImagesKey) || "{}";
+            const customImages = JSON.parse(storedImages);
+
+            customImages[appId] = {
+                ...(customImages[appId] || {}),
+                [imageType]: imageUrl,
+            };
+
+            localStorage.setItem(customImagesKey, JSON.stringify(customImages));
+        } catch (err) {
+            console.error(
+                "Failed to save custom game image to localStorage:",
+                err,
+            );
         }
     };
 
@@ -151,6 +207,7 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
                 error,
                 refreshSteamData,
                 addCustomGame,
+                setCustomGameImage,
             }}
         >
             {children}

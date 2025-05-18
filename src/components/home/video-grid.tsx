@@ -60,14 +60,12 @@ function VideoGridBase({
             groupedVideos[dateString].push(video);
         });
 
-        // Get today and yesterday dates
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
+        const now = new Date();
+        const todayString = now.toLocaleDateString("en-CA");
 
-        const todayString = today.toISOString().split("T")[0];
-        const yesterdayString = yesterday.toISOString().split("T")[0];
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayString = yesterday.toLocaleDateString("en-CA");
 
         // Convert to array sorted by date (newest first)
         return Object.entries(groupedVideos)

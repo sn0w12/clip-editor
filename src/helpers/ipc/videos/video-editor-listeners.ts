@@ -163,10 +163,23 @@ export function addVideoEditorEventListeners() {
                 const exportClip = () => {
                     return new Promise((resolve, reject) => {
                         let command = ffmpeg(videoPath)
+                            .inputOptions(["-hwaccel", "auto"])
                             .setStartTime(options.startTime)
                             .setDuration(options.endTime - options.startTime)
                             .videoBitrate(videoBitrate)
                             .format(options.outputFormat);
+
+                        if (options.outputFormat === "mp4") {
+                            command = command.outputOptions([
+                                "-c:v",
+                                "h264_nvenc",
+                            ]);
+                        } else if (options.outputFormat === "webm") {
+                            command = command.outputOptions([
+                                "-c:v",
+                                "vp9_nvenc",
+                            ]);
+                        }
 
                         // Apply optional settings if provided
                         if (options.width && options.height) {

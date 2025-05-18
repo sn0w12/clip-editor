@@ -478,6 +478,8 @@ export function VideoStoreProvider({
         }
 
         const renameResults = await Promise.all(renamePromises);
+        let updatedAssignments = [...videoGroupAssignments];
+
         for (const result of renameResults) {
             if (result.success && result.newPath) {
                 const videoIndex = updatedVideos.findIndex(
@@ -520,12 +522,10 @@ export function VideoStoreProvider({
                     );
 
                     // Update group assignments
-                    setVideoGroupAssignments((prev) =>
-                        prev.map((assignment) =>
-                            assignment.videoPath === result.oldPath
-                                ? { ...assignment, videoPath: result.newPath! }
-                                : assignment,
-                        ),
+                    updatedAssignments = updatedAssignments.map((assignment) =>
+                        assignment.videoPath === result.oldPath
+                            ? { ...assignment, videoPath: result.newPath! }
+                            : assignment,
                     );
                 }
             }
@@ -533,10 +533,13 @@ export function VideoStoreProvider({
 
         setVideos(updatedVideos);
 
-        // Update the localStorage for group assignments if they've changed
+        // Update video group assignments with the new paths
+        setVideoGroupAssignments(updatedAssignments);
+
+        // Save the updated assignments to localStorage
         localStorage.setItem(
             SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
-            JSON.stringify(videoGroupAssignments),
+            JSON.stringify(updatedAssignments),
         );
     };
 

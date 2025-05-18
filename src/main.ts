@@ -12,6 +12,9 @@ import { shell } from "electron";
 import { APP_CONFIG } from "./config";
 import { updateElectronApp } from "update-electron-app";
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+if (require("electron-squirrel-startup")) app.quit();
+
 updateElectronApp({
     repo: "sn0w12/clip-editor",
     updateInterval: "1 hour",
@@ -20,11 +23,8 @@ updateElectronApp({
 
 const inDevelopment = process.env.NODE_ENV === "development";
 
-// Original protocol name, no longer used directly
-// const protocolName = APP_CONFIG.protocolName;
-// Define separate protocol names
-const imageProtocolName = APP_CONFIG.protocolName; // keep original for images
-const videoProtocolName = "clip-video"; // new protocol just for videos
+const imageProtocolName = APP_CONFIG.protocolName;
+const videoProtocolName = "clip-video";
 
 // Register both protocols with necessary privileges
 protocol.registerSchemesAsPrivileged([

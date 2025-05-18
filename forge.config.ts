@@ -17,6 +17,12 @@ const config: ForgeConfig = {
         icon: "./src/assets/icons/icon",
         extraResource: ["splash.html", "src/assets/fonts"],
         executableName: "clip-editor",
+        win32metadata: {
+            CompanyName: "Sn0w12",
+            OriginalFilename: "clip-editor.exe",
+            ProductName: "Clip Editor",
+            InternalName: "ClipEditor",
+        },
     },
     hooks: {
         packageAfterPrune: async (config, build_path) => {
@@ -99,7 +105,14 @@ const config: ForgeConfig = {
     },
     rebuildConfig: {},
     makers: [
-        new MakerSquirrel({}),
+        new MakerSquirrel({
+            iconUrl:
+                "https://raw.githubusercontent.com/sn0w12/clip-editor/main/src/assets/icons/icon.ico",
+            setupIcon: "./src/assets/icons/icon.ico",
+            setupExe: "ClipEditorSetup.exe",
+            allowElevation: true,
+            shortcutLocations: ["StartMenu"],
+        }),
         new MakerZIP({}, ["darwin"]),
         new MakerRpm({}),
         new MakerDeb({}),

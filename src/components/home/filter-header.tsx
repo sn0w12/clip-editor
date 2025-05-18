@@ -61,7 +61,9 @@ export function FilterHeader({
                         alt={game}
                         className="h-4 w-4 rounded object-cover"
                     />
-                ) : undefined,
+                ) : (
+                    <div className="bg-muted h-4 w-4 rounded" />
+                ),
             };
         });
     }, [games, steamGames, gameImages, loading]);

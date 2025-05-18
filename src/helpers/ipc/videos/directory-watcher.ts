@@ -26,7 +26,9 @@ function isVideoFile(filePath: string): boolean {
 function extractGameFromFilename(filename: string): string {
     const parts = filename.split("_");
     if (parts.length > 1) {
-        return parts[1].split(".")[0];
+        const gameName = parts[1].split(".")[0];
+        // Make sure we don't return an empty string as game name
+        return gameName.trim() ? gameName : "Unknown";
     }
     return "Unknown";
 }
@@ -69,7 +71,6 @@ export function addDirectoryWatcherListeners() {
                             // Check if the file still exists and can be accessed
                             const stats = await fs.stat(filePath);
                             const fileName = path.basename(filePath);
-
                             const videoFile: VideoFile = {
                                 name: fileName,
                                 game: extractGameFromFilename(fileName),

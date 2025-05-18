@@ -67,7 +67,9 @@ export function addVideosEventListeners() {
                     let game = "Unknown";
                     const parts = file.split("_");
                     if (parts.length > 1) {
-                        game = parts[1].split(".")[0];
+                        const gameName = parts[1].split(".")[0];
+                        // Make sure we don't return an empty string as game name
+                        game = gameName.trim() ? gameName : "Unknown";
                     }
 
                     videoFiles.push({

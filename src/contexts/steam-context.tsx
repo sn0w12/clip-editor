@@ -5,8 +5,11 @@ import React, {
     useContext,
     ReactNode,
     useMemo,
+    useRef,
+    useCallback,
 } from "react";
 import { useSetting } from "@/utils/settings";
+import { normalizeGameName } from "@/utils/games";
 
 interface GameImage {
     header?: string;
@@ -25,6 +28,7 @@ interface SteamContextType {
     error: string | null;
     refreshSteamData: () => Promise<void>;
     addCustomGame: (gameName: string) => void;
+    removeCustomGame: (appId: string) => void;
     setCustomGameImage: (
         appId: string,
         imageUrl: string,
@@ -40,6 +44,7 @@ const SteamContext = createContext<SteamContextType>({
     error: null,
     refreshSteamData: async () => {},
     addCustomGame: () => {},
+    removeCustomGame: () => {},
     setCustomGameImage: () => {},
 });
 
@@ -57,9 +62,10 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
     const [gameImages, setGameImages] = useState<Record<string, GameImage>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const pendingGamesRef = useRef<string[]>([]);
     const steamDir = useSetting("steamDirectory");
 
-    const loadCustomGamesFromStorage = () => {
+    const loadCustomGamesFromStorage = useCallback(() => {
         try {
             const storedCustomGames = localStorage.getItem(CUSTOM_GAMES_KEY);
             if (storedCustomGames) {
@@ -73,23 +79,46 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
             );
         }
         return {};
-    };
+    }, []);
 
     const addCustomGame = (gameName: string) => {
-        const customId = `custom-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-
-        const updatedGames = {
-            ...games,
-            [customId]: { appid: customId, displayName: gameName },
-        };
-        setGames(updatedGames);
-
-        setGameImages({
-            ...gameImages,
-            [customId]: {},
+        // Workaround to check loading state since just checking will not work
+        let currentlyLoading = false;
+        setLoading((current) => {
+            currentlyLoading = current;
+            return current;
         });
 
-        // Save to localStorage
+        if (currentlyLoading) {
+            console.log(
+                "Loading in progress, queueing game addition:",
+                gameName,
+            );
+            pendingGamesRef.current.push(gameName);
+            return;
+        }
+
+        const existingGame = Object.values(games).find(
+            (game) =>
+                normalizeGameName(game.displayName) ===
+                normalizeGameName(gameName),
+        );
+
+        if (existingGame) {
+            return;
+        }
+
+        const customId = `custom-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        setGames((prevGames) => ({
+            ...prevGames,
+            [customId]: { appid: customId, displayName: gameName },
+        }));
+
+        setGameImages((prevImages) => ({
+            ...prevImages,
+            [customId]: {},
+        }));
+
         const customGames = loadCustomGamesFromStorage();
         customGames[customId] = { appid: customId, displayName: gameName };
         try {
@@ -99,7 +128,23 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
         }
     };
 
-    const refreshSteamData = async () => {
+    useEffect(() => {
+        if (!loading && pendingGamesRef.current.length > 0) {
+            console.log("Processing pending games:", pendingGamesRef.current);
+            const gamesToAdd = [...pendingGamesRef.current];
+            pendingGamesRef.current = []; // Clear the pending games
+
+            // Use setTimeout to ensure loading state is stable
+            setTimeout(() => {
+                // Add each pending game separately to avoid potential state issues
+                gamesToAdd.forEach((game) => {
+                    addCustomGame(game);
+                });
+            }, 0);
+        }
+    }, [loading, addCustomGame]);
+
+    const refreshSteamData = useCallback(async () => {
         setLoading(true);
         setError(null);
 
@@ -113,9 +158,33 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
                         window.steam.getAllGameImages(steamDir),
                     ]);
 
-                // Merge Steam games with custom games
+                // Load custom games
                 const customGames = loadCustomGamesFromStorage();
-                const mergedGames = { ...gamesResult, ...customGames };
+
+                // Filter out custom games that might duplicate Steam games by name
+                const filteredCustomGames: Record<
+                    string,
+                    { appid: string; displayName: string }
+                > = {};
+                const steamGameNames = new Set(
+                    Object.values(gamesResult).map((game) =>
+                        game.displayName.toLowerCase(),
+                    ),
+                );
+
+                Object.entries(
+                    customGames as Record<
+                        string,
+                        { appid: string; displayName: string }
+                    >,
+                ).forEach(([id, game]) => {
+                    if (!steamGameNames.has(game.displayName.toLowerCase())) {
+                        filteredCustomGames[id] = game;
+                    }
+                });
+
+                // Merge Steam games with filtered custom games
+                const mergedGames = { ...gamesResult, ...filteredCustomGames };
 
                 setGames(mergedGames);
                 setLibraryFolders(foldersResult);
@@ -129,7 +198,7 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
 
                 // Add empty image entries for custom games and merge with custom images
                 const mergedImages = { ...imagesResult };
-                Object.keys(customGames).forEach((id) => {
+                Object.keys(filteredCustomGames).forEach((id) => {
                     mergedImages[id] = {
                         ...(mergedImages[id] || {}),
                         ...(customImages[id] || {}),
@@ -149,9 +218,10 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
             );
             console.error("Error loading Steam data:", err);
         } finally {
+            // Ensure loading is set to false after everything is done
             setLoading(false);
         }
-    };
+    }, [steamDir, loadCustomGamesFromStorage]);
 
     const setCustomGameImage = (
         appId: string,
@@ -192,6 +262,47 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
         }
     };
 
+    const removeCustomGame = (appId: string) => {
+        if (!appId.startsWith("custom-")) {
+            console.error("Cannot remove non-custom game");
+            return;
+        }
+
+        // Update games state
+        setGames((prevGames) => {
+            const updatedGames = { ...prevGames };
+            delete updatedGames[appId];
+            return updatedGames;
+        });
+
+        // Update game images state
+        setGameImages((prevImages) => {
+            const updatedImages = { ...prevImages };
+            delete updatedImages[appId];
+            return updatedImages;
+        });
+
+        // Remove from localStorage
+        try {
+            // Remove from custom games
+            const customGames = loadCustomGamesFromStorage();
+            delete customGames[appId];
+            localStorage.setItem(CUSTOM_GAMES_KEY, JSON.stringify(customGames));
+
+            // Remove from custom images
+            const customImagesKey = `${CUSTOM_GAMES_KEY}-images`;
+            const storedImages = localStorage.getItem(customImagesKey) || "{}";
+            const customImages = JSON.parse(storedImages);
+            delete customImages[appId];
+            localStorage.setItem(customImagesKey, JSON.stringify(customImages));
+        } catch (err) {
+            console.error(
+                "Failed to remove custom game from localStorage:",
+                err,
+            );
+        }
+    };
+
     // Load Steam data on initial mount
     useEffect(() => {
         refreshSteamData();
@@ -207,6 +318,7 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
                 error,
                 refreshSteamData,
                 addCustomGame,
+                removeCustomGame,
                 setCustomGameImage,
             }}
         >

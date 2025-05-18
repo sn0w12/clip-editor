@@ -4,7 +4,7 @@ import { useSteam } from "@/contexts/steam-context";
 import { Card } from "@/components/ui/card";
 import { getGameId, imgSrc } from "@/utils/games";
 import { useNavigate } from "@tanstack/react-router";
-import { Gamepad2, Image, ExternalLink } from "lucide-react";
+import { Gamepad2, Image, ExternalLink, Trash } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -41,13 +41,14 @@ interface GameCardProps {
 
 function GameCard({ name, clipCount, appId, image }: GameCardProps) {
     const navigate = useNavigate();
-    const { setCustomGameImage } = useSteam();
+    const { setCustomGameImage, removeCustomGame } = useSteam();
     const isCustomGame = appId.startsWith("custom-");
     const [showImageDialog, setShowImageDialog] = useState(false);
     const [imageUrl, setImageUrl] = useState("");
     const [imageType, setImageType] = useState<
         "library_600x900" | "header" | "logo" | "icon"
     >("library_600x900");
+    const hasNoClips = clipCount === 0;
 
     const handleClick = () => {
         navigate({
@@ -86,7 +87,9 @@ function GameCard({ name, clipCount, appId, image }: GameCardProps) {
                                 )}
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
                                 {isCustomGame && (
-                                    <div className="bg-primary/60 text-primary-foreground absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded-full backdrop-blur-sm">
+                                    <div
+                                        className={`${hasNoClips ? "bg-destructive/60" : "bg-primary/60"} text-primary-foreground absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded-full backdrop-blur-sm`}
+                                    >
                                         <span className="text-xs font-medium">
                                             C
                                         </span>
@@ -119,6 +122,14 @@ function GameCard({ name, clipCount, appId, image }: GameCardProps) {
                             >
                                 <Image className="mr-2 h-4 w-4" />
                                 Set Custom Image
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                                onClick={() => removeCustomGame(appId)}
+                                variant="destructive"
+                                className="text-destructive focus:text-destructive"
+                            >
+                                <Trash className="mr-2 h-4 w-4" />
+                                Remove Game
                             </ContextMenuItem>
                         </>
                     )}
@@ -202,15 +213,24 @@ export default function GamesPage() {
             }
         });
 
+        const customGameIds = Object.keys(games).filter((gameId) =>
+            gameId.startsWith("custom-"),
+        );
+        customGameIds.forEach((gameId) => {
+            const customGame = games[gameId];
+            if (!gameCounts[customGame.displayName]) {
+                gameCounts[customGame.displayName] = 0;
+            }
+        });
+
         // Create array of game data with appIds and images
         return Object.entries(gameCounts)
             .map(([gameName, count]) => {
-                const appId = getGameId(gameName, games, loading);
+                const appId = getGameId(gameName, games, loading) ?? gameName;
                 const gameImage = appId && gameImages[appId];
 
                 let headerImage: string | undefined = undefined;
                 if (gameImage) {
-                    // Prefer header image, then library_hero, then icon
                     headerImage = imgSrc(gameImage.library_600x900);
                 }
 
@@ -221,7 +241,14 @@ export default function GamesPage() {
                     image: headerImage,
                 };
             })
-            .sort((a, b) => b.count - a.count); // Sort by clip count (highest first)
+            .sort((a, b) => {
+                // Keep games with clips at the top (sorted by count)
+                if (a.count > 0 && b.count > 0) return b.count - a.count;
+                if (a.count > 0) return -1;
+                if (b.count > 0) return 1;
+                // For games with 0 clips, sort alphabetically
+                return a.name.localeCompare(b.name);
+            });
     }, [videos, games, gameImages, loading]);
 
     if (loading) {

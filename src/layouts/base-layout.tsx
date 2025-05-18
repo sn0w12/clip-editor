@@ -271,8 +271,8 @@ export default function BaseLayout({
 
     return (
         <MainElementContext.Provider value={mainRef}>
-            <VideoStoreProvider>
-                <SteamProvider>
+            <SteamProvider>
+                <VideoStoreProvider>
                     <SelectionProvider>
                         <ConfirmProvider>
                             <BadgeProvider>
@@ -290,8 +290,8 @@ export default function BaseLayout({
                             </BadgeProvider>
                         </ConfirmProvider>
                     </SelectionProvider>
-                </SteamProvider>
-            </VideoStoreProvider>
+                </VideoStoreProvider>
+            </SteamProvider>
         </MainElementContext.Provider>
     );
 }

@@ -70,7 +70,7 @@ export default function HomePage() {
         // Add click handler to clear selection when clicking the background
         const handleBackgroundClick = () => {
             // Only clear selection if we are not currently selecting
-            if (!getState().isSelecting) {
+            if (!getState().isSelecting && selectedVideos.length > 0) {
                 setSelectedVideos([]);
             }
         };

@@ -213,11 +213,15 @@ export function ClipHeader() {
                                 </TooltipTrigger>
                                 <TooltipContent>
                                     <p className="flex items-center gap-1 text-sm font-medium">
-                                        <img
-                                            src={imgSrc(video.gameImages?.icon)}
-                                            alt={`Icon for ${video.game}`}
-                                            className="h-4 rounded"
-                                        />
+                                        {video.gameImages?.icon && (
+                                            <img
+                                                src={imgSrc(
+                                                    video.gameImages?.icon,
+                                                )}
+                                                alt={`Icon for ${video.game}`}
+                                                className="h-4 rounded"
+                                            />
+                                        )}
                                         {video.game} |{" "}
                                         {(() => {
                                             const date = new Date(

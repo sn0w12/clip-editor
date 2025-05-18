@@ -57,11 +57,13 @@ export default function EditPage() {
     useEffect(() => {
         setBadgeContent(
             <div className="flex items-center gap-1">
-                <img
-                    src={iconImage}
-                    alt={gameData?.name}
-                    className="h-4 w-4 rounded"
-                />
+                {iconImage && (
+                    <img
+                        src={iconImage}
+                        alt={gameData?.name}
+                        className="h-4 w-4 rounded"
+                    />
+                )}
                 <span className="text-sm">{gameData?.name}</span>
             </div>,
         );

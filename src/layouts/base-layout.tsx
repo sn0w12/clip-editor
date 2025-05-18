@@ -28,6 +28,9 @@ import { platform } from "@/platform";
 import { VideoStoreProvider } from "@/contexts/video-store-context";
 import { SteamProvider } from "@/contexts/steam-context";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { BadgeProvider, useBadge } from "@/contexts/badge-context";
+import { useSetting } from "@/utils/settings";
 
 const MainElementContext =
     React.createContext<React.RefObject<HTMLElement | null> | null>(null);
@@ -104,6 +107,8 @@ function BaseLayoutContent({
     const [lastPathname, setLastPathname] = React.useState<string>("/");
     const { state: sidebarState } = useSidebar();
     const isSidebarCollapsed = sidebarState === "collapsed";
+    const { badgeContent, badgeVisible } = useBadge();
+    const windowIconsStyle = useSetting("windowIconsStyle");
 
     React.useEffect(() => {
         sessionStorage.setItem("lastPathname", lastPathname);
@@ -141,7 +146,7 @@ function BaseLayoutContent({
             <DragSelection />
             <DragWindowRegion title="App Template">
                 <div
-                    className={`flex h-full items-center pr-2 transition-all ${isSidebarCollapsed ? "pl-2" : "pl-1"}`}
+                    className={`flex h-full w-full items-center justify-between pr-2 transition-all ${isSidebarCollapsed ? "pl-2" : "pl-1"}`}
                 >
                     <Breadcrumb>
                         <BreadcrumbList>
@@ -163,6 +168,11 @@ function BaseLayoutContent({
                             ))}
                         </BreadcrumbList>
                     </Breadcrumb>
+                    <Badge
+                        className={`${windowIconsStyle === "custom" ? "mr-40" : ""} h-6 px-1 transition-all ${badgeVisible ? "opacity-100" : "opacity-0"}`}
+                    >
+                        {badgeContent}
+                    </Badge>
                 </div>
             </DragWindowRegion>
             <div className="bg-sidebar flex flex-1 overflow-hidden">
@@ -259,17 +269,19 @@ export default function BaseLayout({
                 <SteamProvider>
                     <SelectionProvider>
                         <ConfirmProvider>
-                            {isWeb ? (
-                                <BaseLayoutContent mainRef={mainRef}>
-                                    {children}
-                                </BaseLayoutContent>
-                            ) : (
-                                <DevContextMenu>
+                            <BadgeProvider>
+                                {isWeb ? (
                                     <BaseLayoutContent mainRef={mainRef}>
                                         {children}
                                     </BaseLayoutContent>
-                                </DevContextMenu>
-                            )}
+                                ) : (
+                                    <DevContextMenu>
+                                        <BaseLayoutContent mainRef={mainRef}>
+                                            {children}
+                                        </BaseLayoutContent>
+                                    </DevContextMenu>
+                                )}
+                            </BadgeProvider>
                         </ConfirmProvider>
                     </SelectionProvider>
                 </SteamProvider>

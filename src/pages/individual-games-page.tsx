@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useSteam } from "@/contexts/steam-context";
 import { useParams, useNavigate } from "@tanstack/react-router";
@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Clock, Calendar, LayoutGrid } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { useBadge } from "@/contexts/badge-context";
 
 export default function GameDetailPage() {
     const { gameName } = useParams({ from: "/games/$gameName" });
@@ -15,6 +16,7 @@ export default function GameDetailPage() {
     const { videos, thumbnails, videoMetadata, groups, videoGroupMap } =
         useVideoStore();
     const { games, gameImages, loading } = useSteam();
+    const { setBadgeContent, setBadgeVisible } = useBadge();
 
     const decodedGameName = decodeURIComponent(gameName);
 
@@ -68,6 +70,25 @@ export default function GameDetailPage() {
             latest: new Date(Math.max(...dates.map((d) => d.getTime()))),
         };
     }, [gameVideos]);
+
+    const iconImage = gameData?.images
+        ? imgSrc(gameData.images.icon)
+        : undefined;
+
+    useEffect(() => {
+        setBadgeContent(
+            <div className="flex items-center gap-1">
+                <img
+                    src={iconImage}
+                    alt={decodedGameName}
+                    className="h-4 w-4 rounded"
+                />
+                <span className="text-sm">{gameData?.name}</span>
+            </div>,
+        );
+        setBadgeVisible(true);
+        return () => setBadgeVisible(false);
+    }, [setBadgeContent, iconImage]);
 
     const handleBackClick = () => {
         navigate({ to: "/games" });

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useParams, useNavigate } from "@tanstack/react-router";
 import { VideoCard } from "@/components/home/video-card";
@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, Clock, Calendar, LayoutGrid } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { useBadge } from "@/contexts/badge-context";
 
 export default function GroupDetailPage() {
     const { groupId } = useParams({ from: "/groups/$groupId" });
@@ -19,6 +20,7 @@ export default function GroupDetailPage() {
         videoGroupAssignments,
         isLoading,
     } = useVideoStore();
+    const { setBadgeContent, setBadgeVisible } = useBadge();
 
     // Find the current group
     const currentGroup = useMemo(() => {
@@ -70,6 +72,20 @@ export default function GroupDetailPage() {
     const handleBackClick = () => {
         navigate({ to: "/groups" });
     };
+
+    useEffect(() => {
+        setBadgeContent(
+            <div className="flex items-center gap-1">
+                <span
+                    className="h-4 w-4 rounded-full"
+                    style={{ backgroundColor: currentGroup?.color }}
+                />
+                <span className="text-sm">{currentGroup?.name}</span>
+            </div>,
+        );
+        setBadgeVisible(true);
+        return () => setBadgeVisible(false);
+    }, [setBadgeContent]);
 
     if (isLoading) {
         return (

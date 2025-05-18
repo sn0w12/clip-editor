@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipVideoPlayer } from "@/components/video-editor/clip-video-player";
 import { ExportSettings } from "@/components/video-editor/export-settings";
@@ -8,11 +8,16 @@ import { toast } from "sonner";
 import { EditVideoRoute } from "@/routes/routes";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { ClipHeader } from "@/components/video-editor/clip-header";
+import { useSteam } from "@/contexts/steam-context";
+import { imgSrc, normalizeGameName } from "@/utils/games";
+import { useBadge } from "@/contexts/badge-context";
 
 export default function EditPage() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
     const navigate = useNavigate();
-    const { videoMetadata: storedMetadata } = useVideoStore();
+    const { videoMetadata: storedMetadata, videos } = useVideoStore();
+    const { games, gameImages, loading } = useSteam();
+    const { setBadgeContent, setBadgeVisible } = useBadge();
 
     // Simply read from the store, no local loading
     const currentVideoMetadata = videoPath ? storedMetadata[videoPath] : null;
@@ -26,6 +31,44 @@ export default function EditPage() {
     const [audioTracks, setAudioTracks] = useState<
         { index: number; label: string }[]
     >([]);
+
+    const currentVideo = useMemo(
+        () => videos.find((video) => video.path === videoPath),
+        [videos, videoPath],
+    );
+
+    const gameData = useMemo(() => {
+        if (loading || !currentVideo?.game) return null;
+
+        const normalizedName = normalizeGameName(currentVideo.game);
+        const appId = normalizedName ? games[normalizedName] : undefined;
+        const gameImage = appId && gameImages[appId];
+
+        return {
+            name: currentVideo.game,
+            appId: appId || "",
+            images: gameImage || {},
+        };
+    }, [currentVideo, games, gameImages, loading]);
+
+    const iconImage = gameData?.images
+        ? imgSrc(gameData.images.icon)
+        : undefined;
+
+    useEffect(() => {
+        setBadgeContent(
+            <div className="flex items-center gap-1">
+                <img
+                    src={iconImage}
+                    alt={gameData?.name}
+                    className="h-4 w-4 rounded"
+                />
+                <span className="text-sm">{gameData?.name}</span>
+            </div>,
+        );
+        setBadgeVisible(true);
+        return () => setBadgeVisible(false);
+    }, [setBadgeContent, iconImage]);
 
     // Effect to update time range when metadata becomes available
     useEffect(() => {

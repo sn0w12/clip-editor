@@ -35,7 +35,17 @@ export default function GroupDetailPage() {
             .map((assignment) => assignment.videoPath);
 
         // Return the video objects for these paths
-        return videos.filter((video) => videoPaths.includes(video.path));
+        return videos
+            .filter((video) => videoPaths.includes(video.path))
+            .sort((a, b) => {
+                if (!a.lastModified) return 1;
+                if (!b.lastModified) return -1;
+
+                return (
+                    new Date(b.lastModified).getTime() -
+                    new Date(a.lastModified).getTime()
+                );
+            });
     }, [videos, videoGroupAssignments, groupId]);
 
     // Calculate total duration using videoMetadata

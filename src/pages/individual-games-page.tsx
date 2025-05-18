@@ -41,9 +41,18 @@ export default function GameDetailPage() {
         };
     }, [decodedGameName, games, gameImages, loading]);
 
-    // Filter videos for this game
     const gameVideos = useMemo(() => {
-        return videos.filter((video) => video.game === decodedGameName);
+        return videos
+            .filter((video) => video.game === decodedGameName)
+            .sort((a, b) => {
+                if (!a.lastModified) return 1;
+                if (!b.lastModified) return -1;
+
+                return (
+                    new Date(b.lastModified).getTime() -
+                    new Date(a.lastModified).getTime()
+                );
+            });
     }, [videos, decodedGameName]);
 
     // Calculate total duration using videoMetadata

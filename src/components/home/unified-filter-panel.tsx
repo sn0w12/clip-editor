@@ -134,7 +134,9 @@ export function UnifiedFilterPanel({
                     </TooltipTrigger>
                     {clipCount > 0 && (
                         <TooltipContent side="top" className="text-center">
-                            <span>{clipCount} clips</span>
+                            <span>
+                                {clipCount} {clipCount === 1 ? "clip" : "clips"}
+                            </span>
                         </TooltipContent>
                     )}
                 </Tooltip>

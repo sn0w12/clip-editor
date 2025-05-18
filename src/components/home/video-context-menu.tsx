@@ -9,12 +9,14 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { Check, Plus, Tag, Trash2 } from "lucide-react";
+import { Check, ExternalLink, Folder, Plus, Tag, Trash2 } from "lucide-react";
 import { VideoFile, VideoGroup } from "@/types/video";
 import { useVideoStore } from "@/contexts/video-store-context";
+import { useNavigate } from "@tanstack/react-router";
 
 interface VideoContextMenuProps {
     children: React.ReactNode;
+    video: VideoFile;
     videos: VideoFile[];
     videoIds: string[];
     groups: VideoGroup[];
@@ -27,6 +29,7 @@ interface VideoContextMenuProps {
 export function VideoContextMenu({
     children,
     videos,
+    video,
     videoIds,
     groups,
     videoGroupMap,
@@ -34,6 +37,7 @@ export function VideoContextMenu({
     onShowCreateGroup,
     onRemoveFromGroup,
 }: VideoContextMenuProps) {
+    const navigate = useNavigate();
     const { handleDeleteVideos } = useVideoStore();
 
     function deleteVideosDescription(videoPaths: string[]) {
@@ -51,10 +55,36 @@ export function VideoContextMenu({
         } from your drive.`;
     }
 
+    const showInFolder = async (path: string) => {
+        try {
+            await window.videos.showInFolder(path);
+        } catch (error) {
+            console.error("Failed to show file in folder:", error);
+        }
+    };
+
+    // Only allow showing in folder when a single video is selected
+    const canShowInFolder = videoIds.length === 1;
+
     return (
         <ContextMenu>
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
             <ContextMenuContent className="w-56">
+                <ContextMenuItem
+                    className="flex items-center gap-2"
+                    onClick={() => {
+                        navigate({
+                            to: "/clips/edit",
+                            search: {
+                                videoPath: video.path,
+                                videoName: video.name,
+                            },
+                        });
+                    }}
+                >
+                    <ExternalLink size={16} />
+                    Open
+                </ContextMenuItem>
                 <ContextMenuSub>
                     <ContextMenuSubTrigger className="flex items-center gap-2">
                         <Tag size={16} />
@@ -110,6 +140,15 @@ export function VideoContextMenu({
                             );
                         })}
                     </ContextMenuSubContent>
+                    {canShowInFolder && (
+                        <ContextMenuItem
+                            className="flex items-center gap-2"
+                            onClick={() => showInFolder(videoIds[0])}
+                        >
+                            <Folder size={16} />
+                            Show in Folder
+                        </ContextMenuItem>
+                    )}
                 </ContextMenuSub>
 
                 <ContextMenuSeparator />

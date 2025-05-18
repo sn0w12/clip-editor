@@ -41,5 +41,9 @@ export function exposeVideosContext() {
         }> => {
             return ipcRenderer.invoke("videos:delete-files", videoPaths);
         },
+
+        showInFolder: (videoPath: string) => {
+            ipcRenderer.invoke("videos:show-in-folder", videoPath);
+        },
     });
 }

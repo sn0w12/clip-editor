@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain } from "electron";
+import { app, dialog, ipcMain, shell } from "electron";
 import fs from "fs/promises";
 import path from "path";
 import { VideoFile } from "@/types/video";
@@ -176,6 +176,17 @@ export function addVideosEventListeners() {
                 failed: videoPaths,
                 error: errorMessage,
             };
+        }
+    });
+
+    // Handle revealing a file in file explorer
+    ipcMain.handle("videos:show-in-folder", (_, filePath: string) => {
+        try {
+            shell.showItemInFolder(filePath);
+            return true;
+        } catch (error) {
+            console.error("Error showing file in folder:", error);
+            return false;
         }
     });
 }

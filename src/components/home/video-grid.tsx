@@ -133,6 +133,7 @@ export function VideoGrid({
                         {dateGroup.videos.map((video) => (
                             <VideoContextMenu
                                 key={video.path}
+                                video={video}
                                 videos={filteredVideos}
                                 videoIds={
                                     selectedVideos.length > 0 &&

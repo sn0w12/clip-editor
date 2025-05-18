@@ -40,6 +40,7 @@ interface VideosAPI {
         failed: string[];
         error?: string;
     }>;
+    showInFolder: (videoPath: string) => Promise<void>;
 }
 
 interface VideoEditorAPI {

@@ -19,3 +19,15 @@ export function imgSrc(src: string | null | undefined) {
 
     return `clip-editor:///${src}?full=true`;
 }
+
+export function getGameId(
+    name: string,
+    games: Record<string, { appid: string }>,
+    loading: boolean,
+) {
+    const normalizedName = normalizeGameName(name);
+    const appId =
+        !loading && normalizedName ? games[normalizedName]?.appid : null;
+
+    return appId;
+}

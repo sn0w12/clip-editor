@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
     ContextMenu,
     ContextMenuContent,
@@ -22,6 +22,15 @@ import { VideoFile, VideoGroup } from "@/types/video";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate } from "@tanstack/react-router";
 import { useSteam } from "@/contexts/steam-context";
+import {
+    Dialog,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface VideoContextMenuProps {
     children: React.ReactNode;
@@ -48,7 +57,9 @@ export function VideoContextMenu({
 }: VideoContextMenuProps) {
     const navigate = useNavigate();
     const { handleDeleteVideos, handleUpdateVideoGames } = useVideoStore();
-    const { games } = useSteam();
+    const { games, addCustomGame } = useSteam();
+    const [isCustomGameDialogOpen, setIsCustomGameDialogOpen] = useState(false);
+    const [customGameName, setCustomGameName] = useState("");
 
     function deleteVideosDescription(videoPaths: string[]) {
         const videoNames = videoPaths.map((path) => {
@@ -73,6 +84,16 @@ export function VideoContextMenu({
         }
     };
 
+    const handleCustomGameSubmit = () => {
+        if (customGameName.trim()) {
+            addCustomGame(customGameName.trim());
+            handleUpdateVideoGames(videoIds, customGameName.trim());
+
+            setCustomGameName("");
+            setIsCustomGameDialogOpen(false);
+        }
+    };
+
     // Only allow showing in folder when a single video is selected
     const canShowInFolder = videoIds.length === 1;
 
@@ -94,126 +115,179 @@ export function VideoContextMenu({
     }, [games]);
 
     return (
-        <ContextMenu>
-            <ContextMenuTrigger>{children}</ContextMenuTrigger>
-            <ContextMenuContent className="w-56">
-                <ContextMenuItem
-                    className="flex items-center gap-2"
-                    onClick={() => {
-                        navigate({
-                            to: "/clips/edit",
-                            search: {
-                                videoPath: video.path,
-                                videoName: video.name,
-                            },
-                        });
-                    }}
-                >
-                    <ExternalLink size={16} />
-                    Open
-                </ContextMenuItem>
+        <>
+            <ContextMenu>
+                <ContextMenuTrigger>{children}</ContextMenuTrigger>
+                <ContextMenuContent className="w-56">
+                    <ContextMenuItem
+                        className="flex items-center gap-2"
+                        onClick={() => {
+                            navigate({
+                                to: "/clips/edit",
+                                search: {
+                                    videoPath: video.path,
+                                    videoName: video.name,
+                                },
+                            });
+                        }}
+                    >
+                        <ExternalLink size={16} />
+                        Open
+                    </ContextMenuItem>
 
-                <ContextMenuSub>
-                    <ContextMenuSubTrigger className="flex items-center gap-2">
-                        <Gamepad2 size={16} />
-                        Set Game
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-                        {sortedGames.map((game) => (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger className="flex items-center gap-2">
+                            <Gamepad2 size={16} />
+                            Set Game
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
                             <ContextMenuItem
-                                key={game.slug}
-                                className="flex items-center justify-between"
-                                onClick={() =>
-                                    handleUpdateVideoGames(videoIds, game.name)
-                                }
+                                className="flex items-center gap-2"
+                                onClick={() => setIsCustomGameDialogOpen(true)}
                             >
-                                <span className="truncate">{game.name}</span>
-                                {game.name === currentGame && (
-                                    <Check size={16} />
-                                )}
+                                <Plus size={16} />
+                                Custom Game...
                             </ContextMenuItem>
-                        ))}
-                    </ContextMenuSubContent>
-                </ContextMenuSub>
 
-                <ContextMenuSub>
-                    <ContextMenuSubTrigger className="flex items-center gap-2">
-                        <Tag size={16} />
-                        Groups
-                    </ContextMenuSubTrigger>
-                    <ContextMenuSubContent className="w-48">
-                        <ContextMenuItem
-                            className="flex items-center gap-2"
-                            onClick={onShowCreateGroup}
-                        >
-                            <Plus size={16} />
-                            New Group...
-                        </ContextMenuItem>
+                            {sortedGames.length > 0 && <ContextMenuSeparator />}
 
-                        {groups.length > 0 && <ContextMenuSeparator />}
-
-                        {groups.map((group) => {
-                            const allInGroup = videoIds.every((videoId) =>
-                                (videoGroupMap[videoId] || []).includes(
-                                    group.id,
-                                ),
-                            );
-
-                            return (
+                            {sortedGames.map((game) => (
                                 <ContextMenuItem
-                                    key={group.id}
+                                    key={game.slug}
                                     className="flex items-center justify-between"
-                                    onClick={() => {
-                                        if (allInGroup) {
-                                            onRemoveFromGroup(
-                                                videoIds,
-                                                group.id,
-                                            );
-                                        } else {
-                                            onAddToGroup(videoIds, group.id);
-                                        }
-                                    }}
+                                    onClick={() =>
+                                        handleUpdateVideoGames(
+                                            videoIds,
+                                            game.name,
+                                        )
+                                    }
                                 >
-                                    <span className="flex items-center gap-2">
-                                        {group.color && (
-                                            <span
-                                                className="h-3 w-3 rounded-full"
-                                                style={{
-                                                    backgroundColor:
-                                                        group.color,
-                                                }}
-                                            />
-                                        )}
-                                        {group.name}
+                                    <span className="truncate">
+                                        {game.name}
                                     </span>
-                                    {allInGroup && <Check size={16} />}
+                                    {game.name === currentGame && (
+                                        <Check size={16} />
+                                    )}
                                 </ContextMenuItem>
-                            );
-                        })}
-                    </ContextMenuSubContent>
-                    {canShowInFolder && (
-                        <ContextMenuItem
-                            className="flex items-center gap-2"
-                            onClick={() => showInFolder(videoIds[0])}
+                            ))}
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger className="flex items-center gap-2">
+                            <Tag size={16} />
+                            Groups
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="w-48">
+                            <ContextMenuItem
+                                className="flex items-center gap-2"
+                                onClick={onShowCreateGroup}
+                            >
+                                <Plus size={16} />
+                                New Group...
+                            </ContextMenuItem>
+
+                            {groups.length > 0 && <ContextMenuSeparator />}
+
+                            {groups.map((group) => {
+                                const allInGroup = videoIds.every((videoId) =>
+                                    (videoGroupMap[videoId] || []).includes(
+                                        group.id,
+                                    ),
+                                );
+
+                                return (
+                                    <ContextMenuItem
+                                        key={group.id}
+                                        className="flex items-center justify-between"
+                                        onClick={() => {
+                                            if (allInGroup) {
+                                                onRemoveFromGroup(
+                                                    videoIds,
+                                                    group.id,
+                                                );
+                                            } else {
+                                                onAddToGroup(
+                                                    videoIds,
+                                                    group.id,
+                                                );
+                                            }
+                                        }}
+                                    >
+                                        <span className="flex items-center gap-2">
+                                            {group.color && (
+                                                <span
+                                                    className="h-3 w-3 rounded-full"
+                                                    style={{
+                                                        backgroundColor:
+                                                            group.color,
+                                                    }}
+                                                />
+                                            )}
+                                            {group.name}
+                                        </span>
+                                        {allInGroup && <Check size={16} />}
+                                    </ContextMenuItem>
+                                );
+                            })}
+                        </ContextMenuSubContent>
+                        {canShowInFolder && (
+                            <ContextMenuItem
+                                className="flex items-center gap-2"
+                                onClick={() => showInFolder(videoIds[0])}
+                            >
+                                <Folder size={16} />
+                                Show in Folder
+                            </ContextMenuItem>
+                        )}
+                    </ContextMenuSub>
+
+                    <ContextMenuSeparator />
+
+                    <ContextMenuItem
+                        className="flex items-center gap-2"
+                        variant="destructive"
+                        confirmDescription={deleteVideosDescription(videoIds)}
+                        onClick={() => handleDeleteVideos(videoIds)}
+                    >
+                        <Trash2 size={16} />
+                        Delete{" "}
+                        {videoIds.length > 1 ? `(${videoIds.length})` : ""}
+                    </ContextMenuItem>
+                </ContextMenuContent>
+            </ContextMenu>
+
+            <Dialog
+                open={isCustomGameDialogOpen}
+                onOpenChange={setIsCustomGameDialogOpen}
+            >
+                <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                        <DialogTitle>Add Custom Game</DialogTitle>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <Input
+                            placeholder="Enter game name"
+                            value={customGameName}
+                            onChange={(e) => setCustomGameName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                    handleCustomGameSubmit();
+                                }
+                            }}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setIsCustomGameDialogOpen(false)}
                         >
-                            <Folder size={16} />
-                            Show in Folder
-                        </ContextMenuItem>
-                    )}
-                </ContextMenuSub>
-
-                <ContextMenuSeparator />
-
-                <ContextMenuItem
-                    className="flex items-center gap-2"
-                    variant="destructive"
-                    confirmDescription={deleteVideosDescription(videoIds)}
-                    onClick={() => handleDeleteVideos(videoIds)}
-                >
-                    <Trash2 size={16} />
-                    Delete {videoIds.length > 1 ? `(${videoIds.length})` : ""}
-                </ContextMenuItem>
-            </ContextMenuContent>
-        </ContextMenu>
+                            Cancel
+                        </Button>
+                        <Button onClick={handleCustomGameSubmit}>Apply</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }

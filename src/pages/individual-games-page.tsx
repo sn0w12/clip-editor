@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useSteam } from "@/contexts/steam-context";
 import { useParams, useNavigate } from "@tanstack/react-router";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { VideoCard } from "@/components/home/video-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -30,8 +30,7 @@ export default function GameDetailPage() {
     const gameData = useMemo(() => {
         if (loading) return null;
 
-        const normalizedName = normalizeGameName(decodedGameName);
-        const appId = normalizedName ? games[normalizedName].appid : undefined;
+        const appId = getGameId(decodedGameName, games, loading);
         const gameImage = appId && gameImages[appId];
 
         return {

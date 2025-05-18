@@ -17,7 +17,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useSteam } from "@/contexts/steam-context";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { cn } from "@/utils/tailwind";
 
 interface UnifiedFilterPanelProps {
@@ -64,11 +64,7 @@ export function UnifiedFilterPanel({
 
     const gameOptions = useMemo(() => {
         return games.map((game) => {
-            const normalizedName = normalizeGameName(game);
-            const appId =
-                !loading && normalizedName
-                    ? steamGames[normalizedName].appid
-                    : null;
+            const appId = getGameId(game, steamGames, loading);
             const gameImage = appId ? gameImages[appId] : null;
 
             return {

@@ -9,7 +9,7 @@ import { EditVideoRoute } from "@/routes/routes";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { ClipHeader } from "@/components/video-editor/clip-header";
 import { useSteam } from "@/contexts/steam-context";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { useBadge } from "@/contexts/badge-context";
 
 export default function EditPage() {
@@ -40,8 +40,7 @@ export default function EditPage() {
     const gameData = useMemo(() => {
         if (loading || !currentVideo?.game) return null;
 
-        const normalizedName = normalizeGameName(currentVideo.game);
-        const appId = normalizedName ? games[normalizedName].appid : undefined;
+        const appId = getGameId(currentVideo.game, games, loading);
         const gameImage = appId && gameImages[appId];
 
         return {

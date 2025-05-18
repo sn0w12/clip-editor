@@ -5,7 +5,7 @@ import { FileVideo, Gamepad2 } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
 import { useSteam } from "@/contexts/steam-context";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { Skeleton } from "../ui/skeleton";
 
 interface VideoCardProps {
@@ -36,14 +36,7 @@ export function VideoCard({
     const progressBarRef = useRef<HTMLDivElement>(null);
     const lastPlaybackPositionRef = useRef<number>(0);
 
-    // Only attempt to get appId if we have game data and a game name
-    const normalizedGameName = video.game ? normalizeGameName(video.game) : "";
-    const appId =
-        !loading && normalizedGameName
-            ? games[normalizedGameName].appid
-            : undefined;
-
-    // Determine if we can show the game icon
+    const appId = getGameId(video.game, games, loading);
     const hasGameIcon = appId && gameImages[appId]?.icon;
 
     const handleCardClick = () => {

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useSteam } from "@/contexts/steam-context";
 import { Card } from "@/components/ui/card";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { useNavigate } from "@tanstack/react-router";
 import { Gamepad2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -72,11 +72,7 @@ export default function GamesPage() {
         // Create array of game data with appIds and images
         return Object.entries(gameCounts)
             .map(([gameName, count]) => {
-                const normalizedName = normalizeGameName(gameName);
-                const appId =
-                    !loading && normalizedName
-                        ? games[normalizedName].appid
-                        : undefined;
+                const appId = getGameId(gameName, games, loading);
                 const gameImage = appId && gameImages[appId];
 
                 let headerImage: string | undefined = undefined;

@@ -13,7 +13,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useSteam } from "@/contexts/steam-context";
-import { imgSrc, normalizeGameName } from "@/utils/games";
+import { getGameId, imgSrc } from "@/utils/games";
 import { useSetting } from "@/utils/settings";
 
 export function ClipHeader() {
@@ -109,11 +109,8 @@ export function ClipHeader() {
         const adjustedCurrentIndex = currentIndex - startIndex;
 
         videosInRange.forEach((video) => {
-            const normalizedGameName = normalizeGameName(video.game);
-            const appId =
-                !loading && normalizedGameName
-                    ? games[normalizedGameName].appid
-                    : undefined;
+            const appId = getGameId(video.game, games, loading);
+            if (loading || appId === null) return;
 
             if (appId === undefined) return;
 

@@ -30,7 +30,7 @@ const DEFAULT_PRESETS: ExportPreset[] = [
         description: "Optimized for Discord (<10MB)",
         options: {
             qualityMode: "targetSize",
-            targetSize: 9, // Target 9MB to be safe
+            targetSize: 8.5,
             outputFormat: "mp4",
         },
     },

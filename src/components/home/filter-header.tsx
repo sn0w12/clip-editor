@@ -1,9 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { UnifiedFilterPanel } from "@/components/home/unified-filter-panel";
+import { MemoizedUnifiedFilterPanel } from "@/components/home/unified-filter-panel";
 import { FolderOpen } from "lucide-react";
-import React from "react";
+import React, { useMemo } from "react";
 import { VideoGroup } from "@/types/video";
+import { useSteam } from "@/contexts/steam-context";
+import { getGameId, imgSrc } from "@/utils/games";
 
 interface FilterHeaderProps {
     directoryPath: string;
@@ -43,6 +45,27 @@ export function FilterHeader({
     onClearFilters,
     onChangeDirectory,
 }: FilterHeaderProps) {
+    const { games: steamGames, gameImages, loading } = useSteam();
+
+    const gameOptions = useMemo(() => {
+        return games.map((game) => {
+            const appId = getGameId(game, steamGames, loading);
+            const gameImage = appId ? gameImages[appId] : null;
+
+            return {
+                label: game,
+                value: game,
+                icon: gameImage ? (
+                    <img
+                        src={imgSrc(gameImage.icon)}
+                        alt={game}
+                        className="h-4 w-4 rounded object-cover"
+                    />
+                ) : undefined,
+            };
+        });
+    }, [games, steamGames, gameImages, loading]);
+
     return (
         <div className="flex items-center justify-between">
             <div>
@@ -59,10 +82,10 @@ export function FilterHeader({
             </div>
 
             <div className="flex items-center gap-2">
-                <UnifiedFilterPanel
+                <MemoizedUnifiedFilterPanel
                     startDate={startDate}
                     endDate={endDate}
-                    games={games}
+                    gameOptions={gameOptions}
                     selectedGames={selectedGames}
                     groups={groups}
                     selectedGroupIds={selectedGroupIds}

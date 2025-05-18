@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState, useCallback, memo } from "react";
 import {
     ContextMenu,
     ContextMenuContent,
@@ -42,9 +42,10 @@ interface VideoContextMenuProps {
     onAddToGroup: (videoIds: string[], groupId: string) => void;
     onShowCreateGroup: () => void;
     onRemoveFromGroup: (videoIds: string[], groupId: string) => void;
+    sortedGames: Array<{ id: string; slug: string; name: string }>;
 }
 
-export function VideoContextMenu({
+function VideoContextMenuBase({
     children,
     videos,
     video,
@@ -54,10 +55,11 @@ export function VideoContextMenu({
     onAddToGroup,
     onShowCreateGroup,
     onRemoveFromGroup,
+    sortedGames,
 }: VideoContextMenuProps) {
     const navigate = useNavigate();
     const { handleDeleteVideos, handleUpdateVideoGames } = useVideoStore();
-    const { games, addCustomGame } = useSteam();
+    const { addCustomGame } = useSteam();
     const [isCustomGameDialogOpen, setIsCustomGameDialogOpen] = useState(false);
     const [customGameName, setCustomGameName] = useState("");
 
@@ -76,15 +78,15 @@ export function VideoContextMenu({
         } from your drive.`;
     }
 
-    const showInFolder = async (path: string) => {
+    const showInFolder = useCallback(async (path: string) => {
         try {
             await window.videos.showInFolder(path);
         } catch (error) {
             console.error("Failed to show file in folder:", error);
         }
-    };
+    }, []);
 
-    const handleCustomGameSubmit = () => {
+    const handleCustomGameSubmit = useCallback(() => {
         if (customGameName.trim()) {
             addCustomGame(customGameName.trim());
             handleUpdateVideoGames(videoIds, customGameName.trim());
@@ -92,7 +94,7 @@ export function VideoContextMenu({
             setCustomGameName("");
             setIsCustomGameDialogOpen(false);
         }
-    };
+    }, [addCustomGame, customGameName, handleUpdateVideoGames, videoIds]);
 
     // Only allow showing in folder when a single video is selected
     const canShowInFolder = videoIds.length === 1;
@@ -102,17 +104,6 @@ export function VideoContextMenu({
         videoIds.length === 1
             ? videos.find((v) => v.path === videoIds[0])?.game || "Unknown"
             : "";
-
-    // Create sorted list of game names from the keys
-    const sortedGames = useMemo(() => {
-        return Object.entries(games)
-            .map(([slug, { appid, displayName }]) => ({
-                id: appid,
-                slug,
-                name: displayName,
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-    }, [games]);
 
     return (
         <>
@@ -291,3 +282,5 @@ export function VideoContextMenu({
         </>
     );
 }
+
+export const VideoContextMenu = memo(VideoContextMenuBase);

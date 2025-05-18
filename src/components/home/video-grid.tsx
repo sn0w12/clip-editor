@@ -4,6 +4,7 @@ import { VideoContextMenu } from "@/components/home/video-context-menu";
 import { VideoFile, VideoGroup } from "@/types/video";
 import React, { useMemo } from "react";
 import { Separator } from "@/components/ui/separator";
+import { useSteam } from "@/contexts/steam-context";
 
 interface VideoGridProps {
     isLoading: boolean;
@@ -21,7 +22,7 @@ interface VideoGridProps {
 /**
  * Grid component that displays videos or loading/empty states
  */
-export function VideoGrid({
+function VideoGridBase({
     isLoading,
     filteredVideos,
     selectedVideos,
@@ -33,6 +34,18 @@ export function VideoGrid({
     onShowCreateGroup,
     onRemoveFromGroup,
 }: VideoGridProps) {
+    const { games } = useSteam();
+
+    const sortedGames = useMemo(() => {
+        return Object.entries(games)
+            .map(([slug, { appid, displayName }]) => ({
+                id: appid,
+                slug,
+                name: displayName,
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [games]);
+
     const videosByDate = useMemo(() => {
         const groupedVideos: Record<string, VideoFile[]> = {};
 
@@ -146,6 +159,7 @@ export function VideoGrid({
                                 onAddToGroup={onAddToGroup}
                                 onShowCreateGroup={onShowCreateGroup}
                                 onRemoveFromGroup={onRemoveFromGroup}
+                                sortedGames={sortedGames}
                             >
                                 <VideoCard
                                     video={video}
@@ -160,7 +174,9 @@ export function VideoGrid({
                         ))}
                     </div>
                 </div>
-            ))}
+            ))}{" "}
         </div>
     );
 }
+
+export const VideoGrid = React.memo(VideoGridBase);

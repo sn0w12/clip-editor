@@ -5,6 +5,7 @@ import React, {
     useEffect,
     useMemo,
     useRef,
+    useCallback,
 } from "react";
 import { VideoFile, VideoGroup, VideoGroupAssignment } from "@/types/video";
 import { VideoMetadata } from "@/types/video-editor";
@@ -182,72 +183,93 @@ export function VideoStoreProvider({
             );
         });
     }, [gameFilteredVideos, selectedGroupIds, videoGroupMap]);
+    const handleCreateGroup = useCallback(
+        (name: string, color?: string) => {
+            const newGroup: VideoGroup = {
+                id: uuidv4(),
+                name,
+                color:
+                    color ||
+                    `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
+            };
 
-    const handleCreateGroup = (name: string, color?: string) => {
-        const newGroup: VideoGroup = {
-            id: uuidv4(),
-            name,
-            color: color || `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
-        };
+            const updatedGroups = [...groups, newGroup];
+            setGroups(updatedGroups);
+            localStorage.setItem(
+                SAVED_GROUPS_KEY,
+                JSON.stringify(updatedGroups),
+            );
 
-        const updatedGroups = [...groups, newGroup];
-        setGroups(updatedGroups);
-        localStorage.setItem(SAVED_GROUPS_KEY, JSON.stringify(updatedGroups));
+            return newGroup.id;
+        },
+        [groups],
+    );
 
-        return newGroup.id;
-    };
+    const handleAddToGroup = useCallback(
+        (videoPaths: string[], groupId: string) => {
+            const filteredAssignments = videoGroupAssignments.filter(
+                (assignment) =>
+                    !(
+                        videoPaths.includes(assignment.videoPath) &&
+                        assignment.groupId === groupId
+                    ),
+            );
 
-    const handleAddToGroup = (videoPaths: string[], groupId: string) => {
-        const filteredAssignments = videoGroupAssignments.filter(
-            (assignment) =>
-                !(
-                    videoPaths.includes(assignment.videoPath) &&
-                    assignment.groupId === groupId
-                ),
-        );
+            const newAssignments = videoPaths.map((videoPath) => ({
+                videoPath,
+                groupId,
+            }));
 
-        const newAssignments = videoPaths.map((videoPath) => ({
-            videoPath,
-            groupId,
-        }));
+            const updatedAssignments = [
+                ...filteredAssignments,
+                ...newAssignments,
+            ];
+            setVideoGroupAssignments(updatedAssignments);
+            localStorage.setItem(
+                SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
+                JSON.stringify(updatedAssignments),
+            );
+        },
+        [videoGroupAssignments],
+    );
 
-        const updatedAssignments = [...filteredAssignments, ...newAssignments];
-        setVideoGroupAssignments(updatedAssignments);
-        localStorage.setItem(
-            SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
-            JSON.stringify(updatedAssignments),
-        );
-    };
+    const handleRemoveFromGroup = useCallback(
+        (videoPaths: string[], groupId: string) => {
+            const updatedAssignments = videoGroupAssignments.filter(
+                (assignment) =>
+                    !(
+                        videoPaths.includes(assignment.videoPath) &&
+                        assignment.groupId === groupId
+                    ),
+            );
 
-    const handleRemoveFromGroup = (videoPaths: string[], groupId: string) => {
-        const updatedAssignments = videoGroupAssignments.filter(
-            (assignment) =>
-                !(
-                    videoPaths.includes(assignment.videoPath) &&
-                    assignment.groupId === groupId
-                ),
-        );
+            setVideoGroupAssignments(updatedAssignments);
+            localStorage.setItem(
+                SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
+                JSON.stringify(updatedAssignments),
+            );
+        },
+        [videoGroupAssignments],
+    );
+    const handleDeleteGroup = useCallback(
+        (groupId: string) => {
+            const videosInGroup = videoGroupAssignments
+                .filter((assignment) => assignment.groupId === groupId)
+                .map((assignment) => assignment.videoPath);
 
-        setVideoGroupAssignments(updatedAssignments);
-        localStorage.setItem(
-            SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY,
-            JSON.stringify(updatedAssignments),
-        );
-    };
+            if (videosInGroup.length > 0) {
+                handleRemoveFromGroup(videosInGroup, groupId);
+            }
 
-    const handleDeleteGroup = (groupId: string) => {
-        const videosInGroup = videoGroupAssignments
-            .filter((assignment) => assignment.groupId === groupId)
-            .map((assignment) => assignment.videoPath);
-
-        if (videosInGroup.length > 0) {
-            handleRemoveFromGroup(videosInGroup, groupId);
-        }
-
-        const updatedGroups = groups.filter((g) => g.id !== groupId);
-        setGroups(updatedGroups);
-        localStorage.setItem(SAVED_GROUPS_KEY, JSON.stringify(updatedGroups));
-    };
+            const updatedGroups = groups.filter((g) => g.id !== groupId);
+            setGroups(updatedGroups);
+            localStorage.setItem(
+                SAVED_GROUPS_KEY,
+                JSON.stringify(updatedGroups),
+            );
+        },
+        [groups, videoGroupAssignments, handleRemoveFromGroup],
+    );
 
     const loadVideosFromDirectory = async (dirPath: string) => {
         if (!dirPath) return;
@@ -370,8 +392,7 @@ export function VideoStoreProvider({
             );
         }
     };
-
-    const handleSelectDirectory = async () => {
+    const handleSelectDirectory = useCallback(async () => {
         try {
             const selectedDir = await window.videos.selectDirectory();
 
@@ -382,7 +403,7 @@ export function VideoStoreProvider({
         } catch (error) {
             console.error("Error selecting directory:", error);
         }
-    };
+    }, [loadVideosFromDirectory]);
 
     const handleDeleteVideos = async (videoPaths: string[]) => {
         if (!videoPaths.length) return;

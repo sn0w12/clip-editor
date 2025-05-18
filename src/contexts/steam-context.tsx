@@ -4,6 +4,7 @@ import React, {
     useEffect,
     useContext,
     ReactNode,
+    useMemo,
 } from "react";
 import { useSetting } from "@/utils/settings";
 
@@ -157,6 +158,15 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
     );
 };
 
-export const useSteam = () => useContext(SteamContext);
+export const useSteam = () => {
+    const context = useContext(SteamContext);
+
+    const isLoading = context.loading;
+    const gamesCount = Object.keys(context.games || {}).length;
+    const imagesCount = Object.keys(context.gameImages || {}).length;
+
+    // Return memoized values to prevent unnecessary re-renders
+    return useMemo(() => context, [isLoading, gamesCount, imagesCount]);
+};
 
 export default SteamContext;

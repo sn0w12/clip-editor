@@ -1,3 +1,4 @@
+import { scan } from "react-scan";
 import React from "react";
 import DragWindowRegion from "@/components/drag-window-region";
 import {
@@ -31,6 +32,11 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { BadgeProvider, useBadge } from "@/contexts/badge-context";
 import { useSetting } from "@/utils/settings";
+
+const inDevelopment = process.env.NODE_ENV === "development";
+scan({
+    enabled: inDevelopment,
+});
 
 const MainElementContext =
     React.createContext<React.RefObject<HTMLElement | null> | null>(null);

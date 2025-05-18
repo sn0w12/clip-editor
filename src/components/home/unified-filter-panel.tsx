@@ -11,19 +11,21 @@ import {
     TooltipContent,
 } from "@/components/ui/tooltip";
 import { Filter, X } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import React, { JSX, useCallback, useMemo, useState } from "react";
 import { VideoGroup } from "@/types/video";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { useSteam } from "@/contexts/steam-context";
-import { getGameId, imgSrc } from "@/utils/games";
 import { cn } from "@/utils/tailwind";
 
 interface UnifiedFilterPanelProps {
     startDate: Date | undefined;
     endDate: Date | undefined;
-    games: string[];
+    gameOptions: {
+        label: string;
+        value: string;
+        icon?: JSX.Element;
+    }[];
     selectedGames: string[];
     groups: VideoGroup[];
     selectedGroupIds: string[];
@@ -40,7 +42,7 @@ interface UnifiedFilterPanelProps {
 export function UnifiedFilterPanel({
     startDate,
     endDate,
-    games,
+    gameOptions,
     selectedGames,
     groups,
     selectedGroupIds,
@@ -51,7 +53,6 @@ export function UnifiedFilterPanel({
     onClearFilters,
 }: UnifiedFilterPanelProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const { games: steamGames, gameImages, loading } = useSteam();
 
     // Count active filters
     const activeFilterCount = useMemo(() => {
@@ -61,25 +62,6 @@ export function UnifiedFilterPanel({
         if (selectedGroupIds.length > 0) count++;
         return count;
     }, [startDate, endDate, selectedGames, selectedGroupIds]);
-
-    const gameOptions = useMemo(() => {
-        return games.map((game) => {
-            const appId = getGameId(game, steamGames, loading);
-            const gameImage = appId ? gameImages[appId] : null;
-
-            return {
-                label: game,
-                value: game,
-                icon: gameImage ? (
-                    <img
-                        src={imgSrc(gameImage.icon)}
-                        alt={game}
-                        className="h-4 w-4 rounded object-cover"
-                    />
-                ) : undefined,
-            };
-        });
-    }, [games, steamGames, gameImages, loading]);
 
     const maxClipCount = useMemo(() => {
         return Object.values(clipCountByDate).reduce(
@@ -99,64 +81,82 @@ export function UnifiedFilterPanel({
     };
 
     // Function to render day content with clip indicator
-    const renderDayContent = (day: Date) => {
-        const dateKey = formatDateKey(day);
-        const clipCount = clipCountByDate[dateKey] || 0;
+    const renderDayContent = useCallback(
+        (day: Date) => {
+            const dateKey = formatDateKey(day);
+            const clipCount = clipCountByDate[dateKey] || 0;
 
-        // Calculate relative percentage (0-100%)
-        const percentage =
-            maxClipCount > 0 ? (clipCount / maxClipCount) * 100 : 0;
+            // Calculate relative percentage (0-100%)
+            const percentage =
+                maxClipCount > 0 ? (clipCount / maxClipCount) * 100 : 0;
 
-        // Calculate width class (w-1 to w-5) based on percentage
-        let widthClass = "w-0";
-        if (clipCount > 0) {
-            if (percentage >= 90) widthClass = "w-5";
-            else if (percentage >= 80) widthClass = "w-4.5";
-            else if (percentage >= 70) widthClass = "w-4";
-            else if (percentage >= 60) widthClass = "w-3.5";
-            else if (percentage >= 50) widthClass = "w-3";
-            else if (percentage >= 40) widthClass = "w-2.5";
-            else if (percentage >= 30) widthClass = "w-2";
-            else if (percentage >= 20) widthClass = "w-1.5";
-            else if (percentage >= 10) widthClass = "w-1";
-            else widthClass = "w-0.5";
-        }
+            // Calculate width class (w-1 to w-5) based on percentage
+            let widthClass = "w-0";
+            if (clipCount > 0) {
+                if (percentage >= 90) widthClass = "w-5";
+                else if (percentage >= 80) widthClass = "w-4.5";
+                else if (percentage >= 70) widthClass = "w-4";
+                else if (percentage >= 60) widthClass = "w-3.5";
+                else if (percentage >= 50) widthClass = "w-3";
+                else if (percentage >= 40) widthClass = "w-2.5";
+                else if (percentage >= 30) widthClass = "w-2";
+                else if (percentage >= 20) widthClass = "w-1.5";
+                else if (percentage >= 10) widthClass = "w-1";
+                else widthClass = "w-0.5";
+            }
 
-        // Calculate opacity based on percentage
-        const opacity =
-            clipCount > 0
-                ? Math.max(0.4, Math.min(1, 0.4 + (percentage / 100) * 0.6))
-                : 0;
+            // Calculate opacity based on percentage
+            const opacity =
+                clipCount > 0
+                    ? Math.max(0.4, Math.min(1, 0.4 + (percentage / 100) * 0.6))
+                    : 0;
 
-        return (
-            <Tooltip>
-                <TooltipTrigger asChild>
-                    <div className="relative flex h-full w-full items-center justify-center">
-                        {day.getDate()}
-                        {clipCount > 0 && (
-                            <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 transform">
-                                <div
-                                    className={cn(
-                                        "h-1 rounded-full",
-                                        widthClass,
-                                    )}
-                                    style={{
-                                        backgroundColor: "var(--primary)",
-                                        opacity: opacity,
-                                    }}
-                                />
-                            </div>
-                        )}
-                    </div>
-                </TooltipTrigger>
-                {clipCount > 0 && (
-                    <TooltipContent side="top" className="text-center">
-                        <span>{clipCount} clips</span>
-                    </TooltipContent>
-                )}
-            </Tooltip>
-        );
-    };
+            return (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div className="relative flex h-full w-full items-center justify-center">
+                            {day.getDate()}
+                            {clipCount > 0 && (
+                                <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 transform">
+                                    <div
+                                        className={cn(
+                                            "h-1 rounded-full",
+                                            widthClass,
+                                        )}
+                                        style={{
+                                            backgroundColor: "var(--primary)",
+                                            opacity: opacity,
+                                        }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </TooltipTrigger>
+                    {clipCount > 0 && (
+                        <TooltipContent side="top" className="text-center">
+                            <span>{clipCount} clips</span>
+                        </TooltipContent>
+                    )}
+                </Tooltip>
+            );
+        },
+        [clipCountByDate, maxClipCount, formatDateKey],
+    );
+
+    const groupOptions = useMemo(
+        () =>
+            groups.map((group) => ({
+                label: group.name,
+                value: group.id,
+                icon: group.color && (
+                    <span
+                        className="inline-block h-3 w-3 rounded-full"
+                        style={{ backgroundColor: group.color }}
+                    />
+                ),
+            })),
+        [groups],
+    );
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -214,19 +214,7 @@ export function UnifiedFilterPanel({
                                     Group
                                 </p>
                                 <MultiSelect
-                                    options={groups.map((group) => ({
-                                        label: group.name,
-                                        value: group.id,
-                                        icon: group.color && (
-                                            <span
-                                                className="inline-block h-3 w-3 rounded-full"
-                                                style={{
-                                                    backgroundColor:
-                                                        group.color,
-                                                }}
-                                            />
-                                        ),
-                                    }))}
+                                    options={groupOptions}
                                     placeholder="Select groups"
                                     selected={selectedGroupIds}
                                     onChange={onGroupSelect}
@@ -285,3 +273,5 @@ export function UnifiedFilterPanel({
         </Popover>
     );
 }
+
+export const MemoizedUnifiedFilterPanel = React.memo(UnifiedFilterPanel);

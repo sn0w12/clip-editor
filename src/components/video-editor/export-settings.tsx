@@ -21,6 +21,7 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getSetting } from "@/utils/settings";
+import { ExportButton } from "./export-button";
 
 interface ExportSettingsProps {
     videoMetadata: VideoMetadata | null;
@@ -190,9 +191,8 @@ export function ExportSettings({
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
 
-    // Handle export button click
-    const handleExport = () => {
-        const options: ExportOptions = {
+    const handleExport = (partialOptions?: Partial<ExportOptions>) => {
+        const baseOptions: ExportOptions = {
             startTime: timeRange.start,
             endTime: timeRange.end,
             outputFormat,
@@ -205,8 +205,43 @@ export function ExportSettings({
             audioTracks: selectedAudioTracks,
         };
 
-        onExport(options);
+        if (partialOptions) {
+            if (
+                partialOptions.outputFormat &&
+                partialOptions.outputFormat !== outputFormat
+            ) {
+                setOutputFormat(partialOptions.outputFormat);
+            }
+            if (
+                partialOptions.qualityMode &&
+                partialOptions.qualityMode !== qualityMode
+            ) {
+                setQualityMode(
+                    partialOptions.qualityMode as "preset" | "targetSize",
+                );
+            }
+            if (partialOptions.quality && partialOptions.quality !== quality) {
+                setQuality(partialOptions.quality);
+            }
+            if (
+                partialOptions.targetSize &&
+                partialOptions.targetSize !== targetSize
+            ) {
+                setTargetSize(partialOptions.targetSize);
+            }
+
+            // Merge options
+            const mergedOptions = {
+                ...baseOptions,
+                ...partialOptions,
+            };
+
+            onExport(mergedOptions);
+        } else {
+            onExport(baseOptions);
+        }
     };
+
     return (
         <Card className="flex h-full flex-col transition-none">
             <CardHeader className="pb-2">
@@ -467,14 +502,26 @@ export function ExportSettings({
             </CardContent>
 
             <div className="mt-auto p-6 py-0">
-                <Button
-                    className="w-full"
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    size="lg"
-                >
-                    {isExporting ? "Exporting..." : "Export Clip"}
-                </Button>
+                <ExportButton
+                    onExport={handleExport}
+                    isExporting={isExporting}
+                    baseOptions={{
+                        startTime: timeRange.start,
+                        endTime: timeRange.end,
+                        outputFormat,
+                        qualityMode,
+                        width,
+                        height,
+                        ...(qualityMode === "preset"
+                            ? { quality }
+                            : { targetSize }),
+                        fps,
+                        ...(selectedAudioTracks.length > 0
+                            ? { audioBitrate }
+                            : {}),
+                        audioTracks: selectedAudioTracks,
+                    }}
+                />
             </div>
         </Card>
     );

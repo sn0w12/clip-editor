@@ -18,7 +18,8 @@ export interface ExportOptions {
     qualityMode: "preset" | "targetSize"; // Whether to use quality preset or target size
     width?: number; // Optional width
     height?: number; // Optional height
-    fps?: number; // Optional fps    audioBitrate?: number; // Optional audio bitrate
+    fps?: number; // Optional fps
+    audioBitrate?: number; // Optional audio bitrate
     removeAudio?: boolean; // Optional flag to remove audio
     speedFactor?: number; // Optional playback speed adjustment
     audioTracks?: number[]; // Optional array of audio track indices to include

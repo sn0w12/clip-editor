@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, memo } from "react";
 import { VideoWaveform } from "./video-waveform";
 import { TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
@@ -14,7 +14,8 @@ interface WaveformPlaybarProps {
     waveformHeight?: number;
 }
 
-export function WaveformPlaybar({
+// Memoize the component to prevent unnecessary re-renders
+export const WaveformPlaybar = memo(function WaveformPlaybar({
     videoPath,
     currentTime,
     duration,
@@ -28,6 +29,12 @@ export function WaveformPlaybar({
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingStart, setIsDraggingStart] = useState(false);
     const [isDraggingEnd, setIsDraggingEnd] = useState(false);
+    const [key, setKey] = useState(`${videoPath}-${audioTrack}`);
+
+    // Update the key when videoPath or audioTrack changes to force re-render of waveform
+    useEffect(() => {
+        setKey(`${videoPath}-${audioTrack}`);
+    }, [videoPath, audioTrack]);
 
     // Calculate positions for current time and markers
     const currentTimePercent = (currentTime / Math.max(0.1, duration)) * 100;
@@ -127,6 +134,7 @@ export function WaveformPlaybar({
             {/* Base waveform (unselected areas) */}
             <div className="relative h-full w-full">
                 <VideoWaveform
+                    key={`base-${key}`}
                     videoPath={videoPath}
                     height={waveformHeight}
                     width={4000} // Will be auto-adjusted by container width
@@ -143,6 +151,7 @@ export function WaveformPlaybar({
                 style={selectedClipStyles}
             >
                 <VideoWaveform
+                    key={`selected-${key}`}
                     videoPath={videoPath}
                     height={waveformHeight}
                     width={4000} // Will be auto-adjusted by container width
@@ -194,4 +203,4 @@ export function WaveformPlaybar({
             </div>
         </div>
     );
-}
+});

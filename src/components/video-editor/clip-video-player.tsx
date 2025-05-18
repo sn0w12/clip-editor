@@ -69,6 +69,7 @@ export function ClipVideoPlayer({
     const [currentTime, setCurrentTime] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [isSeeking, setIsSeeking] = useState(false);
+    const [isAudioTrackReady, setIsAudioTrackReady] = useState(false);
     // Load settings from localStorage with defaults
     const [playSelectedOnly, setPlaySelectedOnly] = useState(() => {
         const saved = localStorage.getItem(STORAGE_KEYS.PLAY_SELECTED_ONLY);
@@ -233,6 +234,9 @@ export function ClipVideoPlayer({
                 setTimeout(() => {
                     handleAudioTrackChange(defaultTrack, 0);
                 }, 100);
+            } else {
+                // If no audio tracks, still mark as ready with default track 0
+                setIsAudioTrackReady(true);
             }
 
             if (videoRef.current) {
@@ -249,6 +253,7 @@ export function ClipVideoPlayer({
     ) => {
         if (trackIndex === selectedAudioTrack && !isLoading) return;
         setSelectedAudioTrack(trackIndex);
+        setIsAudioTrackReady(true);
 
         const video = videoRef.current;
         if (!video || !video.audioTracks) return;
@@ -759,28 +764,32 @@ export function ClipVideoPlayer({
                 </div>
 
                 <div className="mt-2 space-y-2">
-                    <WaveformPlaybar
-                        videoPath={videoSrc}
-                        currentTime={currentTime}
-                        duration={duration}
-                        timeRange={timeRange}
-                        onTimeChange={(newTime) => {
-                            const video = videoRef.current;
-                            if (!video) return;
+                    {isAudioTrackReady ? (
+                        <WaveformPlaybar
+                            videoPath={videoSrc}
+                            currentTime={currentTime}
+                            duration={duration}
+                            timeRange={timeRange}
+                            onTimeChange={(newTime) => {
+                                const video = videoRef.current;
+                                if (!video) return;
 
-                            setIsSeeking(true);
-                            video.currentTime = newTime;
-                            setCurrentTime(newTime);
+                                setIsSeeking(true);
+                                video.currentTime = newTime;
+                                setCurrentTime(newTime);
 
-                            if (!video.paused) {
-                                pendingPlayRef.current = true;
-                                video.pause();
-                            }
-                        }}
-                        onTimeRangeChange={onTimeRangeChange}
-                        audioTrack={selectedAudioTrack}
-                        waveformHeight={150}
-                    />
+                                if (!video.paused) {
+                                    pendingPlayRef.current = true;
+                                    video.pause();
+                                }
+                            }}
+                            onTimeRangeChange={onTimeRangeChange}
+                            audioTrack={selectedAudioTrack}
+                            waveformHeight={150}
+                        />
+                    ) : (
+                        <div className="bg-background h-10 w-full" />
+                    )}
 
                     <div className="relative mb-0 flex justify-between text-xs">
                         <div className="flex flex-col items-start">
@@ -1077,24 +1086,33 @@ export function ClipVideoPlayer({
             <Separator className="my-4" />
 
             <div className="grid h-56 grid-cols-2 gap-2 transition-none lg:h-full">
-                <AudioVisualizer
-                    variant="bars"
-                    color="var(--accent-positive)"
-                    externalAudioRef={
-                        videoRef as React.RefObject<HTMLVideoElement>
-                    }
-                    showPlayButton={false}
-                    className="h-full border-0"
-                />
-                <AudioVisualizer
-                    variant="line"
-                    color="var(--accent-positive)"
-                    externalAudioRef={
-                        videoRef as React.RefObject<HTMLVideoElement>
-                    }
-                    showPlayButton={false}
-                    className="h-full border-0"
-                />
+                {isAudioTrackReady ? (
+                    <>
+                        <AudioVisualizer
+                            variant="bars"
+                            color="var(--accent-positive)"
+                            externalAudioRef={
+                                videoRef as React.RefObject<HTMLVideoElement>
+                            }
+                            showPlayButton={false}
+                            className="h-full border-0"
+                        />
+                        <AudioVisualizer
+                            variant="line"
+                            color="var(--accent-positive)"
+                            externalAudioRef={
+                                videoRef as React.RefObject<HTMLVideoElement>
+                            }
+                            showPlayButton={false}
+                            className="h-full border-0"
+                        />
+                    </>
+                ) : (
+                    <>
+                        <div className="bg-background h-full rounded-md" />
+                        <div className="bg-background h-full rounded-md" />
+                    </>
+                )}
             </div>
         </>
     );

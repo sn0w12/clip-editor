@@ -4,6 +4,7 @@ import path from "path";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import { v4 as uuidv4 } from "uuid";
+import { createPerformanceLogger } from "@/helpers/performance";
 
 const readFile = promisify(fs.readFile);
 const access = promisify(fs.access);
@@ -21,6 +22,8 @@ export function addAudioWaveformListeners() {
             sampleCount: number = 1000,
             audioTrack: number = 0,
         ): Promise<Float32Array | null> => {
+            const perfLogger = createPerformanceLogger();
+
             try {
                 // Convert protocol URL to file path if needed
                 let resolvedPath = videoPath;
@@ -48,6 +51,7 @@ export function addAudioWaveformListeners() {
 
                 // Use the resolved path for all further operations
                 videoPath = resolvedPath;
+                perfLogger.addStep("path-resolution");
 
                 // Create a temporary WAV file with a UUID to avoid filename issues
                 const tmpDir = path.join(
@@ -65,6 +69,7 @@ export function addAudioWaveformListeners() {
                 } catch {
                     await mkdir(tmpDir, { recursive: true });
                 }
+                perfLogger.addStep("temp-dir-creation");
 
                 // Extract audio to WAV file with mono audio and 44.1kHz sample rate
                 await new Promise<void>((resolve, reject) => {
@@ -81,9 +86,11 @@ export function addAudioWaveformListeners() {
                         .on("error", (err) => reject(err))
                         .run();
                 });
+                perfLogger.addStep("ffmpeg-audio-extraction");
 
                 // Read the WAV file as a buffer
                 const buffer = await readFile(audioFile);
+                perfLogger.addStep("read-audio-file");
 
                 // Parse WAV and extract PCM data (simplified handling)
                 // Skip the header (44 bytes) and read the audio data
@@ -99,6 +106,7 @@ export function addAudioWaveformListeners() {
                     const sampleValue = audioData.readInt16LE(i * 2);
                     samples[i] = sampleValue / 32768.0; // Normalize to -1.0 to 1.0
                 }
+                perfLogger.addStep("parse-audio-data");
 
                 // Skip the first ~100ms of audio to avoid initial spike artifacts
                 const sampleRate = 44100;
@@ -148,6 +156,7 @@ export function addAudioWaveformListeners() {
                     // Use more RMS and less peak to reduce spikes
                     result[i] = Math.max(rms * 1.6, max * 0.4);
                 }
+                perfLogger.addStep("downsampling");
 
                 // Apply a gentle smoothing filter to avoid extreme spikes
                 const smoothedResult = new Float32Array(sampleCount);
@@ -196,6 +205,7 @@ export function addAudioWaveformListeners() {
                         }
                     }
                 }
+                perfLogger.addStep("smoothing-and-normalization");
 
                 // Clean up the temporary audio file
                 try {
@@ -203,10 +213,13 @@ export function addAudioWaveformListeners() {
                 } catch (e) {
                     console.warn("Failed to clean up temporary audio file:", e);
                 }
+                perfLogger.addStep("cleanup");
 
+                perfLogger.end({ sampleCount, audioTrackIndex: audioTrack });
                 return smoothedResult;
             } catch (error) {
                 console.error("Error extracting waveform data:", error);
+                perfLogger.end({ error: error });
                 return null;
             }
         },

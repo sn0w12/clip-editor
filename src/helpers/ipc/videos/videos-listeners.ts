@@ -5,6 +5,7 @@ import { VideoFile } from "@/types/video";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import crypto from "crypto";
+import { getWaveformCacheFiles } from "./audio-waveform";
 
 // Directory to store thumbnails
 const THUMBNAIL_DIR = path.join(app.getPath("userData"), "thumbnails");
@@ -153,6 +154,19 @@ export function addVideosEventListeners() {
                             `Could not delete thumbnail for ${videoPath}:`,
                             error,
                         );
+                    }
+
+                    // Delete any waveform cache files
+                    const waveformFiles = getWaveformCacheFiles(videoPath);
+                    for (const waveformFile of waveformFiles) {
+                        try {
+                            await fs.unlink(waveformFile);
+                        } catch (error) {
+                            console.warn(
+                                `Could not delete waveform cache file ${waveformFile}:`,
+                                error,
+                            );
+                        }
                     }
 
                     // Delete the video file

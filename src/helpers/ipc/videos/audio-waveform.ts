@@ -1,12 +1,43 @@
-import { ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import fs from "fs";
+import path from "path";
 import ffmpeg from "@/helpers/ffmpeg";
 import { createPerformanceLogger } from "@/helpers/performance";
+import crypto from "crypto";
+
+// Directory to store waveform data
+const WAVEFORM_DIR = path.join(app.getPath("userData"), "waveforms");
+
+/**
+ * Creates the waveforms directory if it doesn't exist
+ */
+async function ensureWaveformDirectory() {
+    try {
+        await fs.promises.mkdir(WAVEFORM_DIR, { recursive: true });
+    } catch (error) {
+        console.error("Error creating waveform directory:", error);
+    }
+}
+
+/**
+ * Generate a waveform filename based on the video path and parameters
+ */
+function getWaveformFilename(
+    videoPath: string,
+    sampleCount: number,
+    audioTrack: number,
+): string {
+    const hash = crypto.createHash("md5").update(videoPath).digest("hex");
+    return `${hash}_s${sampleCount}_t${audioTrack}.waveform`;
+}
 
 /**
  * Extract waveform data from a video file using ffmpeg
  */
 export function addAudioWaveformListeners() {
+    // Ensure waveform directory exists
+    ensureWaveformDirectory();
+
     ipcMain.handle(
         "audio:extract-waveform",
         async (
@@ -49,6 +80,29 @@ export function addAudioWaveformListeners() {
                 // Use the resolved path for all further operations
                 videoPath = resolvedPath;
                 perfLogger.addStep("path-resolution");
+
+                // Check if cached waveform exists
+                const waveformFilename = getWaveformFilename(
+                    videoPath,
+                    sampleCount,
+                    audioTrack,
+                );
+                const waveformPath = path.join(WAVEFORM_DIR, waveformFilename);
+
+                try {
+                    // Check if the waveform file exists and load it
+                    const waveformBuffer =
+                        await fs.promises.readFile(waveformPath);
+                    const cachedWaveform = new Float32Array(
+                        new Uint8Array(waveformBuffer).buffer,
+                    );
+                    perfLogger.addStep("load-cached-waveform");
+                    perfLogger.end({ fromCache: true });
+                    return cachedWaveform;
+                } catch {
+                    // Cache miss, generate the waveform
+                    perfLogger.addStep("cache-miss");
+                }
 
                 const sampleRate = sampleCount;
                 const buffer = await new Promise<Buffer>((resolve, reject) => {
@@ -198,6 +252,18 @@ export function addAudioWaveformListeners() {
                     }
                 }
                 perfLogger.addStep("smoothing-and-peak-normalization");
+
+                // Save the waveform data to cache
+                try {
+                    // Convert Float32Array to Buffer for saving
+                    const waveformBuffer = Buffer.from(smoothedResult.buffer);
+                    await fs.promises.writeFile(waveformPath, waveformBuffer);
+                    perfLogger.addStep("cache-save");
+                } catch (saveError) {
+                    console.warn("Failed to save waveform cache:", saveError);
+                    perfLogger.addStep("cache-save-failed");
+                }
+
                 perfLogger.end();
                 return smoothedResult;
             } catch (error) {
@@ -207,4 +273,24 @@ export function addAudioWaveformListeners() {
             }
         },
     );
+}
+
+/**
+ * Get all waveform cache files for a video
+ */
+export function getWaveformCacheFiles(videoPath: string): string[] {
+    try {
+        const hash = crypto.createHash("md5").update(videoPath).digest("hex");
+        const files = fs.readdirSync(WAVEFORM_DIR);
+
+        return files
+            .filter((file) => file.startsWith(`${hash}_`))
+            .map((file) => path.join(WAVEFORM_DIR, file));
+    } catch (error) {
+        console.warn(
+            `Failed to get waveform cache files for ${videoPath}:`,
+            error,
+        );
+        return [];
+    }
 }

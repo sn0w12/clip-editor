@@ -109,13 +109,13 @@ function TabsList({
                 <TabsPrimitive.List
                     data-slot="tabs-list"
                     className={
-                        "bg-muted text-muted-foreground relative inline-flex h-9 w-fit items-center justify-center gap-1 rounded-lg p-[3px]"
+                        "bg-muted text-muted-foreground relative inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg p-[3px]"
                     }
                     {...props}
                 >
                     <div
                         ref={indicatorRef}
-                        className="bg-background/60 pointer-events-none absolute top-[4px] bottom-[3px] z-0 rounded-md"
+                        className="bg-background/60 pointer-events-none absolute top-[4px] bottom-[4px] z-0 rounded-md"
                         style={{
                             width: "0px",
                             left: "0px",

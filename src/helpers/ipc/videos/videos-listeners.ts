@@ -201,35 +201,25 @@ export function addVideosEventListeners() {
                 const fileName = path.basename(oldPath);
                 const extension = path.extname(fileName);
 
-                // Determine the naming pattern
-                // Example: Replay 2025-05-17 00-39-49_Counter-Strike 2.mp4
                 const nameMatch = fileName.match(/^(.+?)_(.+?)(\..+)$/);
-
-                if (!nameMatch) {
-                    // If filename doesn't match expected pattern, return the old path
-                    console.warn(
-                        `File ${fileName} doesn't match expected pattern for renaming`,
-                    );
-                    return {
-                        success: false,
-                        oldPath,
-                        newPath: oldPath,
-                        error: "Filename pattern not recognized",
-                    };
+                let newFileName;
+                if (nameMatch) {
+                    // File already has a game - replace it
+                    // nameMatch[1] is the prefix with date (e.g., "Replay 2025-05-17 00-39-49")
+                    const prefix = nameMatch[1];
+                    newFileName = `${prefix}_${newGameName}${extension}`;
+                } else {
+                    // File doesn't have a game yet - we need to add it
+                    // Try to isolate the prefix from the name (assuming it's the filename without extension)
+                    const nameWithoutExt = path.basename(fileName, extension);
+                    newFileName = `${nameWithoutExt}_${newGameName}${extension}`;
                 }
 
-                // nameMatch[1] is the prefix with date (e.g., "Replay 2025-05-17 00-39-49")
-                // nameMatch[3] is the extension with dot (e.g., ".mp4")
-                const prefix = nameMatch[1];
-                const newFileName = `${prefix}_${newGameName}${extension}`;
                 const newPath = path.join(dirPath, newFileName);
-
-                // Don't rename if the new path would be the same
                 if (newPath === oldPath) {
                     return { success: true, oldPath, newPath };
                 }
 
-                // Rename the file
                 await fs.rename(oldPath, newPath);
 
                 // Also rename the thumbnail if it exists

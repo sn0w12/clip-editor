@@ -1,4 +1,12 @@
-# Clip Editor
+<h1 align="center">Clip Editor</h1>
+
+<div align="center">
+    <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/sn0w12/clip-editor/build.yml">
+    <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/sn0w12/clip-editor">
+    <img alt="GitHub Release" src="https://img.shields.io/github/v/release/sn0w12/clip-editor?color=%2374c4c9">
+    <img alt="Downloads" src="https://img.shields.io/github/downloads/sn0w12/clip-editor/total">
+    <img alt="License" src="https://img.shields.io/github/license/sn0w12/clip-editor">
+</div>
 
 A desktop application for editing, managing, and organizing your video clips. Built with Electron, React, and TypeScript.
 

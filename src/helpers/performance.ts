@@ -1,3 +1,7 @@
+import { app } from "electron";
+import path from "path";
+import fs from "fs";
+
 interface PerformanceLog {
     functionName: string;
     inputs?: Record<string, unknown>;
@@ -5,6 +9,234 @@ interface PerformanceLog {
     steps: Record<string, { duration: number; timestamp: number }>;
     addStep(name: string): void;
     end(additionalInfo?: Record<string, unknown>): Record<string, unknown>;
+}
+
+interface PerformanceStats {
+    functionName: string;
+    totalInvocations: number;
+    averageTotalDuration: number;
+    medianTotalDuration: number;
+    steps: Record<
+        string,
+        {
+            average: number;
+            median: number;
+            percentOfTotal: number;
+        }
+    >;
+    entries: PerformanceEntry[];
+}
+
+interface PerformanceEntry {
+    timestamp: number;
+    totalDuration: number;
+    steps: Record<string, number>; // step name -> duration
+}
+
+const MAX_ENTRIES_PER_FUNCTION = 100;
+const performanceHistory: Record<string, PerformanceEntry[]> = {};
+
+// Load existing performance data from disk if available
+async function loadPerformanceData() {
+    try {
+        const logsDir = getPerformanceLogsPath();
+
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+            return; // No data to load
+        }
+
+        const files = await fs.promises.readdir(logsDir);
+
+        for (const file of files) {
+            if (file.endsWith(".json")) {
+                try {
+                    const filePath = path.join(logsDir, file);
+                    const content = await fs.promises.readFile(
+                        filePath,
+                        "utf8",
+                    );
+                    const data = JSON.parse(content) as PerformanceStats;
+
+                    // Extract function name from filename
+                    const functionName = data.functionName;
+
+                    // Load entries into memory
+                    if (data.entries && Array.isArray(data.entries)) {
+                        performanceHistory[functionName] = data.entries.slice(
+                            -MAX_ENTRIES_PER_FUNCTION,
+                        );
+                    }
+                } catch (err) {
+                    console.error(
+                        `Error loading performance data from ${file}:`,
+                        err,
+                    );
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Error loading performance data:", error);
+    }
+}
+
+// Initialize by loading existing data
+loadPerformanceData().catch((err) =>
+    console.error("Failed to load performance data:", err),
+);
+
+/**
+ * Calculates the median value from an array of numbers
+ */
+function calculateMedian(values: number[]): number {
+    if (values.length === 0) return 0;
+
+    const sorted = [...values].sort((a, b) => a - b);
+    const middle = Math.floor(sorted.length / 2);
+
+    if (sorted.length % 2 === 0) {
+        return (sorted[middle - 1] + sorted[middle]) / 2;
+    }
+
+    return sorted[middle];
+}
+
+/**
+ * Calculates average and median statistics for a function's performance data
+ */
+function calculateStats(functionName: string): PerformanceStats {
+    const entries = performanceHistory[functionName] || [];
+    if (entries.length === 0) {
+        return {
+            functionName,
+            totalInvocations: 0,
+            averageTotalDuration: 0,
+            medianTotalDuration: 0,
+            steps: {},
+            entries: [],
+        };
+    }
+
+    // Calculate total duration stats
+    const totalDurations = entries.map((entry) => entry.totalDuration);
+    const averageTotalDuration =
+        totalDurations.reduce((sum, duration) => sum + duration, 0) /
+        entries.length;
+    const medianTotalDuration = calculateMedian(totalDurations);
+
+    // Collect all step names across all entries
+    const allStepNames = new Set<string>();
+    entries.forEach((entry) => {
+        Object.keys(entry.steps).forEach((step) => allStepNames.add(step));
+    });
+
+    // Calculate step stats
+    const steps: Record<
+        string,
+        { average: number; median: number; percentOfTotal: number }
+    > = {};
+    allStepNames.forEach((stepName) => {
+        const stepDurations = entries
+            .filter((entry) => stepName in entry.steps)
+            .map((entry) => entry.steps[stepName]);
+
+        const average =
+            stepDurations.reduce((sum, duration) => sum + duration, 0) /
+            stepDurations.length;
+        const median = calculateMedian(stepDurations);
+        const percentOfTotal = (average / averageTotalDuration) * 100;
+
+        steps[stepName] = { average, median, percentOfTotal };
+    });
+
+    return {
+        functionName,
+        totalInvocations: entries.length,
+        averageTotalDuration,
+        medianTotalDuration,
+        steps,
+        entries: entries,
+    };
+}
+
+/**
+ * Returns the path to the performance logs directory
+ */
+function getPerformanceLogsPath(): string {
+    return path.join(app.getPath("userData"), "performance-logs");
+}
+
+async function writePerformanceLog(functionName: string, content: string) {
+    try {
+        const logsDir = getPerformanceLogsPath();
+
+        // Create directory if it doesn't exist
+        if (!fs.existsSync(logsDir)) {
+            fs.mkdirSync(logsDir, { recursive: true });
+        }
+
+        // Sanitize function name for use as filename
+        const sanitizedName = functionName.replace(/[^a-zA-Z0-9]/g, "_");
+        const filePath = path.join(logsDir, `${sanitizedName}.json`);
+
+        await fs.promises.writeFile(filePath, content, "utf8");
+        return { success: true, filePath };
+    } catch (error) {
+        console.error("Error writing performance log:", error);
+        return { success: false, error: error };
+    }
+}
+
+/**
+ * Writes performance statistics to a file for the given function
+ */
+async function writePerformanceStatsToFile(
+    functionName: string,
+): Promise<void> {
+    try {
+        const stats = calculateStats(functionName);
+        const content = JSON.stringify(stats, null, 2);
+        await writePerformanceLog(functionName, content);
+    } catch (error) {
+        console.error(
+            `Failed to write performance stats for ${functionName}:`,
+            error,
+        );
+    }
+}
+
+/**
+ * Adds a performance entry to the history and updates the stats file
+ */
+function addPerformanceEntry(
+    functionName: string,
+    totalDuration: number,
+    steps: Record<string, { duration: number; timestamp: number }>,
+): void {
+    if (!performanceHistory[functionName]) {
+        performanceHistory[functionName] = [];
+    }
+
+    // Create entry with step durations, excluding unnecessary info
+    const entry: PerformanceEntry = {
+        timestamp: Date.now(),
+        totalDuration,
+        steps: Object.entries(steps).reduce(
+            (acc, [name, data]) => {
+                acc[name] = data.duration;
+                return acc;
+            },
+            {} as Record<string, number>,
+        ),
+    };
+
+    // Add to history and limit size
+    performanceHistory[functionName].push(entry);
+    if (performanceHistory[functionName].length > MAX_ENTRIES_PER_FUNCTION) {
+        performanceHistory[functionName].shift();
+    }
+    writePerformanceStatsToFile(functionName);
 }
 
 /**
@@ -152,8 +384,8 @@ export function createPerformanceLogger(
             logOutputLines.push(mainLogEntries.join(",\n"));
             logOutputLines.push("}");
 
+            addPerformanceEntry(this.functionName, totalDuration, this.steps);
             console.log(logOutputLines.join("\n"));
-
             return resultToReturn; // Return the clean object, suitable for programmatic use
         },
     };

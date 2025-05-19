@@ -39,8 +39,12 @@ export function ExportSettings({
     isExporting,
     audioTracks = [],
 }: ExportSettingsProps) {
-    const [outputFormat, setOutputFormat] = React.useState<string>("mp4");
-    const [quality, setQuality] = React.useState<string>("medium");
+    const [outputFormat, setOutputFormat] = React.useState<string>(
+        getSetting("defaultExportFormat") || "mp4",
+    );
+    const [quality, setQuality] = React.useState<string>(
+        getSetting("defaultExportQuality") || "medium",
+    );
     const [qualityMode, setQualityMode] = React.useState<
         "preset" | "targetSize"
     >("preset");

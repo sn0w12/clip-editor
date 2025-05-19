@@ -95,6 +95,7 @@ export function ClipVideoPlayer({
     const pendingPlayRef = useRef<boolean>(false);
     const [showFullscreenControls, setShowFullscreenControls] = useState(false);
     const fullscreenControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const seekIncrement = useSetting("seekIncrement") || 5;
 
     const updateTimeSmooth = () => {
         const video = videoRef.current;
@@ -308,7 +309,7 @@ export function ClipVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
 
-        const newTime = Math.min(video.currentTime + 5, duration);
+        const newTime = Math.min(video.currentTime + seekIncrement, duration);
         video.currentTime = newTime;
         setCurrentTime(newTime);
     };
@@ -317,7 +318,7 @@ export function ClipVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
 
-        const newTime = Math.max(video.currentTime - 5, 0);
+        const newTime = Math.max(video.currentTime - seekIncrement, 0);
         video.currentTime = newTime;
         setCurrentTime(newTime);
     };
@@ -836,7 +837,7 @@ export function ClipVideoPlayer({
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom">
-                                        Skip back 5 seconds
+                                        Skip back {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
                                 <Tooltip>
@@ -870,7 +871,7 @@ export function ClipVideoPlayer({
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom">
-                                        Skip forward 5 seconds
+                                        Skip forward {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
                             </div>

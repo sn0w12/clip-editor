@@ -90,6 +90,39 @@ export const APP_SETTINGS = {
                 description:
                     "Choose the default audio track for video playback",
             },
+            defaultExportFormat: {
+                label: "Default Export Format",
+                type: "select",
+                options: [
+                    { label: "MP4 (H.264)", value: "mp4" },
+                    { label: "WebM", value: "webm" },
+                    { label: "GIF", value: "gif" },
+                ],
+                default: "mp4",
+                description: "Default format when exporting clips",
+            },
+            defaultExportQuality: {
+                label: "Default Export Quality",
+                type: "select",
+                options: [
+                    { label: "Low", value: "low" },
+                    { label: "Medium", value: "medium" },
+                    { label: "High", value: "high" },
+                    { label: "Original", value: "original" },
+                ],
+                default: "medium",
+                description: "Default quality setting when exporting clips",
+            },
+            seekIncrement: {
+                label: "Seek Increment",
+                type: "slider",
+                min: 1,
+                max: 60,
+                default: 5,
+                step: 1,
+                description:
+                    "Set the time increment for skip forward/backward buttons",
+            },
         },
     },
     shortcuts: {

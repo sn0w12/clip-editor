@@ -11,6 +11,9 @@ import {
 import { shell } from "electron";
 import { APP_CONFIG } from "./config";
 import { updateElectronApp } from "update-electron-app";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 if (require("electron-squirrel-startup")) app.quit();

@@ -240,6 +240,16 @@ function addPerformanceEntry(
 }
 
 /**
+ * Checks if performance logging to console is enabled
+ * @returns boolean indicating whether logging is enabled
+ */
+function isPerformanceLoggingEnabled(): boolean {
+    // Check for environment variable - allow various forms of "true" to enable
+    const envValue = process.env.PERFORMANCE_LOGGING;
+    return envValue === "true" || envValue === "1" || envValue === "yes";
+}
+
+/**
  * Creates a performance logger to track execution time of a function and its steps.
  * The logger provides methods to record timestamps for different steps of execution
  * and calculates the duration and percentage of total time for each step.
@@ -385,7 +395,12 @@ export function createPerformanceLogger(
             logOutputLines.push("}");
 
             addPerformanceEntry(this.functionName, totalDuration, this.steps);
-            console.log(logOutputLines.join("\n"));
+
+            // Only log to console if performance logging is enabled
+            if (isPerformanceLoggingEnabled()) {
+                console.log(logOutputLines.join("\n"));
+            }
+
             return resultToReturn; // Return the clean object, suitable for programmatic use
         },
     };

@@ -22,6 +22,7 @@ import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { getSetting } from "@/utils/settings";
 import { ExportButton } from "./export-button";
+import { formatTime } from "@/utils/format";
 
 interface ExportSettingsProps {
     videoMetadata: VideoMetadata | null;
@@ -183,13 +184,6 @@ export function ExportSettings({
         clipDuration,
         selectedAudioTracks,
     ]);
-
-    // Format time in MM:SS format
-    const formatTime = (seconds: number): string => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, "0")}`;
-    };
 
     const handleExport = (partialOptions?: Partial<ExportOptions>) => {
         const baseOptions: ExportOptions = {

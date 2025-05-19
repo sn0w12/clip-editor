@@ -30,6 +30,7 @@ import { AudioTrackSelector } from "./audio-track-selector";
 import { AudioVisualizer } from "./audio-visualizer";
 import { Separator } from "../ui/separator";
 import { useShortcut } from "@/hooks/use-shortcut";
+import { formatTime } from "@/utils/format";
 
 // Define constants for localStorage keys
 const STORAGE_KEYS = {
@@ -94,15 +95,6 @@ export function ClipVideoPlayer({
     const pendingPlayRef = useRef<boolean>(false);
     const [showFullscreenControls, setShowFullscreenControls] = useState(false);
     const fullscreenControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-    const formatTime = (timeInSeconds: number): string => {
-        const minutes = Math.floor(timeInSeconds / 60);
-        const seconds = Math.floor(timeInSeconds % 60);
-        const ms = Math.floor((timeInSeconds % 1) * 100);
-        return `${minutes.toString().padStart(2, "0")}:${seconds
-            .toString()
-            .padStart(2, "0")}.${ms.toString().padStart(2, "0")}`;
-    };
 
     const updateTimeSmooth = () => {
         const video = videoRef.current;
@@ -609,8 +601,13 @@ export function ClipVideoPlayer({
                                 <div className="flex items-center justify-between px-4">
                                     <div className="flex items-center gap-2 text-white">
                                         <span className="font-mono text-sm">
-                                            {formatTime(currentTime)} /{" "}
-                                            {formatTime(duration)}
+                                            {formatTime(currentTime, {
+                                                showMilliseconds: true,
+                                            })}{" "}
+                                            /{" "}
+                                            {formatTime(duration, {
+                                                showMilliseconds: true,
+                                            })}
                                         </span>
                                     </div>
 
@@ -794,7 +791,9 @@ export function ClipVideoPlayer({
                     <div className="relative mb-0 flex justify-between text-xs">
                         <div className="flex flex-col items-start">
                             <span className="font-mono">
-                                {formatTime(timeRange.start)}
+                                {formatTime(timeRange.start, {
+                                    showMilliseconds: true,
+                                })}
                             </span>
                             <Tooltip>
                                 <TooltipTrigger asChild>
@@ -814,7 +813,9 @@ export function ClipVideoPlayer({
                         </div>
                         <div className="absolute left-1/2 flex -translate-x-1/2 flex-col items-center">
                             <span className="font-mono">
-                                {formatTime(currentTime)}
+                                {formatTime(currentTime, {
+                                    showMilliseconds: true,
+                                })}
                             </span>
                             <div className="mt-1 flex items-center space-x-1">
                                 <Tooltip>
@@ -870,7 +871,9 @@ export function ClipVideoPlayer({
                         </div>
                         <div className="flex flex-col items-end">
                             <span className="font-mono">
-                                {formatTime(timeRange.end)}
+                                {formatTime(timeRange.end, {
+                                    showMilliseconds: true,
+                                })}
                             </span>
                             <div className="flex items-center space-x-1">
                                 <Tooltip>

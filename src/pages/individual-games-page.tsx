@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, Clock, Calendar, LayoutGrid } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useBadge } from "@/contexts/badge-context";
+import { formatTime } from "@/utils/format";
 
 export default function GameDetailPage() {
     const { gameName } = useParams({ from: "/games/$gameName" });
@@ -19,12 +20,6 @@ export default function GameDetailPage() {
     const { setBadgeContent, setBadgeVisible } = useBadge();
 
     const decodedGameName = decodeURIComponent(gameName);
-
-    const formatTime = (seconds: number): string => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, "0")}`;
-    };
 
     // Get game data
     const gameData = useMemo(() => {

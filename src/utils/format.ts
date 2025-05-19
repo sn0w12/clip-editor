@@ -14,3 +14,50 @@ export function formatFileSize(bytes: number, decimals: number = 2): string {
         parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + " " + sizes[i]
     );
 }
+
+/**
+ * Formats a time in seconds to a human-readable string
+ * @param timeInSeconds The time in seconds
+ * @param options Configuration options for the formatting
+ * @returns A formatted time string
+ */
+export function formatTime(
+    timeInSeconds: number,
+    options: {
+        showMilliseconds?: boolean;
+        showHours?: boolean;
+        padZeros?: boolean;
+        separator?: string;
+        msSeparator?: string;
+    } = {},
+): string {
+    const {
+        showMilliseconds = false,
+        showHours = false,
+        padZeros = true,
+        separator = ":",
+        msSeparator = ".",
+    } = options;
+
+    const hours = showHours ? Math.floor(timeInSeconds / 3600) : 0;
+    const minutes = Math.floor((timeInSeconds % 3600) / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    const ms = Math.floor((timeInSeconds % 1) * 100);
+
+    const pad = (num: number, size: number): string =>
+        padZeros ? num.toString().padStart(size, "0") : num.toString();
+
+    let result = "";
+
+    if (showHours || hours > 0) {
+        result += pad(hours, 2) + separator;
+    }
+
+    result += pad(minutes, 2) + separator + pad(seconds, 2);
+
+    if (showMilliseconds) {
+        result += msSeparator + pad(ms, 2);
+    }
+
+    return result;
+}

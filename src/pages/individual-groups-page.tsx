@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, Clock, Calendar, LayoutGrid } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useBadge } from "@/contexts/badge-context";
+import { formatTime } from "@/utils/format";
 
 export default function GroupDetailPage() {
     const { groupId } = useParams({ from: "/groups/$groupId" });
@@ -55,13 +56,6 @@ export default function GroupDetailPage() {
             return total + (metadata?.duration || 0);
         }, 0);
     }, [groupVideos, videoMetadata]);
-
-    // Format time helper
-    const formatTime = (seconds: number): string => {
-        const mins = Math.floor(seconds / 60);
-        const secs = Math.floor(seconds % 60);
-        return `${mins}:${secs.toString().padStart(2, "0")}`;
-    };
 
     // Get earliest and latest dates
     const dateRange = useMemo(() => {

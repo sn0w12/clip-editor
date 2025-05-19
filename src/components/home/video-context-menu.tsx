@@ -62,6 +62,8 @@ function VideoContextMenuBase({
     const { addCustomGame } = useSteam();
     const [isCustomGameDialogOpen, setIsCustomGameDialogOpen] = useState(false);
     const [customGameName, setCustomGameName] = useState("");
+    const [gameSearchTerm, setGameSearchTerm] = useState("");
+    const searchInputRef = React.useRef<HTMLInputElement>(null);
 
     function deleteVideosDescription(videoPaths: string[]) {
         const videoNames = videoPaths.map((path) => {
@@ -105,9 +107,21 @@ function VideoContextMenuBase({
             ? videos.find((v) => v.path === videoIds[0])?.game || "Unknown"
             : "";
 
+    // Filter games based on search term
+    const filteredGames = sortedGames.filter((game) =>
+        game.name.toLowerCase().includes(gameSearchTerm.toLowerCase()),
+    );
+
+    // Reset search when context menu closes
+    const handleContextMenuOpenChange = (open: boolean) => {
+        if (!open) {
+            setGameSearchTerm("");
+        }
+    };
+
     return (
         <>
-            <ContextMenu>
+            <ContextMenu onOpenChange={handleContextMenuOpenChange}>
                 <ContextMenuTrigger>{children}</ContextMenuTrigger>
                 <ContextMenuContent className="w-56">
                     <ContextMenuItem
@@ -131,7 +145,32 @@ function VideoContextMenuBase({
                             <Gamepad2 size={16} />
                             Set Game
                         </ContextMenuSubTrigger>
-                        <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+                        <ContextMenuSubContent
+                            className="max-h-80 w-56 overflow-y-auto"
+                            onAnimationStart={() => {
+                                // Focus search input when submenu opens
+                                setTimeout(() => {
+                                    searchInputRef.current?.focus();
+                                }, 100);
+                            }}
+                        >
+                            <Input
+                                ref={searchInputRef}
+                                placeholder="Search game..."
+                                value={gameSearchTerm}
+                                onChange={(e) => {
+                                    e.stopPropagation();
+                                    setGameSearchTerm(e.target.value);
+                                }}
+                                onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                }}
+                                className="h-8"
+                            />
+
                             <ContextMenuItem
                                 className="flex items-center gap-2"
                                 onClick={() => setIsCustomGameDialogOpen(true)}
@@ -140,9 +179,11 @@ function VideoContextMenuBase({
                                 Custom Game...
                             </ContextMenuItem>
 
-                            {sortedGames.length > 0 && <ContextMenuSeparator />}
+                            {filteredGames.length > 0 && (
+                                <ContextMenuSeparator />
+                            )}
 
-                            {sortedGames.map((game) => (
+                            {filteredGames.map((game) => (
                                 <ContextMenuItem
                                     key={game.slug}
                                     className="flex items-center justify-between"
@@ -161,6 +202,12 @@ function VideoContextMenuBase({
                                     )}
                                 </ContextMenuItem>
                             ))}
+
+                            {filteredGames.length === 0 && gameSearchTerm && (
+                                <div className="text-muted-foreground px-2 py-1.5 text-center text-sm">
+                                    No games found
+                                </div>
+                            )}
                         </ContextMenuSubContent>
                     </ContextMenuSub>
 

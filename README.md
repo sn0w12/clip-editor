@@ -19,6 +19,14 @@ A desktop application for editing, managing, and organizing your video clips. Bu
 - **Export Options**: Export clips with customizable settings
 - **Steam Integration**: View game artwork and metadata for your clips
 
+## Screenshots
+
+![Main interface](./screenshots/clips-page.png)
+*The main clip browser interface*
+
+![Clip editor](./screenshots/editor-page.png)
+*The clip editing interface*
+
 ## Installation
 
 ### From Releases

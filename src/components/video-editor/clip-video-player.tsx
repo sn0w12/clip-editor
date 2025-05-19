@@ -71,6 +71,9 @@ export function ClipVideoPlayer({
     const [isLoading, setIsLoading] = useState(true);
     const [isSeeking, setIsSeeking] = useState(false);
     const [isAudioTrackReady, setIsAudioTrackReady] = useState(false);
+    const [isMouseDown, setIsMouseDown] = useState(false);
+    const mouseDownTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const isSpeedingUp = useRef<boolean>(false);
     // Load settings from localStorage with defaults
     const [playSelectedOnly, setPlaySelectedOnly] = useState(() => {
         const saved = localStorage.getItem(STORAGE_KEYS.PLAY_SELECTED_ONLY);
@@ -114,7 +117,7 @@ export function ClipVideoPlayer({
 
     const togglePlayPause = () => {
         const video = videoRef.current;
-        if (!video) return;
+        if (!video || isMouseDown) return;
 
         if (isPlaying) {
             video.pause();
@@ -489,6 +492,57 @@ export function ClipVideoPlayer({
         }, 200);
     };
 
+    const handleMouseDown = useCallback(() => {
+        if (!isPlaying || !videoRef.current) return;
+
+        // Clear any existing timer
+        if (mouseDownTimerRef.current) {
+            clearTimeout(mouseDownTimerRef.current);
+        }
+
+        // Set a delay before changing playback rate
+        mouseDownTimerRef.current = setTimeout(() => {
+            if (videoRef.current && isPlaying) {
+                setIsMouseDown(true);
+                videoRef.current.playbackRate = getSetting("holdSpeed") || 2.0;
+                isSpeedingUp.current = true;
+            }
+        }, 300); // 300ms delay before enabling higher speed
+    }, [isPlaying]);
+
+    const handleMouseUp = useCallback(() => {
+        if (!videoRef.current) return;
+
+        setTimeout(() => {
+            setIsMouseDown(false);
+        }, 10); // Delay to ensure mouse up is processed after mouse down
+
+        // Clear the timer if it hasn't triggered yet
+        if (mouseDownTimerRef.current) {
+            clearTimeout(mouseDownTimerRef.current);
+            mouseDownTimerRef.current = null;
+        }
+
+        // Only reset playback rate without pausing
+        if (isSpeedingUp.current) {
+            videoRef.current.playbackRate = 1.0;
+            isSpeedingUp.current = false;
+        }
+    }, []);
+
+    useEffect(() => {
+        // Add mouse up event listener to document to handle cases when mouse is released outside the video
+        document.addEventListener("mouseup", handleMouseUp);
+
+        return () => {
+            document.removeEventListener("mouseup", handleMouseUp);
+            // Clean up timer if component unmounts
+            if (mouseDownTimerRef.current) {
+                clearTimeout(mouseDownTimerRef.current);
+            }
+        };
+    }, [handleMouseUp]);
+
     return (
         <>
             <div className="flex w-full flex-col">
@@ -518,6 +572,8 @@ export function ClipVideoPlayer({
                         className="h-full w-full"
                         src={videoSrc}
                         onClick={togglePlayPause}
+                        onMouseDown={handleMouseDown}
+                        onMouseUp={handleMouseUp}
                         onDoubleClick={toggleFullScreen}
                         onEnded={() => {
                             setIsPlaying(false);

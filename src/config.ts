@@ -123,6 +123,16 @@ export const APP_SETTINGS = {
                 description:
                     "Set the time increment for skip forward/backward buttons",
             },
+            holdSpeed: {
+                label: "Hold Speed",
+                type: "slider",
+                min: 1,
+                max: 10,
+                default: 2,
+                step: 0.1,
+                description:
+                    "Set the speed multiplier when holding down the video",
+            },
         },
     },
     shortcuts: {

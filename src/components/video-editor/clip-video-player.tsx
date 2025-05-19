@@ -720,31 +720,16 @@ export function ClipVideoPlayer({
                                         </Tooltip>
 
                                         <div className="relative w-20">
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Slider
-                                                        value={[
-                                                            isMuted
-                                                                ? 0
-                                                                : volume,
-                                                        ]}
-                                                        min={0}
-                                                        max={1}
-                                                        step={0.01}
-                                                        onValueChange={(
-                                                            value,
-                                                        ) =>
-                                                            handleVolumeChange(
-                                                                value,
-                                                            )
-                                                        }
-                                                        className="h-1.5"
-                                                    />
-                                                </TooltipTrigger>
-                                                <TooltipContent side="top">
-                                                    Adjust volume
-                                                </TooltipContent>
-                                            </Tooltip>
+                                            <Slider
+                                                value={[isMuted ? 0 : volume]}
+                                                min={0}
+                                                max={1}
+                                                step={0.01}
+                                                onValueChange={(value) =>
+                                                    handleVolumeChange(value)
+                                                }
+                                                className="h-1.5"
+                                            />
                                         </div>
 
                                         <Tooltip>
@@ -1029,32 +1014,17 @@ export function ClipVideoPlayer({
                                         }}
                                     >
                                         <Card className="w-7 p-2">
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <Slider
-                                                        value={[
-                                                            isMuted
-                                                                ? 0
-                                                                : volume,
-                                                        ]}
-                                                        orientation="vertical"
-                                                        min={0}
-                                                        max={1}
-                                                        step={0.01}
-                                                        onValueChange={(
-                                                            value,
-                                                        ) =>
-                                                            handleVolumeChange(
-                                                                value,
-                                                            )
-                                                        }
-                                                        className="h-20 w-full"
-                                                    />
-                                                </TooltipTrigger>
-                                                <TooltipContent side="right">
-                                                    Adjust volume
-                                                </TooltipContent>
-                                            </Tooltip>
+                                            <Slider
+                                                value={[isMuted ? 0 : volume]}
+                                                orientation="vertical"
+                                                min={0}
+                                                max={1}
+                                                step={0.01}
+                                                onValueChange={(value) =>
+                                                    handleVolumeChange(value)
+                                                }
+                                                className="h-20 w-full"
+                                            />
                                         </Card>
                                     </div>
                                 </div>

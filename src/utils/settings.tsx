@@ -598,9 +598,27 @@ export function renderInput(
                 const value = parseInt(getSettingValue(setting) as string);
                 return (
                     <div className="flex w-full flex-col gap-2">
-                        <div className="flex justify-between">
+                        <div className="flex items-center justify-between">
                             <span>{sliderSetting.min}</span>
-                            <span className="font-medium">{value}</span>
+                            <input
+                                className="bg-background w-12 border-0 text-center font-medium"
+                                type="number"
+                                max={sliderSetting.max}
+                                min={sliderSetting.min}
+                                value={value.toString()}
+                                size={value.toString().length}
+                                onChange={(e) => {
+                                    const newValue = parseInt(e.target.value);
+                                    if (!isNaN(newValue)) {
+                                        setting.onChange?.(
+                                            Math.min(
+                                                newValue,
+                                                sliderSetting.max,
+                                            ).toString(),
+                                        );
+                                    }
+                                }}
+                            />
                             <span>{sliderSetting.max}</span>
                         </div>
                         <Slider

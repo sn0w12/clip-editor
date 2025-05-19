@@ -29,6 +29,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     const [isDragging, setIsDragging] = useState(false);
     const [isDraggingStart, setIsDraggingStart] = useState(false);
     const [isDraggingEnd, setIsDraggingEnd] = useState(false);
+    const [isScrubbing, setIsScrubbing] = useState(false);
     const [key, setKey] = useState(`${videoPath}-${audioTrack}`);
 
     // Update the key when videoPath or audioTrack changes to force re-render of waveform
@@ -61,6 +62,21 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         onTimeChange(newTime);
     };
 
+    // Start scrubbing
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (isDraggingStart || isDraggingEnd) return;
+
+        setIsScrubbing(true);
+
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+
+        const x = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, x / rect.width));
+        const newTime = percentage * duration;
+        onTimeChange(newTime);
+    };
+
     // Handle range marker changes
     const handleRangeMarkerChange = (type: "start" | "end", value: number) => {
         if (type === "start") {
@@ -80,7 +96,10 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         const handleMouseMove = (e: MouseEvent) => {
             if (
                 !containerRef.current ||
-                (!isDraggingStart && !isDraggingEnd && !isDragging)
+                (!isDraggingStart &&
+                    !isDraggingEnd &&
+                    !isDragging &&
+                    !isScrubbing)
             )
                 return;
 
@@ -93,7 +112,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                 handleRangeMarkerChange("start", newValue);
             } else if (isDraggingEnd) {
                 handleRangeMarkerChange("end", newValue);
-            } else if (isDragging) {
+            } else if (isDragging || isScrubbing) {
                 onTimeChange(newValue);
             }
         };
@@ -102,6 +121,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             setIsDragging(false);
             setIsDraggingStart(false);
             setIsDraggingEnd(false);
+            setIsScrubbing(false);
         };
 
         window.addEventListener("mousemove", handleMouseMove);
@@ -115,6 +135,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         isDragging,
         isDraggingStart,
         isDraggingEnd,
+        isScrubbing,
         duration,
         onTimeChange,
         onTimeRangeChange,
@@ -134,8 +155,12 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     return (
         <div
             ref={containerRef}
-            className="relative h-10 w-full cursor-pointer transition-all duration-200 hover:brightness-110"
+            className={cn(
+                "relative h-10 w-full cursor-pointer transition-all duration-200 hover:brightness-110",
+                isScrubbing && "cursor-grabbing",
+            )}
             onClick={handleContainerClick}
+            onMouseDown={handleMouseDown}
         >
             {/* Base waveform (unselected areas) */}
             <div className="relative h-full w-full">
@@ -170,7 +195,10 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             </div>
             {/* Current time indicator */}
             <div
-                className="bg-primary absolute top-0 z-10 h-full w-0.5"
+                className={cn(
+                    "bg-primary absolute top-0 z-10 h-full w-0.5",
+                    isScrubbing && "bg-accent-warning",
+                )}
                 style={{ left: `${currentTimePercent}%` }}
             />
             {/* Start marker */}

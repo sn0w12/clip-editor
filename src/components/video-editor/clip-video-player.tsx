@@ -455,6 +455,39 @@ export function ClipVideoPlayer({
         };
     }, []);
 
+    const handleTimeChange = (newTime: number) => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        setCurrentTime(newTime);
+        video.currentTime = newTime;
+
+        // If video is playing, we'll pause it during scrubbing
+        if (!video.paused) {
+            pendingPlayRef.current = true;
+            video.pause();
+        }
+
+        // Clear any existing timeout to prevent multiple executions
+        if (fullscreenControlsTimeoutRef.current) {
+            clearTimeout(fullscreenControlsTimeoutRef.current);
+        }
+
+        // Set a timeout to clear the scrubbing state
+        setTimeout(() => {
+            // If we were playing before scrubbing started, resume playback
+            if (pendingPlayRef.current) {
+                pendingPlayRef.current = false;
+                video.play().catch((error) => {
+                    console.warn(
+                        "Failed to resume playback after scrubbing",
+                        error,
+                    );
+                });
+            }
+        }, 200);
+    };
+
     return (
         <>
             <div className="flex w-full flex-col">
@@ -767,19 +800,7 @@ export function ClipVideoPlayer({
                             currentTime={currentTime}
                             duration={duration}
                             timeRange={timeRange}
-                            onTimeChange={(newTime) => {
-                                const video = videoRef.current;
-                                if (!video) return;
-
-                                setIsSeeking(true);
-                                video.currentTime = newTime;
-                                setCurrentTime(newTime);
-
-                                if (!video.paused) {
-                                    pendingPlayRef.current = true;
-                                    video.pause();
-                                }
-                            }}
+                            onTimeChange={handleTimeChange}
                             onTimeRangeChange={onTimeRangeChange}
                             audioTrack={selectedAudioTrack}
                             waveformHeight={150}

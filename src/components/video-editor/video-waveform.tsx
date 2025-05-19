@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import { useEffect, useRef, useState } from "react";
 
 interface AudioWaveformProps {
@@ -13,7 +13,53 @@ interface AudioWaveformProps {
     minBarHeight?: number;
 }
 
-export const VideoWaveform = ({
+function useAudioWaveform(
+    videoPath: string,
+    sampleCount: number,
+    audioTrack: number,
+) {
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [waveformKey, setWaveformKey] = useState(`waveform-${audioTrack}`);
+    const [waveformData, setWaveformData] = useState<Float32Array | null>(null);
+
+    const fetchWaveformData = useCallback(async () => {
+        if (!videoPath) return;
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const data = await window.audioWaveform.extractWaveform(
+                videoPath,
+                sampleCount,
+                audioTrack,
+            );
+
+            if (!data) {
+                throw new Error("Failed to extract waveform data");
+            }
+
+            setWaveformData(data);
+            setWaveformKey(`waveform-${audioTrack}-${Date.now()}`);
+            setIsLoading(false);
+        } catch (err) {
+            console.error("Error generating waveform:", err);
+            setError(
+                err instanceof Error ? err.message : "Unknown error occurred",
+            );
+            setIsLoading(false);
+        }
+    }, [videoPath, sampleCount, audioTrack]);
+
+    useEffect(() => {
+        fetchWaveformData();
+    }, [fetchWaveformData]);
+
+    return { isLoading, error, waveformData, waveformKey };
+}
+
+const VideoWaveformComponent = ({
     videoPath,
     height = 100,
     width = 600,
@@ -26,48 +72,11 @@ export const VideoWaveform = ({
 }: AudioWaveformProps) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [waveformKey, setWaveformKey] = useState(`waveform-${audioTrack}`);
-    const [waveformData, setWaveformData] = useState<Float32Array | null>(null);
-
-    // Effect to fetch waveform data when audioTrack changes
-    useEffect(() => {
-        const fetchWaveformData = async () => {
-            if (!videoPath) return;
-
-            setIsLoading(true);
-            setError(null);
-
-            try {
-                // Extract waveform data using IPC function
-                const data = await window.audioWaveform.extractWaveform(
-                    videoPath,
-                    sampleCount,
-                    audioTrack,
-                );
-
-                if (!data) {
-                    throw new Error("Failed to extract waveform data");
-                }
-
-                setWaveformData(data);
-                setWaveformKey(`waveform-${audioTrack}-${Date.now()}`);
-
-                setIsLoading(false);
-            } catch (err) {
-                console.error("Error generating waveform:", err);
-                setError(
-                    err instanceof Error
-                        ? err.message
-                        : "Unknown error occurred",
-                );
-                setIsLoading(false);
-            }
-        };
-
-        fetchWaveformData();
-    }, [videoPath, sampleCount, audioTrack]);
+    const { isLoading, error, waveformData, waveformKey } = useAudioWaveform(
+        videoPath,
+        sampleCount,
+        audioTrack,
+    );
 
     // Effect to render waveform data to canvas when data changes
     useEffect(() => {
@@ -168,3 +177,5 @@ export const VideoWaveform = ({
         </div>
     );
 };
+
+export const VideoWaveform = React.memo(VideoWaveformComponent);

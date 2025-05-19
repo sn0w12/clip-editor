@@ -156,6 +156,9 @@ function BaseLayoutContent({
                 >
                     <Breadcrumb>
                         <BreadcrumbList>
+                            {inDevelopment && (
+                                <div className="bg-accent-negative h-2 w-2 rounded-full"></div>
+                            )}
                             {segments.map((segment, index) => (
                                 <React.Fragment key={index}>
                                     {index != 0 && <BreadcrumbSeparator />}

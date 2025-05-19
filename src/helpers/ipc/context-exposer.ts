@@ -5,6 +5,7 @@ import { exposeVideoEditorContext } from "./videos/video-editor-context";
 import { exposeAudioWaveformContext } from "./videos/audio-waveform-context";
 import { exposeSteamContext } from "./steam/steam-context";
 import { exposeDirectoryWatcherContext } from "./videos/directory-watcher-context";
+import { exposePerformanceContext } from "./performance/performance-context";
 
 export default function exposeContexts() {
     exposeWindowContext();
@@ -14,4 +15,5 @@ export default function exposeContexts() {
     exposeAudioWaveformContext();
     exposeSteamContext();
     exposeDirectoryWatcherContext();
+    exposePerformanceContext();
 }

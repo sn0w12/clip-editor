@@ -228,6 +228,26 @@ function BaseLayoutContent({
                                     <span>Groups</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
+
+                            {inDevelopment && (
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton
+                                        tooltip="Performance"
+                                        onClick={() =>
+                                            navigate({
+                                                to: "/performance",
+                                            })
+                                        }
+                                        isActive={
+                                            router.state.location.pathname ===
+                                            "/performance"
+                                        }
+                                    >
+                                        <div className="bg-accent-negative h-2 w-2 rounded-full"></div>
+                                        <span>Performance</span>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            )}
                         </SidebarMenu>
                     </SidebarContent>
                     <SidebarFooter>

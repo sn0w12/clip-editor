@@ -106,6 +106,19 @@ interface SteamAPI {
     ) => Promise<GameImage | null>;
 }
 
+interface PerformanceAPI {
+    getAllData: () => Promise<{
+        success: boolean;
+        data: Record<string, unknown>;
+        error?: string;
+    }>;
+    getFunctionData: (functionName: string) => Promise<{
+        success: boolean;
+        data: unknown;
+        error?: string;
+    }>;
+}
+
 declare interface Window {
     themeMode: ThemeModeContext;
     electronWindow: ElectronWindow;
@@ -119,6 +132,7 @@ declare interface Window {
     videoEditor: VideoEditorAPI;
     audioWaveform: AudioWaveformAPI;
     steam: SteamAPI;
+    performanceMonitor: PerformanceAPI;
     directoryWatcher: DirectoryWatcherAPI;
     __REDUX_DEVTOOLS_EXTENSION__?: unknown;
 }

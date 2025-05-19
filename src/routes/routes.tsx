@@ -8,6 +8,7 @@ import GamesPage from "@/pages/games-page";
 import GameDetailPage from "@/pages/individual-games-page";
 import GroupsPage from "@/pages/groups-page";
 import GroupDetailPage from "@/pages/individual-groups-page";
+import PerformancePage from "@/pages/performace-page";
 
 // TODO: Steps to add a new route:
 // 1. Create a new page component in the '../pages/' directory (e.g., NewPage.tsx)
@@ -82,6 +83,12 @@ export const GroupDetailRoute = createRoute({
     component: GroupDetailPage,
 });
 
+export const PerformanceRoute = createRoute({
+    getParentRoute: () => RootRoute,
+    path: "/performance",
+    component: PerformancePage,
+});
+
 export const rootTree = RootRoute.addChildren([
     HomeRoute,
     SettingsRoute,
@@ -91,4 +98,5 @@ export const rootTree = RootRoute.addChildren([
     GameDetailRoute,
     GroupsRoute,
     GroupDetailRoute,
+    PerformanceRoute,
 ]);

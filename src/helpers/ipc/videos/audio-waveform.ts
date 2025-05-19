@@ -15,7 +15,11 @@ export function addAudioWaveformListeners() {
             sampleCount: number = 1000,
             audioTrack: number = 0,
         ): Promise<Float32Array | null> => {
-            const perfLogger = createPerformanceLogger();
+            const perfLogger = createPerformanceLogger("extract-waveform", {
+                videoPath,
+                sampleCount,
+                audioTrack,
+            });
 
             try {
                 // Convert protocol URL to file path if needed
@@ -194,8 +198,7 @@ export function addAudioWaveformListeners() {
                     }
                 }
                 perfLogger.addStep("smoothing-and-peak-normalization");
-
-                perfLogger.end({ sampleCount, audioTrackIndex: audioTrack });
+                perfLogger.end();
                 return smoothedResult;
             } catch (error) {
                 console.error("Error extracting waveform data:", error);

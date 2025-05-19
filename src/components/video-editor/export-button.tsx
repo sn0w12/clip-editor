@@ -110,7 +110,7 @@ export function ExportButton({
                 <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuItem
                         disabled
-                        className="text-muted-foreground font-semibold"
+                        className="text-primary font-semibold !opacity-100"
                     >
                         Export Presets
                     </DropdownMenuItem>

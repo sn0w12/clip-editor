@@ -33,19 +33,16 @@ export const APP_SETTINGS = {
                 },
                 description: "Choose the theme for the application",
             },
-            defaultAudioTrack: {
-                label: "Default Audio Track",
+            windowIconsStyle: {
+                label: "Window Controls Style",
                 type: "select",
                 options: [
-                    { label: "Track 1", value: "0" },
-                    { label: "Track 2", value: "1" },
-                    { label: "Track 3", value: "2" },
-                    { label: "Track 4", value: "3" },
-                    { label: "Track 5", value: "4" },
+                    { label: "Custom", value: "custom" },
+                    { label: "Traditional", value: "traditional" },
                 ],
-                default: "0",
+                default: "custom",
                 description:
-                    "Choose the default audio track for video playback",
+                    "Choose between custom or traditional window control icons",
             },
             steamDirectory: {
                 label: "Steam Directory",
@@ -74,16 +71,24 @@ export const APP_SETTINGS = {
                 description:
                     "Choose the negative accent color for the application",
             },
-            windowIconsStyle: {
-                label: "Window Controls Style",
+        },
+    },
+    editor: {
+        label: "Editor",
+        settings: {
+            defaultAudioTrack: {
+                label: "Default Audio Track",
                 type: "select",
                 options: [
-                    { label: "Custom", value: "custom" },
-                    { label: "Traditional", value: "traditional" },
+                    { label: "Track 1", value: "0" },
+                    { label: "Track 2", value: "1" },
+                    { label: "Track 3", value: "2" },
+                    { label: "Track 4", value: "3" },
+                    { label: "Track 5", value: "4" },
                 ],
-                default: "custom",
+                default: "0",
                 description:
-                    "Choose between custom or traditional window control icons",
+                    "Choose the default audio track for video playback",
             },
         },
     },

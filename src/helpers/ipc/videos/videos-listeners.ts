@@ -131,7 +131,7 @@ export function addVideosEventListeners() {
             await fs.access(thumbnailPath);
 
             perfLog.addStep("returnExistingThumbnail");
-            perfLog.end({ fromCache: true });
+            perfLog.end({ cache: true });
             // Return just the path to be used with the custom protocol
             return thumbnailPath;
         } catch {
@@ -160,7 +160,7 @@ export function addVideosEventListeners() {
                 await screenshot(videoPath, thumbnailPath);
 
                 perfLog.addStep("returnNewThumbnail");
-                perfLog.end({ fromCache: false });
+                perfLog.end({ cache: false });
                 // Return just the path to be used with the custom protocol
                 return thumbnailPath;
             } catch (thumbnailError) {

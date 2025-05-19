@@ -71,6 +71,7 @@ interface PerformanceEntry {
     timestamp: number;
     totalDuration: number;
     steps: Record<string, number>;
+    cached?: boolean;
 }
 
 interface PerformanceData {
@@ -98,6 +99,9 @@ export default function PerformancePage() {
     const [expandedEntries, setExpandedEntries] = useState<
         Record<string, boolean>
     >({});
+    const [cacheView, setCacheView] = useState<"all" | "cached" | "uncached">(
+        "all",
+    );
 
     const loadPerformanceData = async () => {
         setIsLoading(true);
@@ -268,6 +272,190 @@ export default function PerformancePage() {
             return `${(time / 1000).toFixed(2)}s`;
         }
         return `${time.toFixed(2)}ms`;
+    };
+
+    // Function to filter entries based on cache status
+    const filterEntriesByCacheStatus = (
+        entries: PerformanceEntry[],
+    ): PerformanceEntry[] => {
+        if (cacheView === "all") return entries;
+        if (cacheView === "cached")
+            return entries.filter((entry) => entry.cached);
+        return entries.filter((entry) => !entry.cached);
+    };
+
+    // Get filtered entries for the selected function
+    const getFilteredEntries = useMemo(() => {
+        if (!selectedFunctionData) return [];
+        return filterEntriesByCacheStatus(selectedFunctionData.entries);
+    }, [selectedFunctionData, cacheView]);
+
+    // Check if the selected function has cached data
+    const hasCachedData = useMemo(() => {
+        if (!selectedFunctionData) return false;
+        return selectedFunctionData.entries.some((entry) => entry.cached);
+    }, [selectedFunctionData]);
+
+    // Check if the selected function has uncached data
+    const hasUncachedData = useMemo(() => {
+        if (!selectedFunctionData) return false;
+        return selectedFunctionData.entries.some((entry) => !entry.cached);
+    }, [selectedFunctionData]);
+
+    // Calculate average duration for filtered entries
+    const calculateAverageDuration = (entries: PerformanceEntry[]): number => {
+        if (entries.length === 0) return 0;
+        return (
+            entries.reduce((sum, entry) => sum + entry.totalDuration, 0) /
+            entries.length
+        );
+    };
+
+    // Prepare chart data for comparison between cached and uncached
+    const cacheComparisonData = useMemo(() => {
+        if (!selectedFunctionData || !hasCachedData || !hasUncachedData)
+            return [];
+
+        const cachedEntries = selectedFunctionData.entries.filter(
+            (entry) => entry.cached,
+        );
+        const uncachedEntries = selectedFunctionData.entries.filter(
+            (entry) => !entry.cached,
+        );
+
+        const cachedDuration = calculateAverageDuration(cachedEntries);
+        const uncachedDuration = calculateAverageDuration(uncachedEntries);
+
+        // Get all step names across both cached and uncached entries
+        const allStepNames = new Set<string>();
+        cachedEntries.forEach((entry) =>
+            Object.keys(entry.steps).forEach((step) => allStepNames.add(step)),
+        );
+        uncachedEntries.forEach((entry) =>
+            Object.keys(entry.steps).forEach((step) => allStepNames.add(step)),
+        );
+
+        // Calculate average step durations
+        const result = Array.from(allStepNames).map((step) => {
+            const cachedSteps = cachedEntries.filter(
+                (entry) => step in entry.steps,
+            );
+            const uncachedSteps = uncachedEntries.filter(
+                (entry) => step in entry.steps,
+            );
+
+            const cachedAvg =
+                cachedSteps.length > 0
+                    ? cachedSteps.reduce(
+                          (sum, entry) => sum + entry.steps[step],
+                          0,
+                      ) / cachedSteps.length
+                    : 0;
+
+            const uncachedAvg =
+                uncachedSteps.length > 0
+                    ? uncachedSteps.reduce(
+                          (sum, entry) => sum + entry.steps[step],
+                          0,
+                      ) / uncachedSteps.length
+                    : 0;
+
+            return {
+                name: step.length > 20 ? `${step.substring(0, 18)}...` : step,
+                fullName: step,
+                cached: cachedAvg,
+                uncached: uncachedAvg,
+                difference: uncachedAvg - cachedAvg,
+                improvement:
+                    uncachedAvg > 0
+                        ? ((uncachedAvg - cachedAvg) / uncachedAvg) * 100
+                        : 0,
+            };
+        });
+
+        // Add total duration comparison
+        result.unshift({
+            name: "Total",
+            fullName: "Total Duration",
+            cached: cachedDuration,
+            uncached: uncachedDuration,
+            difference: uncachedDuration - cachedDuration,
+            improvement:
+                uncachedDuration > 0
+                    ? ((uncachedDuration - cachedDuration) / uncachedDuration) *
+                      100
+                    : 0,
+        });
+
+        return result.sort((a, b) => b.difference - a.difference);
+    }, [selectedFunctionData, hasCachedData, hasUncachedData]);
+
+    // Compute stats based on filtered entries
+    const computeFilteredStats = useMemo(() => {
+        if (!selectedFunctionData) return null;
+
+        const filteredEntries = getFilteredEntries;
+        if (filteredEntries.length === 0) return null;
+
+        const avgDuration = calculateAverageDuration(filteredEntries);
+
+        // Get all step names
+        const stepNames = new Set<string>();
+        filteredEntries.forEach((entry) =>
+            Object.keys(entry.steps).forEach((step) => stepNames.add(step)),
+        );
+
+        // Calculate step stats
+        const stepStats: Record<
+            string,
+            { average: number; percentage: number }
+        > = {};
+        stepNames.forEach((step) => {
+            const entriesWithStep = filteredEntries.filter(
+                (entry) => step in entry.steps,
+            );
+            if (entriesWithStep.length > 0) {
+                const avgStepDuration =
+                    entriesWithStep.reduce(
+                        (sum, entry) => sum + entry.steps[step],
+                        0,
+                    ) / entriesWithStep.length;
+                stepStats[step] = {
+                    average: avgStepDuration,
+                    percentage:
+                        avgDuration > 0
+                            ? (avgStepDuration / avgDuration) * 100
+                            : 0,
+                };
+            }
+        });
+
+        return {
+            count: filteredEntries.length,
+            avgDuration,
+            stepStats,
+        };
+    }, [selectedFunctionData, getFilteredEntries]);
+
+    // Update the chart data based on the filtered entries
+    const filteredStepChartData = useMemo(() => {
+        if (!computeFilteredStats || !selectedFunctionData) return [];
+
+        return Object.entries(computeFilteredStats.stepStats)
+            .map(([name, stats]) => ({
+                name: name.length > 20 ? `${name.substring(0, 18)}...` : name,
+                fullName: name,
+                average: stats.average,
+                percentage: stats.percentage,
+            }))
+            .sort((a, b) => b.average - a.average);
+    }, [computeFilteredStats, selectedFunctionData]);
+
+    // Get the cache view label for display
+    const getCacheTypeLabel = () => {
+        if (cacheView === "all") return "All Executions";
+        if (cacheView === "cached") return "Cached Executions";
+        return "Uncached Executions";
     };
 
     return (
@@ -464,6 +652,37 @@ export default function PerformancePage() {
                                             </CardDescription>
                                         </div>
                                         <div className="flex items-center gap-2">
+                                            {hasCachedData &&
+                                                hasUncachedData && (
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="flex items-center gap-1 bg-amber-100 dark:bg-amber-950"
+                                                    >
+                                                        <Clock className="h-3 w-3" />
+                                                        {(
+                                                            ((calculateAverageDuration(
+                                                                selectedFunctionData.entries.filter(
+                                                                    (e) =>
+                                                                        !e.cached,
+                                                                ),
+                                                            ) -
+                                                                calculateAverageDuration(
+                                                                    selectedFunctionData.entries.filter(
+                                                                        (e) =>
+                                                                            e.cached,
+                                                                    ),
+                                                                )) /
+                                                                calculateAverageDuration(
+                                                                    selectedFunctionData.entries.filter(
+                                                                        (e) =>
+                                                                            !e.cached,
+                                                                    ),
+                                                                )) *
+                                                            100
+                                                        ).toFixed(0)}
+                                                        % faster with cache
+                                                    </Badge>
+                                                )}
                                             <Badge
                                                 variant="outline"
                                                 className="flex items-center gap-1"
@@ -484,11 +703,60 @@ export default function PerformancePage() {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="pb-0">
+                                    {/* Cache type selector */}
+                                    {hasCachedData && hasUncachedData && (
+                                        <div className="mb-4">
+                                            <Tabs
+                                                value={cacheView}
+                                                onValueChange={(v) =>
+                                                    setCacheView(
+                                                        v as
+                                                            | "all"
+                                                            | "cached"
+                                                            | "uncached",
+                                                    )
+                                                }
+                                                className="w-full"
+                                            >
+                                                <TabsList className="grid w-full grid-cols-3">
+                                                    <TabsTrigger value="all">
+                                                        All (
+                                                        {
+                                                            selectedFunctionData
+                                                                .entries.length
+                                                        }
+                                                        )
+                                                    </TabsTrigger>
+                                                    <TabsTrigger value="cached">
+                                                        Cached (
+                                                        {
+                                                            selectedFunctionData.entries.filter(
+                                                                (e) => e.cached,
+                                                            ).length
+                                                        }
+                                                        )
+                                                    </TabsTrigger>
+                                                    <TabsTrigger value="uncached">
+                                                        Uncached (
+                                                        {
+                                                            selectedFunctionData.entries.filter(
+                                                                (e) =>
+                                                                    !e.cached,
+                                                            ).length
+                                                        }
+                                                        )
+                                                    </TabsTrigger>
+                                                </TabsList>
+                                            </Tabs>
+                                        </div>
+                                    )}
+
                                     <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
                                         <Card>
                                             <CardHeader className="px-4 py-3">
                                                 <CardTitle className="text-sm font-medium">
-                                                    Average Duration
+                                                    {getCacheTypeLabel()}{" "}
+                                                    Average
                                                 </CardTitle>
                                             </CardHeader>
                                             <CardContent className="px-4 py-2">
@@ -496,14 +764,25 @@ export default function PerformancePage() {
                                                     className={cn(
                                                         "text-2xl font-bold",
                                                         getColorForDuration(
-                                                            selectedFunctionData.averageTotalDuration,
+                                                            computeFilteredStats?.avgDuration ||
+                                                                0,
                                                         ),
                                                     )}
                                                 >
                                                     {formatTime(
-                                                        selectedFunctionData.averageTotalDuration,
+                                                        computeFilteredStats?.avgDuration ||
+                                                            0,
                                                     )}
                                                 </div>
+                                                {computeFilteredStats && (
+                                                    <p className="text-muted-foreground text-sm">
+                                                        Based on{" "}
+                                                        {
+                                                            computeFilteredStats.count
+                                                        }{" "}
+                                                        executions
+                                                    </p>
+                                                )}
                                             </CardContent>
                                         </Card>
                                         <Card>
@@ -557,6 +836,16 @@ export default function PerformancePage() {
                                                 <BarChart4 className="h-4 w-4" />
                                                 Overview
                                             </TabsTrigger>
+                                            {hasCachedData &&
+                                                hasUncachedData && (
+                                                    <TabsTrigger
+                                                        value="cache-comparison"
+                                                        className="flex items-center gap-1"
+                                                    >
+                                                        <BarChart4 className="h-4 w-4" />
+                                                        Cache Comparison
+                                                    </TabsTrigger>
+                                                )}
                                             <TabsTrigger
                                                 value="steps"
                                                 className="flex items-center gap-1"
@@ -586,7 +875,9 @@ export default function PerformancePage() {
                                                         height="100%"
                                                     >
                                                         <BarChart
-                                                            data={stepChartData}
+                                                            data={
+                                                                filteredStepChartData
+                                                            }
                                                             margin={{
                                                                 top: 20,
                                                                 right: 30,
@@ -659,16 +950,244 @@ export default function PerformancePage() {
                                                                 fill="#0088FE"
                                                                 name="average"
                                                             />
-                                                            <Bar
-                                                                dataKey="median"
-                                                                fill="#00C49F"
-                                                                name="median"
-                                                            />
                                                         </BarChart>
                                                     </ResponsiveContainer>
                                                 </ChartContainer>
                                             </div>
                                         </TabsContent>
+
+                                        {hasCachedData && hasUncachedData && (
+                                            <TabsContent
+                                                value="cache-comparison"
+                                                className="space-y-4"
+                                            >
+                                                <div className="h-96 w-full">
+                                                    <ChartContainer
+                                                        config={{
+                                                            cached: {
+                                                                color: "#4ade80",
+                                                                label: "Cached",
+                                                            },
+                                                            uncached: {
+                                                                color: "#f87171",
+                                                                label: "Uncached",
+                                                            },
+                                                        }}
+                                                    >
+                                                        <ResponsiveContainer
+                                                            width="100%"
+                                                            height="100%"
+                                                        >
+                                                            <BarChart
+                                                                data={
+                                                                    cacheComparisonData
+                                                                }
+                                                                margin={{
+                                                                    top: 20,
+                                                                    right: 30,
+                                                                    left: 20,
+                                                                    bottom: 70,
+                                                                }}
+                                                            >
+                                                                <CartesianGrid strokeDasharray="3 3" />
+                                                                <XAxis
+                                                                    dataKey="name"
+                                                                    angle={-45}
+                                                                    textAnchor="end"
+                                                                    tick={{
+                                                                        fontSize: 12,
+                                                                    }}
+                                                                    height={80}
+                                                                />
+                                                                <YAxis
+                                                                    label={{
+                                                                        value: "Duration (ms)",
+                                                                        angle: -90,
+                                                                        position:
+                                                                            "insideLeft",
+                                                                        style: {
+                                                                            textAnchor:
+                                                                                "middle",
+                                                                        },
+                                                                    }}
+                                                                />
+                                                                <ChartTooltip
+                                                                    content={
+                                                                        <ChartTooltipContent
+                                                                            formatter={(
+                                                                                value,
+                                                                                name,
+                                                                            ) => {
+                                                                                if (
+                                                                                    name ===
+                                                                                    "improvement"
+                                                                                )
+                                                                                    return [
+                                                                                        `${typeof value === "number" ? value.toFixed(1) : parseFloat(String(value)).toFixed(1)}%`,
+                                                                                        "Improvement",
+                                                                                    ];
+                                                                                if (
+                                                                                    name ===
+                                                                                    "difference"
+                                                                                )
+                                                                                    return [
+                                                                                        `${typeof value === "number" ? value.toFixed(2) : parseFloat(String(value)).toFixed(2)}ms`,
+                                                                                        "Time Saved",
+                                                                                    ];
+                                                                                return [
+                                                                                    `${typeof value === "number" ? value.toFixed(2) : parseFloat(String(value)).toFixed(2)}ms`,
+                                                                                    name ===
+                                                                                    "cached"
+                                                                                        ? "Cached"
+                                                                                        : "Uncached",
+                                                                                ];
+                                                                            }}
+                                                                            labelFormatter={(
+                                                                                label,
+                                                                                items,
+                                                                            ) => {
+                                                                                const item =
+                                                                                    items[0]
+                                                                                        ?.payload;
+                                                                                return (
+                                                                                    item?.fullName ||
+                                                                                    label
+                                                                                );
+                                                                            }}
+                                                                        />
+                                                                    }
+                                                                />
+                                                                <Bar
+                                                                    dataKey="cached"
+                                                                    fill="#4ade80"
+                                                                    name="cached"
+                                                                />
+                                                                <Bar
+                                                                    dataKey="uncached"
+                                                                    fill="#f87171"
+                                                                    name="uncached"
+                                                                />
+                                                            </BarChart>
+                                                        </ResponsiveContainer>
+                                                    </ChartContainer>
+                                                </div>
+
+                                                <Card>
+                                                    <CardHeader className="py-3">
+                                                        <CardTitle className="text-sm">
+                                                            Cache Performance
+                                                            Improvement
+                                                        </CardTitle>
+                                                    </CardHeader>
+                                                    <CardContent className="p-0">
+                                                        <Table>
+                                                            <TableHeader>
+                                                                <TableRow>
+                                                                    <TableHead>
+                                                                        Step
+                                                                    </TableHead>
+                                                                    <TableHead className="text-right">
+                                                                        Uncached
+                                                                        (ms)
+                                                                    </TableHead>
+                                                                    <TableHead className="text-right">
+                                                                        Cached
+                                                                        (ms)
+                                                                    </TableHead>
+                                                                    <TableHead className="text-right">
+                                                                        Time
+                                                                        Saved
+                                                                    </TableHead>
+                                                                    <TableHead className="text-right">
+                                                                        Improvement
+                                                                    </TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {cacheComparisonData.map(
+                                                                    (
+                                                                        step,
+                                                                        idx,
+                                                                    ) => (
+                                                                        <TableRow
+                                                                            key={
+                                                                                idx
+                                                                            }
+                                                                        >
+                                                                            <TableCell className="font-medium">
+                                                                                {
+                                                                                    step.fullName
+                                                                                }
+                                                                            </TableCell>
+                                                                            <TableCell className="text-right font-mono">
+                                                                                {step.uncached.toFixed(
+                                                                                    2,
+                                                                                )}
+                                                                            </TableCell>
+                                                                            <TableCell className="text-right font-mono">
+                                                                                {step.cached.toFixed(
+                                                                                    2,
+                                                                                )}
+                                                                            </TableCell>
+                                                                            <TableCell className="text-right font-mono">
+                                                                                {step.difference >
+                                                                                0 ? (
+                                                                                    <span className="text-green-500">
+                                                                                        {step.difference.toFixed(
+                                                                                            2,
+                                                                                        )}
+                                                                                        ms
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-gray-500">
+                                                                                        {step.difference.toFixed(
+                                                                                            2,
+                                                                                        )}
+                                                                                        ms
+                                                                                    </span>
+                                                                                )}
+                                                                            </TableCell>
+                                                                            <TableCell className="text-right">
+                                                                                {step.improvement >
+                                                                                1 ? (
+                                                                                    <Badge
+                                                                                        variant="outline"
+                                                                                        className="bg-green-100 dark:bg-green-900"
+                                                                                    >
+                                                                                        {step.improvement.toFixed(
+                                                                                            1,
+                                                                                        )}
+                                                                                        %
+                                                                                    </Badge>
+                                                                                ) : step.improvement <
+                                                                                  0 ? (
+                                                                                    <Badge
+                                                                                        variant="outline"
+                                                                                        className="bg-red-100 dark:bg-red-900"
+                                                                                    >
+                                                                                        {step.improvement.toFixed(
+                                                                                            1,
+                                                                                        )}
+                                                                                        %
+                                                                                    </Badge>
+                                                                                ) : (
+                                                                                    <Badge variant="outline">
+                                                                                        {step.improvement.toFixed(
+                                                                                            1,
+                                                                                        )}
+                                                                                        %
+                                                                                    </Badge>
+                                                                                )}
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    ),
+                                                                )}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </CardContent>
+                                                </Card>
+                                            </TabsContent>
+                                        )}
 
                                         <TabsContent
                                             value="steps"
@@ -850,12 +1369,22 @@ export default function PerformancePage() {
                                                         Execution History
                                                     </CardTitle>
                                                     <CardDescription>
-                                                        Last{" "}
-                                                        {
-                                                            selectedFunctionData
-                                                                .entries.length
-                                                        }{" "}
-                                                        executions
+                                                        {getFilteredEntries.length ===
+                                                        0 ? (
+                                                            <span>
+                                                                No {cacheView}{" "}
+                                                                executions found
+                                                            </span>
+                                                        ) : (
+                                                            <span>
+                                                                Showing{" "}
+                                                                {
+                                                                    getFilteredEntries.length
+                                                                }{" "}
+                                                                {cacheView}{" "}
+                                                                executions
+                                                            </span>
+                                                        )}
                                                     </CardDescription>
                                                 </CardHeader>
                                                 <CardContent className="p-0">
@@ -871,11 +1400,17 @@ export default function PerformancePage() {
                                                                 <TableHead className="text-right">
                                                                     Steps
                                                                 </TableHead>
+                                                                {hasCachedData &&
+                                                                    hasUncachedData && (
+                                                                        <TableHead className="text-center">
+                                                                            Cache
+                                                                        </TableHead>
+                                                                    )}
                                                                 <TableHead className="w-8"></TableHead>
                                                             </TableRow>
                                                         </TableHeader>
                                                         <TableBody>
-                                                            {selectedFunctionData.entries
+                                                            {getFilteredEntries
                                                                 .sort(
                                                                     (a, b) =>
                                                                         b.timestamp -
@@ -925,6 +1460,26 @@ export default function PerformancePage() {
                                                                                                 .length
                                                                                         }
                                                                                     </TableCell>
+                                                                                    {hasCachedData &&
+                                                                                        hasUncachedData && (
+                                                                                            <TableCell className="text-center">
+                                                                                                {entry.cached ? (
+                                                                                                    <Badge
+                                                                                                        variant="outline"
+                                                                                                        className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                                                                                                    >
+                                                                                                        Cached
+                                                                                                    </Badge>
+                                                                                                ) : (
+                                                                                                    <Badge
+                                                                                                        variant="outline"
+                                                                                                        className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                                                                                                    >
+                                                                                                        Uncached
+                                                                                                    </Badge>
+                                                                                                )}
+                                                                                            </TableCell>
+                                                                                        )}
                                                                                     <TableCell>
                                                                                         <Button
                                                                                             variant="ghost"

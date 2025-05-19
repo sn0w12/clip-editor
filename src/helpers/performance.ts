@@ -31,6 +31,7 @@ interface PerformanceEntry {
     timestamp: number;
     totalDuration: number;
     steps: Record<string, number>; // step name -> duration
+    cached?: boolean; // Track if the operation used cache
 }
 
 const MAX_ENTRIES_PER_FUNCTION = 100;
@@ -213,6 +214,7 @@ function addPerformanceEntry(
     functionName: string,
     totalDuration: number,
     steps: Record<string, { duration: number; timestamp: number }>,
+    additionalInfo?: Record<string, unknown>,
 ): void {
     if (!performanceHistory[functionName]) {
         performanceHistory[functionName] = [];
@@ -230,6 +232,11 @@ function addPerformanceEntry(
             {} as Record<string, number>,
         ),
     };
+
+    // Check if cache information is provided
+    if (additionalInfo && "cache" in additionalInfo) {
+        entry.cached = true;
+    }
 
     // Add to history and limit size
     performanceHistory[functionName].push(entry);
@@ -394,7 +401,12 @@ export function createPerformanceLogger(
             logOutputLines.push(mainLogEntries.join(",\n"));
             logOutputLines.push("}");
 
-            addPerformanceEntry(this.functionName, totalDuration, this.steps);
+            addPerformanceEntry(
+                this.functionName,
+                totalDuration,
+                this.steps,
+                additionalInfo,
+            );
 
             // Only log to console if performance logging is enabled
             if (isPerformanceLoggingEnabled()) {

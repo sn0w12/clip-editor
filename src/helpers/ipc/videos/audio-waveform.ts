@@ -97,7 +97,7 @@ export function addAudioWaveformListeners() {
                         new Uint8Array(waveformBuffer).buffer,
                     );
                     perfLogger.addStep("load-cached-waveform");
-                    perfLogger.end({ fromCache: true });
+                    perfLogger.end({ cache: true });
                     return cachedWaveform;
                 } catch {
                     // Cache miss, generate the waveform
@@ -264,7 +264,7 @@ export function addAudioWaveformListeners() {
                     perfLogger.addStep("cache-save-failed");
                 }
 
-                perfLogger.end();
+                perfLogger.end({ cache: false });
                 return smoothedResult;
             } catch (error) {
                 console.error("Error extracting waveform data:", error);

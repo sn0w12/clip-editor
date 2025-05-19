@@ -192,7 +192,6 @@ function isImageFile(fileExt: string): boolean {
     return [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(fileExt);
 }
 
-// Separated the streaming logic for reuse with both original and processed files
 async function handleVideoRequest(
     filePath: string,
     request: Request,
@@ -235,57 +234,22 @@ async function handleVideoRequest(
                         });
                     }
 
-                    try {
-                        // Open file with low-level file descriptor
-                        const fd = fs.openSync(filePath, "r");
+                    // Use file stream instead of synchronous operations
+                    const stream = fs.createReadStream(filePath, {
+                        start,
+                        end,
+                    });
 
-                        try {
-                            // Allocate buffer for the chunk
-                            const buffer = Buffer.alloc(chunkSize);
-
-                            // Read directly into the buffer
-                            const bytesRead = fs.readSync(
-                                fd,
-                                buffer,
-                                0,
-                                chunkSize,
-                                start,
-                            );
-
-                            // Use the buffer directly if all bytes were read
-                            if (bytesRead === chunkSize) {
-                                return new Response(buffer, {
-                                    status: 206,
-                                    headers: {
-                                        "Content-Type": contentType,
-                                        "Content-Length": String(bytesRead),
-                                        "Content-Range": `bytes ${start}-${end}/${stats.size}`,
-                                        "Accept-Ranges": "bytes",
-                                        "Cache-Control": "no-cache",
-                                    },
-                                });
-                            } else {
-                                const actualBuffer = buffer.slice(0, bytesRead);
-                                return new Response(actualBuffer, {
-                                    status: 206,
-                                    headers: {
-                                        "Content-Type": contentType,
-                                        "Content-Length": String(bytesRead),
-                                        "Content-Range": `bytes ${start}-${start + bytesRead - 1}/${stats.size}`,
-                                        "Accept-Ranges": "bytes",
-                                        "Cache-Control": "no-cache",
-                                    },
-                                });
-                            }
-                        } finally {
-                            fs.closeSync(fd);
-                        }
-                    } catch (readError) {
-                        console.error(
-                            `Error reading specific chunk: ${readError}`,
-                        );
-                        throw readError;
-                    }
+                    return new Response(stream as unknown as ReadableStream, {
+                        status: 206,
+                        headers: {
+                            "Content-Type": contentType,
+                            "Content-Length": String(chunkSize),
+                            "Content-Range": `bytes ${start}-${end}/${stats.size}`,
+                            "Accept-Ranges": "bytes",
+                            "Cache-Control": "no-cache",
+                        },
+                    });
                 }
             } catch (error) {
                 console.error("Error processing video range request:", error);
@@ -293,44 +257,29 @@ async function handleVideoRequest(
             }
         }
 
-        // Send a small chunk to help player initialize
-        try {
-            const initialChunkSize = Math.min(1024 * 1024, stats.size); // 1MB or file size
-            const fd = fs.openSync(filePath, "r");
-            try {
-                const buffer = Buffer.alloc(initialChunkSize);
-                const bytesRead = fs.readSync(
-                    fd,
-                    buffer,
-                    0,
-                    initialChunkSize,
-                    0,
-                );
-                const initialBuffer = buffer.slice(0, bytesRead);
-                return new Response(initialBuffer, {
-                    status: 206,
-                    headers: {
-                        "Content-Type": contentType,
-                        "Accept-Ranges": "bytes",
-                        "Content-Length": String(bytesRead),
-                        "Content-Range": `bytes 0-${bytesRead - 1}/${stats.size}`,
-                        "Cache-Control": "no-cache",
-                    },
-                });
-            } finally {
-                fs.closeSync(fd);
-            }
-        } catch (error) {
-            console.error(`Error with initial video response: ${error}`);
-            throw error;
-        }
+        // Send initial part of the file
+        const initialChunkSize = Math.min(1024 * 1024, stats.size); // 1MB or file size
+        const stream = fs.createReadStream(filePath, {
+            start: 0,
+            end: initialChunkSize - 1,
+        });
+
+        return new Response(stream as unknown as ReadableStream, {
+            status: 206,
+            headers: {
+                "Content-Type": contentType,
+                "Accept-Ranges": "bytes",
+                "Content-Length": String(initialChunkSize),
+                "Content-Range": `bytes 0-${initialChunkSize - 1}/${stats.size}`,
+                "Cache-Control": "no-cache",
+            },
+        });
     } catch (error) {
         console.error(`Error accessing video stream: ${error}`);
         throw error;
     }
 }
 
-// Image handler for serving images and thumbnails
 async function handleImageRequest(
     filePath: string,
     url: URL,

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, memo } from "react";
-import { VideoWaveform } from "./video-waveform";
+import { useAudioWaveform, VideoWaveform } from "./video-waveform";
 import { TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
 
@@ -35,6 +35,12 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     useEffect(() => {
         setKey(`${videoPath}-${audioTrack}`);
     }, [videoPath, audioTrack]);
+
+    const {
+        isLoading: waveformIsLoading,
+        error: waveformError,
+        waveformData,
+    } = useAudioWaveform(videoPath, 5000, audioTrack);
 
     // Calculate positions for current time and markers
     const currentTimePercent = (currentTime / Math.max(0.1, duration)) * 100;
@@ -135,13 +141,13 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             <div className="relative h-full w-full">
                 <VideoWaveform
                     key={`base-${key}`}
-                    videoPath={videoPath}
+                    waveformData={waveformData}
+                    isLoading={waveformIsLoading}
+                    error={waveformError}
                     height={waveformHeight}
-                    width={4000} // Will be auto-adjusted by container width
-                    sampleCount={5000}
+                    width={4000}
                     color="rgba(255, 255, 255, 0.6)"
                     backgroundColor="transparent"
-                    audioTrack={audioTrack}
                     minBarHeight={3}
                 />
             </div>
@@ -152,13 +158,13 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             >
                 <VideoWaveform
                     key={`selected-${key}`}
-                    videoPath={videoPath}
+                    waveformData={waveformData}
+                    isLoading={waveformIsLoading}
+                    error={waveformError}
                     height={waveformHeight}
-                    width={4000} // Will be auto-adjusted by container width
-                    sampleCount={5000}
+                    width={4000}
                     color="var(--accent-positive)"
                     backgroundColor="transparent"
-                    audioTrack={audioTrack}
                     minBarHeight={3}
                 />
             </div>

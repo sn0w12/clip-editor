@@ -1,19 +1,19 @@
 import React, { useCallback } from "react";
 import { useEffect, useRef, useState } from "react";
 
-interface AudioWaveformProps {
-    videoPath: string;
+interface VideoWaveformProps {
+    waveformData: Float32Array | null;
+    isLoading: boolean;
+    error: string | null;
     height?: number;
     width?: number;
     color?: string;
     backgroundColor?: string;
-    sampleCount?: number;
     className?: string;
-    audioTrack?: number;
     minBarHeight?: number;
 }
 
-function useAudioWaveform(
+export function useAudioWaveform(
     videoPath: string,
     sampleCount: number,
     audioTrack: number,
@@ -60,25 +60,18 @@ function useAudioWaveform(
 }
 
 const VideoWaveformComponent = ({
-    videoPath,
+    waveformData,
+    isLoading,
+    error,
     height = 100,
     width = 600,
     color = "#3b82f6",
     backgroundColor = "#f1f5f9",
-    sampleCount = 1000,
     className = "",
-    audioTrack = 0,
     minBarHeight = 2,
-}: AudioWaveformProps) => {
+}: VideoWaveformProps) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const { isLoading, error, waveformData, waveformKey } = useAudioWaveform(
-        videoPath,
-        sampleCount,
-        audioTrack,
-    );
 
-    // Effect to render waveform data to canvas when data changes
     useEffect(() => {
         if (!waveformData || !canvasRef.current) return;
 
@@ -86,13 +79,10 @@ const VideoWaveformComponent = ({
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        // Parse CSS variables if needed
         const getComputedColor = (colorValue: string) => {
             if (colorValue.startsWith("var(")) {
-                // Extract the CSS variable name
                 const cssVarName = colorValue.match(/var\((.*?)\)/)?.[1];
                 if (cssVarName) {
-                    // Get the computed value
                     const computedColor = getComputedStyle(
                         document.documentElement,
                     )
@@ -107,22 +97,17 @@ const VideoWaveformComponent = ({
         const bgColor = getComputedColor(backgroundColor);
         const waveColor = getComputedColor(color);
 
-        // Clear canvas
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, width, height);
 
-        // Calculate dimensions
         const barWidth = width / waveformData.length;
         const centerY = height / 2;
 
-        // Draw waveform
         ctx.fillStyle = waveColor;
 
         for (let i = 0; i < waveformData.length; i++) {
             const amplitude = waveformData[i];
-            const barHeight = Math.max(minBarHeight, amplitude * height * 0.8); // Use minBarHeight prop
-
-            // Draw bar
+            const barHeight = Math.max(minBarHeight, amplitude * height * 0.8);
             ctx.fillRect(
                 i * barWidth,
                 centerY - barHeight / 2,
@@ -130,15 +115,7 @@ const VideoWaveformComponent = ({
                 barHeight,
             );
         }
-    }, [
-        waveformData,
-        canvasRef,
-        backgroundColor,
-        color,
-        width,
-        height,
-        minBarHeight,
-    ]);
+    }, [waveformData, backgroundColor, color, width, height, minBarHeight]);
 
     if (isLoading) {
         return (
@@ -159,20 +136,23 @@ const VideoWaveformComponent = ({
 
     if (error) {
         return (
-            <p className="text-destructive text-sm">
+            <p className={`text-destructive text-sm ${className}`}>
                 Failed to load waveform: {error}
             </p>
         );
     }
 
-    // Apply a container with adjusted position to match the time indicator offset
+    if (!waveformData) {
+        return <div className={`relative h-full w-full ${className}`} />;
+    }
+
     return (
-        <div ref={containerRef} className="relative h-full" key={waveformKey}>
+        <div className={`relative h-full ${className}`}>
             <canvas
                 ref={canvasRef}
                 width={width}
                 height={height}
-                className={`h-full w-full ${className}`}
+                className="h-full w-full"
             />
         </div>
     );

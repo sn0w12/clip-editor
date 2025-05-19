@@ -10,8 +10,6 @@ A desktop application for editing, managing, and organizing your video clips. Bu
 - **Advanced Filtering**: Find clips by date, game, or custom groups
 - **Export Options**: Export clips with customizable settings
 - **Steam Integration**: View game artwork and metadata for your clips
-- **Dark Mode Support**: Comfortable viewing in all lighting conditions
-- **Drag Select**: Easily select multiple clips for batch operations
 
 ## Installation
 
@@ -24,15 +22,12 @@ A desktop application for editing, managing, and organizing your video clips. Bu
 ### From Source
 
 ```bash
-# Clone the repository
-git clone https://github.com/sn0w12/clip-editor.git
+git clone https://github.com/sn0w12/clip-editor
 
 # Navigate to project folder
 cd clip-editor
-
 # Install dependencies
 npm install
-
 # Start the development server
 npm run dev
 ```
@@ -73,8 +68,7 @@ When clipping with obs, use [this lua script](https://gist.github.com/sn0w12/388
 
 - **Framework**: Electron, React, TypeScript
 - **UI Components**: shadcn/ui
-- **State Management**: React hooks and custom contexts
-- **Video Processing**: FFmpeg (integrated via Electron)
+- **Video Processing**: FFmpeg
 - **File System Access**: Node.js APIs through Electron's IPC
 
 ## Settings

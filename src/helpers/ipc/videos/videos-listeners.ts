@@ -6,6 +6,7 @@ import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import crypto from "crypto";
 import { getWaveformCacheFiles } from "./audio-waveform";
+import { createPerformanceLogger } from "@/helpers/performance";
 
 // Directory to store thumbnails
 const THUMBNAIL_DIR = path.join(app.getPath("userData"), "thumbnails");
@@ -38,8 +39,16 @@ export function addVideosEventListeners() {
 
     // Handle directory selection
     ipcMain.handle("videos:select-directory", async () => {
+        const perfLog = createPerformanceLogger("videos:select-directory");
+
+        perfLog.addStep("showOpenDialog");
         const result = await dialog.showOpenDialog({
             properties: ["openDirectory"],
+        });
+
+        perfLog.end({
+            canceled: result.canceled,
+            hasPath: result.canceled ? false : Boolean(result.filePaths[0]),
         });
 
         if (result.canceled) {
@@ -51,10 +60,16 @@ export function addVideosEventListeners() {
 
     // Handle fetching videos from a directory
     ipcMain.handle("videos:get-videos", async (_, directoryPath) => {
-        try {
-            const files = await fs.readdir(directoryPath);
-            const videoFiles: VideoFile[] = [];
+        const perfLog = createPerformanceLogger("videos:get-videos", {
+            directoryPath,
+        });
 
+        try {
+            perfLog.addStep("readDirectory");
+            const files = await fs.readdir(directoryPath);
+
+            perfLog.addStep("processFiles");
+            const videoFiles: VideoFile[] = [];
             const videoExtensions = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
 
             for (const file of files) {
@@ -83,26 +98,46 @@ export function addVideosEventListeners() {
                 }
             }
 
+            perfLog.end({
+                found: videoFiles.length,
+            });
+
             return videoFiles;
         } catch (error) {
             console.error("Error getting videos:", error);
+
+            perfLog.end({
+                error: error instanceof Error ? error.message : "Unknown error",
+                success: false,
+            });
+
             return [];
         }
     });
 
     // Handle thumbnail generation
     ipcMain.handle("videos:get-thumbnail", async (_, videoPath) => {
+        const perfLog = createPerformanceLogger("videos:get-thumbnail", {
+            videoPath,
+        });
+
+        perfLog.addStep("getThumbnailPath");
         const thumbnailFilename = getThumbnailFilename(videoPath);
         const thumbnailPath = path.join(THUMBNAIL_DIR, thumbnailFilename);
 
         try {
+            perfLog.addStep("checkExistingThumbnail");
             // Check if thumbnail already exists
             await fs.access(thumbnailPath);
+
+            perfLog.addStep("returnExistingThumbnail");
+            perfLog.end({ fromCache: true });
             // Return just the path to be used with the custom protocol
             return thumbnailPath;
         } catch {
             // Thumbnail doesn't exist, generate it
             try {
+                perfLog.addStep("generateNewThumbnail");
                 const screenshot = promisify(
                     (
                         input: string,
@@ -123,19 +158,36 @@ export function addVideosEventListeners() {
                 );
 
                 await screenshot(videoPath, thumbnailPath);
+
+                perfLog.addStep("returnNewThumbnail");
+                perfLog.end({ fromCache: false });
                 // Return just the path to be used with the custom protocol
                 return thumbnailPath;
             } catch (thumbnailError) {
                 console.error("Error generating thumbnail:", thumbnailError);
+
+                perfLog.end({
+                    error:
+                        thumbnailError instanceof Error
+                            ? thumbnailError.message
+                            : "Unknown error",
+                    success: false,
+                });
+
                 return "";
             }
         }
     });
 
     ipcMain.handle("videos:delete-files", async (_, videoPaths: string[]) => {
+        const perfLog = createPerformanceLogger("videos:delete-files", {
+            videoPaths,
+        });
+
         const failed: string[] = [];
 
         try {
+            perfLog.addStep("deleteFiles");
             for (const videoPath of videoPaths) {
                 try {
                     // Also delete the thumbnail if it exists
@@ -177,31 +229,57 @@ export function addVideosEventListeners() {
                 }
             }
 
-            return {
+            const result = {
                 success: failed.length === 0,
                 failed,
             };
+
+            perfLog.end({
+                success: result.success,
+                failed,
+                totalDeleted: videoPaths.length - failed.length,
+            });
+
+            return result;
         } catch (error: unknown) {
             console.error("Error deleting video files:", error);
             const errorMessage =
                 error instanceof Error
                     ? error.message
                     : "Unknown error occurred while deleting files";
-            return {
+
+            const result = {
                 success: false,
                 failed: videoPaths,
                 error: errorMessage,
             };
+
+            perfLog.end(result);
+
+            return result;
         }
     });
 
     // Handle revealing a file in file explorer
     ipcMain.handle("videos:show-in-folder", (_, filePath: string) => {
+        const perfLog = createPerformanceLogger("videos:show-in-folder", {
+            filePath,
+        });
+
         try {
+            perfLog.addStep("showItemInFolder");
             shell.showItemInFolder(filePath);
+
+            perfLog.end({ success: true });
             return true;
         } catch (error) {
             console.error("Error showing file in folder:", error);
+
+            perfLog.end({
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+
             return false;
         }
     });
@@ -210,7 +288,13 @@ export function addVideosEventListeners() {
     ipcMain.handle(
         "videos:rename-file",
         async (_, oldPath: string, newGameName: string) => {
+            const perfLog = createPerformanceLogger("videos:rename-file", {
+                oldPath,
+                newGameName,
+            });
+
             try {
+                perfLog.addStep("preparePaths");
                 const dirPath = path.dirname(oldPath);
                 const fileName = path.basename(oldPath);
                 const extension = path.extname(fileName);
@@ -231,11 +315,15 @@ export function addVideosEventListeners() {
 
                 const newPath = path.join(dirPath, newFileName);
                 if (newPath === oldPath) {
-                    return { success: true, oldPath, newPath };
+                    const result = { success: true, oldPath, newPath };
+                    perfLog.end({ ...result, unchanged: true });
+                    return result;
                 }
 
+                perfLog.addStep("renameFile");
                 await fs.rename(oldPath, newPath);
 
+                perfLog.addStep("handleThumbnail");
                 // Also rename the thumbnail if it exists
                 const thumbnailFilename = getThumbnailFilename(oldPath);
                 const newThumbnailFilename = getThumbnailFilename(newPath);
@@ -259,13 +347,16 @@ export function addVideosEventListeners() {
                     );
                 }
 
-                return { success: true, oldPath, newPath };
+                const result = { success: true, oldPath, newPath };
+                perfLog.end(result);
+                return result;
             } catch (error) {
                 console.error(
                     `Error renaming file from ${oldPath} to game ${newGameName}:`,
                     error,
                 );
-                return {
+
+                const result = {
                     success: false,
                     oldPath,
                     error:
@@ -273,6 +364,9 @@ export function addVideosEventListeners() {
                             ? error.message
                             : "Unknown error during rename",
                 };
+
+                perfLog.end(result);
+                return result;
             }
         },
     );

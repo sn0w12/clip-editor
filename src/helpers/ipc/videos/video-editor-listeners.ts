@@ -2,6 +2,7 @@ import { clipboard, dialog, ipcMain } from "electron";
 import path from "path";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
+import { createPerformanceLogger } from "@/helpers/performance";
 
 interface ExportOptions {
     startTime: number; // Start time in seconds
@@ -48,7 +49,15 @@ export function addVideoEditorEventListeners() {
     ipcMain.handle(
         "video-editor:get-metadata",
         async (_, videoPath: string) => {
+            const perfLog = createPerformanceLogger(
+                "video-editor:get-metadata",
+                {
+                    videoPath,
+                },
+            );
+
             try {
+                perfLog.addStep("prepareFFProbePromise");
                 const getMetadata = promisify<string, ffmpeg.FfprobeData>(
                     (input, callback) => {
                         ffmpeg.ffprobe(input, (err, metadata) => {
@@ -58,8 +67,10 @@ export function addVideoEditorEventListeners() {
                     },
                 );
 
+                perfLog.addStep("runFFProbe");
                 const metadata = await getMetadata(videoPath);
 
+                perfLog.addStep("processMetadata");
                 const videoStream = metadata.streams.find(
                     (stream) => stream.codec_type === "video",
                 );
@@ -67,7 +78,7 @@ export function addVideoEditorEventListeners() {
                     (stream) => stream.codec_type === "audio",
                 );
 
-                return {
+                const result = {
                     duration: metadata.format.duration || 0,
                     width: videoStream?.width || 0,
                     height: videoStream?.height || 0,
@@ -77,8 +88,25 @@ export function addVideoEditorEventListeners() {
                     videoCodec: videoStream?.codec_name,
                     audioCodec: audioStream?.codec_name,
                 };
+
+                perfLog.end({
+                    success: true,
+                    hasAudio: !!audioStream,
+                    hasVideo: !!videoStream,
+                });
+
+                return result;
             } catch (error) {
                 console.error("Error getting video metadata:", error);
+
+                perfLog.end({
+                    success: false,
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Unknown error",
+                });
+
                 return null;
             }
         },
@@ -88,7 +116,16 @@ export function addVideoEditorEventListeners() {
     ipcMain.handle(
         "video-editor:export-clip",
         async (_, videoPath: string, options: ExportOptions) => {
+            const perfLog = createPerformanceLogger(
+                "video-editor:export-clip",
+                {
+                    videoPath,
+                    options,
+                },
+            );
+
             try {
+                perfLog.addStep("showSaveDialog");
                 // Ask user where to save the output file
                 const saveResult = await dialog.showSaveDialog({
                     title: "Save Exported Clip",
@@ -106,10 +143,12 @@ export function addVideoEditorEventListeners() {
                 });
 
                 if (saveResult.canceled || !saveResult.filePath) {
+                    perfLog.end({ success: false, canceled: true });
                     return { success: false, error: "Export cancelled" };
                 }
 
-                const outputPath = saveResult.filePath; // Set quality settings based on quality option
+                perfLog.addStep("prepareExportSettings");
+                const outputPath = saveResult.filePath;
                 let videoBitrate: string;
                 let audioBitrate: string;
 
@@ -159,6 +198,7 @@ export function addVideoEditorEventListeners() {
                         : "128k";
                 }
 
+                perfLog.addStep("runFFMPEGExport");
                 // Convert promise-based
                 const exportClip = () => {
                     return new Promise((resolve, reject) => {
@@ -243,16 +283,33 @@ export function addVideoEditorEventListeners() {
                 };
 
                 const result = await exportClip();
+
+                perfLog.end({
+                    success: true,
+                    outputPath,
+                    duration: options.endTime - options.startTime,
+                    hasAudio:
+                        options.audioTracks && options.audioTracks.length > 0,
+                });
+
                 return result;
             } catch (error: unknown) {
                 console.error("Error exporting video clip:", error);
-                return {
+
+                const result = {
                     success: false,
                     error:
                         error instanceof Error
                             ? error.message
                             : "Unknown error occurred during export",
                 };
+
+                perfLog.end({
+                    success: false,
+                    error: result.error,
+                });
+
+                return result;
             }
         },
     );
@@ -260,7 +317,15 @@ export function addVideoEditorEventListeners() {
     ipcMain.handle(
         "video-editor:copy-file-to-clipboard",
         async (_, filePath: string) => {
+            const perfLog = createPerformanceLogger(
+                "video-editor:copy-file-to-clipboard",
+                {
+                    filePath,
+                },
+            );
+
             try {
+                perfLog.addStep("writeToClipboard");
                 clipboard.writeBuffer(
                     "FileNameW",
                     Buffer.concat([
@@ -268,16 +333,26 @@ export function addVideoEditorEventListeners() {
                         Buffer.from([0, 0]),
                     ]),
                 );
+
+                perfLog.end({ success: true });
                 return { success: true };
             } catch (error) {
                 console.error("Error copying file to clipboard:", error);
-                return {
+
+                const result = {
                     success: false,
                     error:
                         error instanceof Error
                             ? error.message
                             : "Unknown error occurred",
                 };
+
+                perfLog.end({
+                    success: false,
+                    error: result.error,
+                });
+
+                return result;
             }
         },
     );

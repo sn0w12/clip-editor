@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import { promisify } from "util";
+import { createPerformanceLogger } from "@/helpers/performance";
 
 const readFile = promisify(fs.readFile);
 const readdir = promisify(fs.readdir);
@@ -332,21 +333,106 @@ async function getSteamGameImages(
 
 export function addSteamEventListeners() {
     ipcMain.handle("steam:get-library-paths", async (_, steamDir: string) => {
-        return await getSteamLibraryFolders(steamDir);
+        const perfLog = createPerformanceLogger("steam:get-library-paths", {
+            steamDir,
+        });
+
+        try {
+            perfLog.addStep("getSteamLibraryFolders");
+            const libraryPaths = await getSteamLibraryFolders(steamDir);
+
+            perfLog.end({
+                foundPaths: libraryPaths.length,
+            });
+
+            return libraryPaths;
+        } catch (error) {
+            perfLog.end({
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+
+            return [];
+        }
     });
 
     ipcMain.handle("steam:get-all-games", async (_, steamDir: string) => {
-        return await getAllSteamGames(steamDir);
+        const perfLog = createPerformanceLogger("steam:get-all-games", {
+            steamDir,
+        });
+
+        try {
+            perfLog.addStep("getAllSteamGames");
+            const games = await getAllSteamGames(steamDir);
+
+            perfLog.end({
+                gamesFound: Object.keys(games).length,
+            });
+
+            return games;
+        } catch (error) {
+            perfLog.end({
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+
+            return {};
+        }
     });
 
     ipcMain.handle("steam:get-all-game-images", async (_, steamDir: string) => {
-        return await getAllSteamGameImages(steamDir);
+        const perfLog = createPerformanceLogger("steam:get-all-game-images", {
+            steamDir,
+        });
+
+        try {
+            perfLog.addStep("getAllSteamGameImages");
+            const gameImages = await getAllSteamGameImages(steamDir);
+
+            perfLog.end({
+                gamesWithImages: Object.keys(gameImages).length,
+            });
+
+            return gameImages;
+        } catch (error) {
+            perfLog.end({
+                success: false,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
+
+            return {};
+        }
     });
 
     ipcMain.handle(
         "steam:get-game-images",
         async (_, steamDir: string, appId: string) => {
-            return await getSteamGameImages(steamDir, appId);
+            const perfLog = createPerformanceLogger("steam:get-game-images", {
+                steamDir,
+                appId,
+            });
+
+            try {
+                perfLog.addStep("getSteamGameImages");
+                const images = await getSteamGameImages(steamDir, appId);
+
+                perfLog.end({
+                    success: !!images,
+                    imageTypes: images ? Object.keys(images).length : 0,
+                });
+
+                return images;
+            } catch (error) {
+                perfLog.end({
+                    success: false,
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Unknown error",
+                });
+
+                return null;
+            }
         },
     );
 }

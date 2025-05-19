@@ -6,11 +6,13 @@ import React, { useMemo } from "react";
 import { VideoGroup } from "@/types/video";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
+import { formatFileSize } from "@/utils/format";
 
 interface FilterHeaderProps {
     directoryPath: string;
     filteredVideosCount: number;
     totalVideosCount: number;
+    totalSize?: number;
     groups: VideoGroup[];
     selectedGroupIds: string[];
     startDate: Date | undefined;
@@ -26,12 +28,21 @@ interface FilterHeaderProps {
 }
 
 /**
+ * Formats the total size to be displayed
+ */
+const formatSize = (sizeInBytes?: number): string => {
+    if (sizeInBytes === undefined) return "";
+    return formatFileSize(sizeInBytes);
+};
+
+/**
  * Header component with filtering options and directory info
  */
 export function FilterHeader({
     directoryPath,
     filteredVideosCount,
     totalVideosCount,
+    totalSize,
     groups,
     selectedGroupIds,
     startDate,
@@ -68,12 +79,21 @@ export function FilterHeader({
         });
     }, [games, steamGames, gameImages, loading]);
 
+    const formattedTotalSize = formatSize(totalSize);
+
     return (
         <div className="flex items-center justify-between">
             <div>
                 <h1 className="text-3xl font-bold">Clips</h1>
                 <div className="mt-1 flex items-center gap-2">
-                    <p className="text-muted-foreground">{directoryPath}</p>
+                    <p className="text-muted-foreground">
+                        {directoryPath}
+                        {formattedTotalSize && (
+                            <span className="text-muted-foreground ml-1">
+                                ({formattedTotalSize})
+                            </span>
+                        )}
+                    </p>
                     {filteredVideosCount !== totalVideosCount && (
                         <Badge variant="secondary">
                             Showing {filteredVideosCount} of {totalVideosCount}{" "}

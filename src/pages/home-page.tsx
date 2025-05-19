@@ -156,6 +156,11 @@ export default function HomePage() {
         return counts;
     }, [videos]);
 
+    // Calculate total size of all videos
+    const totalSize = useMemo(() => {
+        return videos.reduce((total, video) => total + (video.size || 0), 0);
+    }, [videos]);
+
     // If no directory is selected, show the directory selector
     if (!directoryPath) {
         return (
@@ -173,6 +178,7 @@ export default function HomePage() {
                 directoryPath={directoryPath}
                 filteredVideosCount={filteredVideos.length}
                 totalVideosCount={videos.length}
+                totalSize={totalSize}
                 groups={groups}
                 selectedGroupIds={selectedGroupIds}
                 startDate={startDate}

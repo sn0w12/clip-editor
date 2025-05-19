@@ -6,7 +6,6 @@ import {
     CardTitle,
     CardDescription,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
     Select,
     SelectContent,
@@ -23,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { getSetting } from "@/utils/settings";
 import { ExportButton } from "./export-button";
 import { formatTime } from "@/utils/format";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 interface ExportSettingsProps {
     videoMetadata: VideoMetadata | null;
@@ -289,80 +289,79 @@ export function ExportSettings({
                     </div>
                     {/* Separator */}
                     <Separator />
-                    {/* Quality mode selector */}
+                    {/* Quality mode selector using Tabs */}
                     <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                            <Button
-                                variant={
-                                    qualityMode === "preset"
-                                        ? "default"
-                                        : "outline"
-                                }
-                                onClick={() => setQualityMode("preset")}
-                                className="justify-start"
-                            >
-                                <span className="text-left">
+                        <Tabs
+                            defaultValue={qualityMode}
+                            onValueChange={(value) =>
+                                setQualityMode(value as "preset" | "targetSize")
+                            }
+                            value={qualityMode}
+                        >
+                            <TabsList className="w-full">
+                                <TabsTrigger value="preset" className="flex-1">
                                     Quality Preset
-                                </span>
-                            </Button>
-                            <Button
-                                variant={
-                                    qualityMode === "targetSize"
-                                        ? "default"
-                                        : "outline"
-                                }
-                                onClick={() => setQualityMode("targetSize")}
-                                className="justify-start"
-                            >
-                                <span className="text-left">Target Size</span>
-                            </Button>
-                        </div>
-                    </div>
-                    {qualityMode === "preset" ? (
-                        <div className="space-y-2">
-                            <Label htmlFor="quality">Quality Preset</Label>
-                            <Select value={quality} onValueChange={setQuality}>
-                                <SelectTrigger id="quality">
-                                    <SelectValue placeholder="Select quality" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="high">
-                                        High (4000kbps)
-                                    </SelectItem>
-                                    <SelectItem value="medium">
-                                        Medium (2500kbps)
-                                    </SelectItem>
-                                    <SelectItem value="low">
-                                        Low (1000kbps)
-                                    </SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    ) : (
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between">
-                                    <Label htmlFor="targetSize">
-                                        Target Size (MB)
+                                </TabsTrigger>
+                                <TabsTrigger
+                                    value="targetSize"
+                                    className="flex-1"
+                                >
+                                    Target Size
+                                </TabsTrigger>
+                            </TabsList>
+                            <TabsContent value="preset">
+                                <div className="space-y-2 pt-2">
+                                    <Label htmlFor="quality">
+                                        Quality Preset
                                     </Label>
-                                    <span className="font-mono">
-                                        {estimatedBitrate}{" "}
-                                        {targetSize.toFixed(1)} MB
-                                    </span>
+                                    <Select
+                                        value={quality}
+                                        onValueChange={setQuality}
+                                    >
+                                        <SelectTrigger id="quality">
+                                            <SelectValue placeholder="Select quality" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="high">
+                                                High (4000kbps)
+                                            </SelectItem>
+                                            <SelectItem value="medium">
+                                                Medium (2500kbps)
+                                            </SelectItem>
+                                            <SelectItem value="low">
+                                                Low (1000kbps)
+                                            </SelectItem>
+                                        </SelectContent>
+                                    </Select>
                                 </div>
-                                <Slider
-                                    id="targetSize"
-                                    min={1}
-                                    max={100}
-                                    step={0.1}
-                                    value={[targetSize]}
-                                    onValueChange={(value) =>
-                                        setTargetSize(value[0])
-                                    }
-                                />
-                            </div>
-                        </div>
-                    )}
+                            </TabsContent>
+                            <TabsContent value="targetSize">
+                                <div className="space-y-4 pt-2">
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between">
+                                            <Label htmlFor="targetSize">
+                                                Target Size (MB)
+                                            </Label>
+                                            <span className="font-mono">
+                                                {estimatedBitrate}{" "}
+                                                {targetSize.toFixed(1)} MB
+                                            </span>
+                                        </div>
+                                        <Slider
+                                            id="targetSize"
+                                            min={1}
+                                            max={100}
+                                            step={0.1}
+                                            value={[targetSize]}
+                                            onValueChange={(value) =>
+                                                setTargetSize(value[0])
+                                            }
+                                        />
+                                    </div>
+                                </div>
+                            </TabsContent>
+                        </Tabs>
+                    </div>
                     {/* Estimated file size */}
                     <div className="space-y-1">
                         <Label>Estimated Size</Label>

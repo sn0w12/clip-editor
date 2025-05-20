@@ -110,8 +110,6 @@ const config: ForgeConfig = {
                 "https://raw.githubusercontent.com/sn0w12/clip-editor/main/src/assets/icons/icon.ico",
             setupIcon: "./src/assets/icons/icon.ico",
             setupExe: "ClipEditorSetup.exe",
-            allowElevation: true,
-            shortcutLocations: ["StartMenu"],
         }),
         new MakerZIP({}, ["darwin"]),
         new MakerRpm({}),

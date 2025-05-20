@@ -11,6 +11,7 @@ export default defineConfig({
                 "electron-squirrel-startup",
             ],
         },
+        chunkSizeWarningLimit: 1600,
     },
     resolve: {
         alias: {

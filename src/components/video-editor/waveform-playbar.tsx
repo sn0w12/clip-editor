@@ -2,6 +2,16 @@ import React, { useRef, useState, useEffect, memo } from "react";
 import { useAudioWaveform, VideoWaveform } from "./video-waveform";
 import { TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
+    ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 interface WaveformPlaybarProps {
     videoPath: string;
@@ -31,6 +41,9 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     const [isDraggingEnd, setIsDraggingEnd] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     const [key, setKey] = useState(`${videoPath}-${audioTrack}`);
+    const [contextMenuPoint, setContextMenuPoint] = useState<number | null>(
+        null,
+    );
 
     // Update the key when videoPath or audioTrack changes to force re-render of waveform
     useEffect(() => {
@@ -64,7 +77,8 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
 
     // Start scrubbing
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (isDraggingStart || isDraggingEnd) return;
+        // Exit if right-clicking (button 2) or if we're already dragging markers
+        if (e.button === 2 || isDraggingStart || isDraggingEnd) return;
 
         setIsScrubbing(true);
 
@@ -75,6 +89,35 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         const percentage = Math.max(0, Math.min(1, x / rect.width));
         const newTime = percentage * duration;
         onTimeChange(newTime);
+    };
+
+    // Handle context menu opening
+    const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return;
+
+        const x = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, x / rect.width));
+        setContextMenuPoint(percentage * duration);
+    };
+
+    // Navigation actions
+    const goToStart = () => onTimeChange(0);
+    const goToEnd = () => onTimeChange(duration);
+    const goToStartMarker = () => onTimeChange(timeRange.start);
+    const goToEndMarker = () => onTimeChange(timeRange.end);
+
+    // Same functions for context menu point
+    const setStartMarkerFromContextMenu = () => {
+        if (contextMenuPoint === null) return;
+        const newStart = Math.min(contextMenuPoint, timeRange.end - 0.1);
+        onTimeRangeChange({ ...timeRange, start: Math.max(0, newStart) });
+    };
+
+    const setEndMarkerFromContextMenu = () => {
+        if (contextMenuPoint === null) return;
+        const newEnd = Math.max(contextMenuPoint, timeRange.start + 0.1);
+        onTimeRangeChange({ ...timeRange, end: Math.min(duration, newEnd) });
     };
 
     // Handle range marker changes
@@ -152,89 +195,134 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         )`,
     };
 
+    // Determine if set marker options should be disabled
+    const isSetStartMarkerDisabled =
+        contextMenuPoint !== null &&
+        (contextMenuPoint >= timeRange.end - 0.1 || contextMenuPoint < 0);
+
+    const isSetEndMarkerDisabled =
+        contextMenuPoint !== null &&
+        (contextMenuPoint <= timeRange.start + 0.1 ||
+            contextMenuPoint > duration);
+
     return (
-        <div
-            ref={containerRef}
-            className={cn(
-                "relative h-10 w-full cursor-pointer transition-all duration-200 hover:brightness-110",
-                isScrubbing && "cursor-grabbing",
-            )}
-            onClick={handleContainerClick}
-            onMouseDown={handleMouseDown}
-        >
-            {/* Base waveform (unselected areas) */}
-            <div className="relative h-full w-full">
-                <VideoWaveform
-                    key={`base-${key}`}
-                    waveformData={waveformData}
-                    isLoading={waveformIsLoading}
-                    error={waveformError}
-                    height={waveformHeight}
-                    width={4000}
-                    color="rgba(255, 255, 255, 0.6)"
-                    backgroundColor="transparent"
-                    minBarHeight={3}
-                />
-            </div>
-            {/* Overlay for selected area (colored waveform) */}
-            <div
-                className="absolute top-0 left-0 h-full w-full"
-                style={selectedClipStyles}
-            >
-                <VideoWaveform
-                    key={`selected-${key}`}
-                    waveformData={waveformData}
-                    isLoading={waveformIsLoading}
-                    error={waveformError}
-                    height={waveformHeight}
-                    width={4000}
-                    color="var(--accent-positive)"
-                    backgroundColor="transparent"
-                    minBarHeight={3}
-                />
-            </div>
-            {/* Current time indicator */}
-            <div
-                className={cn(
-                    "bg-primary absolute top-0 z-10 h-full w-0.5",
-                    isScrubbing && "bg-accent-warning",
-                )}
-                style={{ left: `${currentTimePercent}%` }}
-            />
-            {/* Start marker */}
-            <div
-                className={cn(
-                    "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
-                    isDraggingStart &&
-                        "border-opacity-100 border-primary w-[2px]",
-                )}
-                style={{ left: `${startMarkerPercent}%` }}
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingStart(true);
-                }}
-            >
-                <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-                <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-            </div>
-            {/* End marker */}
-            <div
-                className={cn(
-                    "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
-                    isDraggingEnd &&
-                        "border-opacity-100 border-primary w-[2px]",
-                )}
-                style={{ left: `${endMarkerPercent}%` }}
-                onMouseDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setIsDraggingEnd(true);
-                }}
-            >
-                <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-                <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-            </div>
-        </div>
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <div
+                    ref={containerRef}
+                    className={cn(
+                        "relative h-10 w-full cursor-pointer transition-all duration-200 hover:brightness-110",
+                        isScrubbing && "cursor-grabbing",
+                    )}
+                    onClick={handleContainerClick}
+                    onMouseDown={handleMouseDown}
+                    onContextMenu={handleContextMenu}
+                >
+                    {/* Base waveform (unselected areas) */}
+                    <div className="relative h-full w-full">
+                        <VideoWaveform
+                            key={`base-${key}`}
+                            waveformData={waveformData}
+                            isLoading={waveformIsLoading}
+                            error={waveformError}
+                            height={waveformHeight}
+                            width={4000}
+                            color="rgba(255, 255, 255, 0.6)"
+                            backgroundColor="transparent"
+                            minBarHeight={3}
+                        />
+                    </div>
+                    {/* Overlay for selected area (colored waveform) */}
+                    <div
+                        className="absolute top-0 left-0 h-full w-full"
+                        style={selectedClipStyles}
+                    >
+                        <VideoWaveform
+                            key={`selected-${key}`}
+                            waveformData={waveformData}
+                            isLoading={waveformIsLoading}
+                            error={waveformError}
+                            height={waveformHeight}
+                            width={4000}
+                            color="var(--accent-positive)"
+                            backgroundColor="transparent"
+                            minBarHeight={3}
+                        />
+                    </div>
+                    {/* Current time indicator */}
+                    <div
+                        className={cn(
+                            "bg-primary absolute top-0 z-10 h-full w-0.5",
+                            isScrubbing && "bg-accent-warning",
+                        )}
+                        style={{ left: `${currentTimePercent}%` }}
+                    />
+                    {/* Start marker */}
+                    <div
+                        className={cn(
+                            "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
+                            isDraggingStart &&
+                                "border-opacity-100 border-primary w-[2px]",
+                        )}
+                        style={{ left: `${startMarkerPercent}%` }}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDraggingStart(true);
+                        }}
+                    >
+                        <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                        <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                    </div>
+                    {/* End marker */}
+                    <div
+                        className={cn(
+                            "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
+                            isDraggingEnd &&
+                                "border-opacity-100 border-primary w-[2px]",
+                        )}
+                        style={{ left: `${endMarkerPercent}%` }}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDraggingEnd(true);
+                        }}
+                    >
+                        <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                        <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                    </div>
+                </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-40">
+                <ContextMenuSub>
+                    <ContextMenuSubTrigger>Go to</ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                        <ContextMenuItem onClick={goToStart}>
+                            Start
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={goToStartMarker}>
+                            Start marker
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={goToEndMarker}>
+                            End marker
+                        </ContextMenuItem>
+                        <ContextMenuItem onClick={goToEnd}>End</ContextMenuItem>
+                    </ContextMenuSubContent>
+                </ContextMenuSub>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                    onClick={setStartMarkerFromContextMenu}
+                    disabled={isSetStartMarkerDisabled}
+                >
+                    Set start marker
+                </ContextMenuItem>
+                <ContextMenuItem
+                    onClick={setEndMarkerFromContextMenu}
+                    disabled={isSetEndMarkerDisabled}
+                >
+                    Set end marker
+                </ContextMenuItem>
+            </ContextMenuContent>
+        </ContextMenu>
     );
 });

@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import pkg from "../../package.json";
+import { assetSrc } from "@/utils/assets";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -26,7 +27,7 @@ export default function SettingsPage() {
                 <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-3">
                         <img
-                            src="/src/assets/icons/Icon.png"
+                            src={assetSrc("/assets/icons/Icon.png")}
                             className="h-12 w-12"
                         />
                         <div>

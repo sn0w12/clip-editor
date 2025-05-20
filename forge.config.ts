@@ -15,7 +15,7 @@ const config: ForgeConfig = {
     packagerConfig: {
         asar: false,
         icon: "./src/assets/icons/icon",
-        extraResource: ["splash.html", "src/assets/fonts"],
+        extraResource: ["splash.html", "src/assets"],
         executableName: "clip-editor",
         win32metadata: {
             CompanyName: "Sn0w12",

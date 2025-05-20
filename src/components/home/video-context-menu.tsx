@@ -145,15 +145,7 @@ function VideoContextMenuBase({
                             <Gamepad2 size={16} />
                             Set Game
                         </ContextMenuSubTrigger>
-                        <ContextMenuSubContent
-                            className="max-h-80 w-56 overflow-y-auto"
-                            onAnimationStart={() => {
-                                // Focus search input when submenu opens
-                                setTimeout(() => {
-                                    searchInputRef.current?.focus();
-                                }, 100);
-                            }}
-                        >
+                        <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
                             <Input
                                 ref={searchInputRef}
                                 placeholder="Search game..."

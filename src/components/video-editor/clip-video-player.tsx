@@ -143,8 +143,6 @@ export function ClipVideoPlayer({
         }
     };
 
-    useShortcut(useSetting("pauseVideo"), togglePlayPause);
-
     const showControls = useCallback(() => {
         setShowFullscreenControls(true);
 
@@ -542,6 +540,12 @@ export function ClipVideoPlayer({
             }
         };
     }, [handleMouseUp]);
+
+    useShortcut(useSetting("pauseVideo"), togglePlayPause);
+    useShortcut(useSetting("skipForward"), skipForward);
+    useShortcut(useSetting("skipBackward"), skipBackward);
+    useShortcut(useSetting("skipToEnd"), jumpToEnd);
+    useShortcut(useSetting("skipToStart"), jumpToStart);
 
     return (
         <>

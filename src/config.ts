@@ -168,6 +168,30 @@ export const APP_SETTINGS = {
                 default: "Space",
                 description: "Shortcut to pause the video.",
             },
+            skipForward: {
+                label: "Skip Forward",
+                type: "shortcut",
+                default: "ARROWRIGHT",
+                description: "Shortcut to skip forward in the video.",
+            },
+            skipBackward: {
+                label: "Skip Backward",
+                type: "shortcut",
+                default: "ARROWLEFT",
+                description: "Shortcut to skip backward in the video.",
+            },
+            skipToEnd: {
+                label: "Skip to End",
+                type: "shortcut",
+                default: "Ctrl+ARROWRIGHT",
+                description: "Shortcut to skip to the end of the video.",
+            },
+            skipToStart: {
+                label: "Skip to Start",
+                type: "shortcut",
+                default: "Ctrl+ARROWLEFT",
+                description: "Shortcut to skip to the start of the video.",
+            },
         },
     },
     about: {

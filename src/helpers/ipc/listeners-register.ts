@@ -12,7 +12,7 @@ export default function registerListeners(mainWindow: BrowserWindow) {
     addWindowEventListeners(mainWindow);
     addThemeEventListeners();
     addVideosEventListeners();
-    addVideoEditorEventListeners();
+    addVideoEditorEventListeners(mainWindow);
     addAudioWaveformListeners();
     addSteamEventListeners();
     addDirectoryWatcherListeners();

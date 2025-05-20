@@ -1,16 +1,15 @@
 import React from "react";
 import { Label } from "@/components/ui/label";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/use-settings";
-import { createAllSettingsMaps, renderInput } from "@/utils/settings";
+import { createAllSettingsMaps, renderInput, Setting } from "@/utils/settings";
 import pkg from "../../package.json";
+
+interface HierarchicalGroup {
+    settings: Record<string, Setting>;
+    subgroups: Record<string, Record<string, Setting>>;
+}
 
 export default function SettingsPage() {
     const { settings, setSettings } = useSettings();
@@ -62,76 +61,245 @@ export default function SettingsPage() {
                 {Object.entries(settingsMaps).map(
                     ([groupName, settingsMap]) => (
                         <TabsContent key={groupName} value={groupName}>
-                            <Card
-                                className={`${groupName.toLowerCase() !== "about" ? "" : "gap-0"}`}
-                            >
+                            <Card className={`gap-0`}>
                                 <CardHeader className="pb-3">
                                     {groupName.toLowerCase() !== "about" ? (
-                                        <>
-                                            <CardTitle>
+                                        <CardTitle>
+                                            <h2 className="border-b pb-2 text-2xl font-medium">
                                                 {groupName} Settings
-                                            </CardTitle>
-                                            <CardDescription>
-                                                Configure{" "}
-                                                {groupName.toLowerCase()}{" "}
-                                                settings{" "}
-                                            </CardDescription>
-                                        </>
+                                            </h2>
+                                        </CardTitle>
                                     ) : (
                                         <CardTitle>{groupName}</CardTitle>
                                     )}
-                                </CardHeader>
+                                </CardHeader>{" "}
                                 <CardContent>
-                                    <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:!grid-cols-2 lg:!grid-cols-3 xl:!grid-cols-4">
-                                        {Object.entries(settingsMap).map(
+                                    {(() => {
+                                        // First, collect all settings that have groups
+                                        const settingsWithGroups: Record<
+                                            string,
+                                            Setting
+                                        > = {};
+                                        const settingsWithoutGroups: Record<
+                                            string,
+                                            Setting
+                                        > = {};
+
+                                        // Separate settings with and without groups
+                                        Object.entries(settingsMap).forEach(
                                             ([key, setting]) => {
-                                                if (key === "label")
-                                                    return null;
+                                                if (key === "label") return;
 
-                                                // For certain settings that should span the full width
-                                                const isFullWidth =
-                                                    setting.customRender ||
-                                                    setting.type ===
-                                                        "textarea" ||
-                                                    groupName.toLowerCase() ===
-                                                        "about";
+                                                if (
+                                                    setting.groups &&
+                                                    setting.groups.length > 0
+                                                ) {
+                                                    settingsWithGroups[key] =
+                                                        setting as Setting;
+                                                } else {
+                                                    settingsWithoutGroups[key] =
+                                                        setting as Setting;
+                                                }
+                                            },
+                                        );
 
-                                                return (
-                                                    <div
-                                                        key={key}
-                                                        className={`space-y-2 ${isFullWidth ? "col-span-full" : ""}`}
-                                                    >
-                                                        <div className="flex flex-col space-y-1">
-                                                            <Label
-                                                                htmlFor={key}
-                                                                className="font-medium"
+                                        // Create hierarchical structure
+                                        const hierarchicalGroups: Record<
+                                            string,
+                                            HierarchicalGroup
+                                        > = {};
+
+                                        // Process settings with groups
+                                        Object.entries(
+                                            settingsWithGroups,
+                                        ).forEach(([key, setting]) => {
+                                            const groups =
+                                                setting.groups as string[];
+
+                                            // Assume the first group is always the parent
+                                            const parentGroup = groups[0];
+
+                                            // Initialize parent group if it doesn't exist
+                                            if (
+                                                !hierarchicalGroups[parentGroup]
+                                            ) {
+                                                hierarchicalGroups[
+                                                    parentGroup
+                                                ] = {
+                                                    settings: {},
+                                                    subgroups: {},
+                                                };
+                                            }
+
+                                            if (groups.length === 1) {
+                                                // This setting belongs directly to the parent group
+                                                hierarchicalGroups[
+                                                    parentGroup
+                                                ].settings[key] = setting;
+                                            } else {
+                                                // This setting belongs to a subgroup
+                                                for (
+                                                    let i = 1;
+                                                    i < groups.length;
+                                                    i++
+                                                ) {
+                                                    const subgroup = groups[i];
+
+                                                    // Initialize subgroup if it doesn't exist
+                                                    if (
+                                                        !hierarchicalGroups[
+                                                            parentGroup
+                                                        ].subgroups[subgroup]
+                                                    ) {
+                                                        hierarchicalGroups[
+                                                            parentGroup
+                                                        ].subgroups[subgroup] =
+                                                            {};
+                                                    }
+
+                                                    // Add setting to subgroup
+                                                    hierarchicalGroups[
+                                                        parentGroup
+                                                    ].subgroups[subgroup][key] =
+                                                        setting;
+                                                }
+                                            }
+                                        });
+
+                                        // Function to render a group of settings
+                                        const renderSettingsGroup = (
+                                            groupSettings: Record<
+                                                string,
+                                                Setting
+                                            >,
+                                        ) => {
+                                            return (
+                                                <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:!grid-cols-2 lg:!grid-cols-3 xl:!grid-cols-4">
+                                                    {Object.entries(
+                                                        groupSettings,
+                                                    ).map(([key, setting]) => {
+                                                        // For certain settings that should span the full width
+                                                        const isFullWidth =
+                                                            setting.customRender ||
+                                                            setting.type ===
+                                                                "textarea" ||
+                                                            groupName.toLowerCase() ===
+                                                                "about";
+
+                                                        return (
+                                                            <div
+                                                                key={key}
+                                                                className={`space-y-2 ${isFullWidth ? "col-span-full" : ""}`}
                                                             >
-                                                                {setting.label}
-                                                            </Label>
-                                                            {setting.description && (
-                                                                <p className="text-muted-foreground text-xs">
-                                                                    {
-                                                                        setting.description
-                                                                    }
-                                                                </p>
+                                                                <div className="flex flex-col space-y-1">
+                                                                    <Label
+                                                                        htmlFor={
+                                                                            key
+                                                                        }
+                                                                        className="font-medium"
+                                                                    >
+                                                                        {
+                                                                            setting.label
+                                                                        }
+                                                                    </Label>
+                                                                    {setting.description && (
+                                                                        <p className="text-muted-foreground text-xs">
+                                                                            {
+                                                                                setting.description
+                                                                            }
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                                <div className="mt-1">
+                                                                    {setting.customRender
+                                                                        ? customRenderers[
+                                                                              key as keyof typeof customRenderers
+                                                                          ]
+                                                                        : renderInput(
+                                                                              key,
+                                                                              setting as Setting,
+                                                                              settingsMap,
+                                                                          )}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            );
+                                        };
+
+                                        return (
+                                            <div className="space-y-8">
+                                                {/* Render ungrouped settings first if they exist */}
+                                                {Object.keys(
+                                                    settingsWithoutGroups,
+                                                ).length > 0 && (
+                                                    <div className="space-y-4">
+                                                        {renderSettingsGroup(
+                                                            settingsWithoutGroups,
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Render hierarchical groups */}
+                                                {Object.entries(
+                                                    hierarchicalGroups,
+                                                ).map(
+                                                    ([
+                                                        groupName,
+                                                        groupData,
+                                                    ]) => (
+                                                        <div
+                                                            key={groupName}
+                                                            className="space-y-4"
+                                                        >
+                                                            {/* Main group header */}
+                                                            <h3 className="border-b pb-2 text-lg font-medium">
+                                                                {groupName}
+                                                            </h3>
+
+                                                            {/* Main group settings */}
+                                                            {Object.keys(
+                                                                groupData.settings,
+                                                            ).length > 0 &&
+                                                                renderSettingsGroup(
+                                                                    groupData.settings,
+                                                                )}
+
+                                                            {/* Subgroups */}
+                                                            {Object.entries(
+                                                                groupData.subgroups,
+                                                            ).map(
+                                                                ([
+                                                                    subgroupName,
+                                                                    subgroupSettings,
+                                                                ]) => (
+                                                                    <div
+                                                                        key={
+                                                                            subgroupName
+                                                                        }
+                                                                        className="border-muted mt-6 space-y-4 border-l-2 pt-1 pl-4"
+                                                                    >
+                                                                        {/* Subgroup header */}
+                                                                        <h4 className="text-md flex items-center font-medium">
+                                                                            {
+                                                                                subgroupName
+                                                                            }
+                                                                        </h4>
+
+                                                                        {/* Subgroup settings */}
+                                                                        {renderSettingsGroup(
+                                                                            subgroupSettings,
+                                                                        )}
+                                                                    </div>
+                                                                ),
                                                             )}
                                                         </div>
-                                                        <div className="mt-1">
-                                                            {setting.customRender
-                                                                ? customRenderers[
-                                                                      key as keyof typeof customRenderers
-                                                                  ]
-                                                                : renderInput(
-                                                                      key,
-                                                                      setting,
-                                                                      settingsMap,
-                                                                  )}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            },
-                                        )}
-                                    </div>
+                                                    ),
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </CardContent>
                             </Card>
                         </TabsContent>

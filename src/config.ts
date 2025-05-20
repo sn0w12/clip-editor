@@ -32,6 +32,7 @@ export const APP_SETTINGS = {
                     setTheme(value);
                 },
                 description: "Choose the theme for the application",
+                groups: ["Appearance"],
             },
             windowIconsStyle: {
                 label: "Window Controls Style",
@@ -43,6 +44,7 @@ export const APP_SETTINGS = {
                 default: "custom",
                 description:
                     "Choose between custom or traditional window control icons",
+                groups: ["Appearance"],
             },
             steamDirectory: {
                 label: "Steam Directory",
@@ -56,6 +58,7 @@ export const APP_SETTINGS = {
                 default: "#74c4c9",
                 description:
                     "Choose the positive accent color for the application",
+                groups: ["Appearance", "Color"],
             },
             warningAccentColor: {
                 label: "Warning Accent Color",
@@ -63,6 +66,7 @@ export const APP_SETTINGS = {
                 default: "#f6b93b",
                 description:
                     "Choose the warning accent color for the application",
+                groups: ["Appearance", "Color"],
             },
             negativeAccentColor: {
                 label: "Negative Accent Color",
@@ -70,6 +74,7 @@ export const APP_SETTINGS = {
                 default: "#f72650",
                 description:
                     "Choose the negative accent color for the application",
+                groups: ["Appearance", "Color"],
             },
         },
     },
@@ -100,6 +105,7 @@ export const APP_SETTINGS = {
                 ],
                 default: "mp4",
                 description: "Default format when exporting clips",
+                groups: ["Export"],
             },
             defaultExportQuality: {
                 label: "Default Export Quality",
@@ -112,6 +118,7 @@ export const APP_SETTINGS = {
                 ],
                 default: "medium",
                 description: "Default quality setting when exporting clips",
+                groups: ["Export"],
             },
             seekIncrement: {
                 label: "Seek Increment",
@@ -122,6 +129,7 @@ export const APP_SETTINGS = {
                 step: 1,
                 description:
                     "Set the time increment for skip forward/backward buttons",
+                groups: ["Playback"],
             },
             holdSpeed: {
                 label: "Hold Speed",
@@ -132,6 +140,7 @@ export const APP_SETTINGS = {
                 step: 0.1,
                 description:
                     "Set the speed multiplier when holding down the video",
+                groups: ["Playback"],
             },
         },
     },
@@ -143,54 +152,63 @@ export const APP_SETTINGS = {
                 type: "shortcut",
                 default: "Ctrl+B",
                 description: "Shortcut to toggle the sidebar.",
+                groups: ["UI Control"],
             },
             selectAll: {
                 label: "Select All",
                 type: "shortcut",
                 default: "Ctrl+A",
                 description: "Shortcut to select all.",
+                groups: ["Selection"],
             },
             selectNone: {
                 label: "Select None",
                 type: "shortcut",
                 default: "Ctrl+D",
                 description: "Shortcut to deselect all.",
+                groups: ["Selection"],
             },
             selectInvert: {
                 label: "Select Invert",
                 type: "shortcut",
                 default: "Ctrl+I",
                 description: "Shortcut to invert selection.",
+                groups: ["Selection"],
             },
             pauseVideo: {
                 label: "Pause Video",
                 type: "shortcut",
                 default: "Space",
                 description: "Shortcut to pause the video.",
+                groups: ["Playback"],
             },
             skipForward: {
                 label: "Skip Forward",
                 type: "shortcut",
                 default: "ARROWRIGHT",
                 description: "Shortcut to skip forward in the video.",
+                groups: ["Playback", "Navigation"],
             },
             skipBackward: {
                 label: "Skip Backward",
                 type: "shortcut",
                 default: "ARROWLEFT",
                 description: "Shortcut to skip backward in the video.",
+                groups: ["Playback", "Navigation"],
             },
             skipToEnd: {
                 label: "Skip to End",
                 type: "shortcut",
                 default: "Ctrl+ARROWRIGHT",
                 description: "Shortcut to skip to the end of the video.",
+                groups: ["Playback", "Navigation"],
             },
             skipToStart: {
                 label: "Skip to Start",
                 type: "shortcut",
                 default: "Ctrl+ARROWLEFT",
                 description: "Shortcut to skip to the start of the video.",
+                groups: ["Playback", "Navigation"],
             },
         },
     },

@@ -69,7 +69,6 @@ export function ClipVideoPlayer({
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
-    const [isSeeking, setIsSeeking] = useState(false);
     const [isAudioTrackReady, setIsAudioTrackReady] = useState(false);
     const [isMouseDown, setIsMouseDown] = useState(false);
     const mouseDownTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -264,8 +263,6 @@ export function ClipVideoPlayer({
         for (let i = 0; i < audioTracks.length; i++) {
             audioTracks[i].enabled = i === trackIndex;
         }
-
-        setIsSeeking(true);
 
         const adjustedTime = Math.max(0, currentTimePosition + 0.01);
         video.currentTime = adjustedTime;
@@ -563,11 +560,6 @@ export function ClipVideoPlayer({
                             <Loader2 className="h-12 w-12 animate-spin text-white" />
                         </div>
                     )}
-                    {isSeeking && !isLoading && (
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                            <Loader2 className="h-8 w-8 animate-spin text-white" />
-                        </div>
-                    )}
                     {error && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-4 text-center">
                             <AlertCircle className="h-12 w-12 text-red-500" />
@@ -604,9 +596,7 @@ export function ClipVideoPlayer({
                                 animationFrameId.current = null;
                             }
                         }}
-                        onSeeking={() => setIsSeeking(true)}
                         onSeeked={() => {
-                            setIsSeeking(false);
                             if (pendingPlayRef.current) {
                                 pendingPlayRef.current = false;
 
@@ -679,7 +669,6 @@ export function ClipVideoPlayer({
                                         step={0.01}
                                         onValueChange={(value) => {
                                             if (videoRef.current) {
-                                                setIsSeeking(true);
                                                 videoRef.current.currentTime =
                                                     value[0];
                                                 setCurrentTime(value[0]);

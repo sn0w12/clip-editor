@@ -352,6 +352,7 @@ interface BaseSetting {
     deploymentOnly?: boolean;
     customRender?: boolean;
     contextMenuItems?: ContextMenuItemDef[];
+    groups?: string[];
 }
 
 interface CheckboxSetting extends BaseSetting {

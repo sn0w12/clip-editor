@@ -310,7 +310,10 @@ export function ClipVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
 
-        const newTime = Math.min(video.currentTime + seekIncrement, duration);
+        const newTime = Math.min(
+            video.currentTime + Number(seekIncrement),
+            duration,
+        );
         video.currentTime = newTime;
         setCurrentTime(newTime);
     };
@@ -319,7 +322,7 @@ export function ClipVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
 
-        const newTime = Math.max(video.currentTime - seekIncrement, 0);
+        const newTime = Math.max(video.currentTime - Number(seekIncrement), 0);
         video.currentTime = newTime;
         setCurrentTime(newTime);
     };

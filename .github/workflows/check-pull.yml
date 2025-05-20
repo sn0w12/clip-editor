@@ -12,12 +12,6 @@ jobs:
             matrix:
                 os: [windows-latest, ubuntu-latest]
 
-        permissions:
-            contents: write
-            packages: write
-            issues: write
-            pull-requests: read
-
         steps:
             - uses: actions/checkout@v4
 

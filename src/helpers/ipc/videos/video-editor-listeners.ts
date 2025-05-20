@@ -1,4 +1,4 @@
-import { clipboard, dialog, ipcMain } from "electron";
+import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import path from "path";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
@@ -44,7 +44,7 @@ function calculateFps(frameRateStr: string): number {
 /**
  * Add video editor-related event listeners
  */
-export function addVideoEditorEventListeners() {
+export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
     // Handle video metadata retrieval
     ipcMain.handle(
         "video-editor:get-metadata",
@@ -271,11 +271,53 @@ export function addVideoEditorEventListeners() {
                             }
                         }
 
+                        command.on("progress", (progress) => {
+                            const timemarkToSeconds = (
+                                timemark: string,
+                            ): number => {
+                                const parts = timemark.split(":");
+                                if (parts.length !== 3) return 0;
+
+                                const hours = parseInt(parts[0], 10);
+                                const minutes = parseInt(parts[1], 10);
+                                const seconds = parseFloat(parts[2]);
+
+                                return hours * 3600 + minutes * 60 + seconds;
+                            };
+
+                            const currentTime = timemarkToSeconds(
+                                progress.timemark,
+                            );
+
+                            // Calculate overall progress as a value between 0 and 1
+                            const progressValue = Math.min(
+                                currentTime /
+                                    (options.endTime - options.startTime),
+                                1,
+                            );
+
+                            if (mainWindow) {
+                                mainWindow.setProgressBar(progressValue);
+                                mainWindow.webContents.send("export-progress", {
+                                    progress: progressValue,
+                                    currentTime,
+                                    totalDuration:
+                                        options.endTime - options.startTime,
+                                });
+                            }
+                        });
+
                         command
                             .on("end", () => {
+                                if (mainWindow) {
+                                    mainWindow.setProgressBar(-1); // -1 removes the progress bar
+                                }
                                 resolve({ success: true, outputPath });
                             })
                             .on("error", (err) => {
+                                if (mainWindow) {
+                                    mainWindow.setProgressBar(-1);
+                                }
                                 reject(err);
                             })
                             .save(outputPath);

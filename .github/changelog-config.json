@@ -13,7 +13,7 @@
             "labels": ["chore", "documentation"]
         }
     ],
-    "template": "#{{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
+    "template": "#{{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>\n\n[View all changes](https://github.com/{{OWNER}}/{{REPO}}/compare/#{{FROM_TAG}}...#{{TO_TAG}})",
     "pr_template": "- #{{TITLE}} (#{{NUMBER}})",
     "empty_template": "- No changes in this release",
     "transformers": [

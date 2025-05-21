@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatTime } from "@/utils/format";
 import { imgSrc } from "@/utils/games";
@@ -11,7 +11,9 @@ import { useConfirm } from "@/contexts/confirm-context";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 interface PreviousExportsProps {
-    videoPath: string;
+    exports: ExportedClip[];
+    setExports: React.Dispatch<React.SetStateAction<ExportedClip[]>>;
+    isLoading: boolean;
     onSelectClip: (
         clipPath: string | null,
         clipDuration: number | null,
@@ -20,33 +22,14 @@ interface PreviousExportsProps {
 }
 
 export function PreviousExports({
-    videoPath,
+    exports,
+    setExports,
+    isLoading,
     onSelectClip,
     selectedClipPath,
 }: PreviousExportsProps) {
-    const [exports, setExports] = useState<ExportedClip[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
     const [isDeletingPath, setIsDeletingPath] = useState<string | null>(null);
     const { confirm } = useConfirm();
-
-    useEffect(() => {
-        async function fetchExports() {
-            setIsLoading(true);
-            try {
-                const result =
-                    await window.videoEditor.getPreviousExports(videoPath);
-                setExports(result || []);
-            } catch (error) {
-                console.error("Error fetching exports:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        }
-
-        if (videoPath) {
-            fetchExports();
-        }
-    }, [videoPath]);
 
     const formatFileSize = (bytes: number) => {
         if (bytes < 1024) return `${bytes} B`;

@@ -110,6 +110,9 @@ export default function EditPage() {
             });
 
             if (result.success) {
+                window.dispatchEvent(
+                    new CustomEvent("video-exported", { detail: result }),
+                );
                 toast.success("Export completed successfully", {
                     action: {
                         label: "Copy to Clipboard",

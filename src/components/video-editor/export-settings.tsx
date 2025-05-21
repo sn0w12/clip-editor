@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
     Select,
@@ -9,7 +9,12 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ExportOptions, TimeRange, VideoMetadata } from "@/types/video-editor";
+import {
+    ExportedClip,
+    ExportOptions,
+    TimeRange,
+    VideoMetadata,
+} from "@/types/video-editor";
 import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -43,39 +48,59 @@ export function ExportSettings({
     onSelectClip,
     selectedClipPath,
 }: ExportSettingsProps) {
-    const [outputFormat, setOutputFormat] = React.useState<string>(
+    const [outputFormat, setOutputFormat] = useState<string>(
         getSetting("defaultExportFormat") || "mp4",
     );
-    const [quality, setQuality] = React.useState<string>(
+    const [quality, setQuality] = useState<string>(
         getSetting("defaultExportQuality") || "medium",
     );
-    const [qualityMode, setQualityMode] = React.useState<
-        "preset" | "targetSize"
-    >("preset");
-    const [targetSize, setTargetSize] = React.useState<number>(10);
-    const [resolutionPercent, setResolutionPercent] =
-        React.useState<number>(100);
-    const [estimatedFileSize, setEstimatedFileSize] =
-        React.useState<string>("0 MB");
-    const [estimatedBitrate, setEstimatedBitrate] =
-        React.useState<string>("0 kbps");
-    const [width, setWidth] = React.useState<number | undefined>(
+    const [qualityMode, setQualityMode] = useState<"preset" | "targetSize">(
+        "preset",
+    );
+    const [targetSize, setTargetSize] = useState<number>(10);
+    const [resolutionPercent, setResolutionPercent] = useState<number>(100);
+    const [estimatedFileSize, setEstimatedFileSize] = useState<string>("0 MB");
+    const [estimatedBitrate, setEstimatedBitrate] = useState<string>("0 kbps");
+    const [width, setWidth] = useState<number | undefined>(
         videoMetadata?.width,
     );
-    const [height, setHeight] = React.useState<number | undefined>(
+    const [height, setHeight] = useState<number | undefined>(
         videoMetadata?.height,
     );
-    const [fps, setFps] = React.useState<number | undefined>(
-        videoMetadata?.fps,
+    const [fps, setFps] = useState<number | undefined>(videoMetadata?.fps);
+    const [audioBitrate, setAudioBitrate] = useState<number>(128);
+    const [selectedAudioTracks, setSelectedAudioTracks] = useState<number[]>(
+        [],
     );
-    const [audioBitrate, setAudioBitrate] = React.useState<number>(128);
-    const [selectedAudioTracks, setSelectedAudioTracks] = React.useState<
-        number[]
-    >([]);
-    const [activeTab, setActiveTab] = React.useState<string>("settings");
+    const [activeTab, setActiveTab] = useState<string>("settings");
+    const [exports, setExports] = useState<ExportedClip[]>([]);
+    const [isClipsLoading, setIsClipsLoading] = useState(true);
+
+    useEffect(() => {
+        async function fetchExports() {
+            setIsClipsLoading(true);
+            try {
+                const result =
+                    await window.videoEditor.getPreviousExports(videoPath);
+                setExports(result || []);
+            } catch (error) {
+                console.error("Error fetching exports:", error);
+            } finally {
+                setIsClipsLoading(false);
+            }
+        }
+
+        if (videoPath) {
+            fetchExports();
+        }
+
+        window.addEventListener("video-exported", () => {
+            fetchExports();
+        });
+    }, [videoPath]);
 
     // Initialize selected audio tracks with all tracks selected
-    React.useEffect(() => {
+    useEffect(() => {
         if (audioTracks.length > 0) {
             const defaultAudioTrack = parseInt(
                 getSetting("defaultAudioTrack") || "0",
@@ -100,20 +125,16 @@ export function ExportSettings({
         });
     };
 
-    // Update dimensions when metadata changes
-    React.useEffect(() => {
+    useEffect(() => {
         if (videoMetadata) {
             setWidth(videoMetadata.width);
             setHeight(videoMetadata.height);
             setFps(videoMetadata.fps);
         }
     }, [videoMetadata]);
-
-    // Calculate clip duration
     const clipDuration = timeRange.end - timeRange.start;
 
-    // Calculate actual width and height based on resolution percentage
-    React.useEffect(() => {
+    useEffect(() => {
         if (videoMetadata) {
             const newWidth = Math.round(
                 videoMetadata.width * (resolutionPercent / 100),
@@ -568,7 +589,9 @@ export function ExportSettings({
                 </TabsContent>
                 <TabsContent value="previous">
                     <PreviousExports
-                        videoPath={videoPath}
+                        exports={exports}
+                        setExports={setExports}
+                        isLoading={isClipsLoading}
                         onSelectClip={onSelectClip}
                         selectedClipPath={selectedClipPath}
                     />

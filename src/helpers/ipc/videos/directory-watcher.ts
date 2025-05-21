@@ -59,7 +59,10 @@ export function addDirectoryWatcherListeners() {
             const mainWindow = BrowserWindow.getAllWindows()[0];
 
             watcher.on("add", (filePath) => {
-                if (isVideoFile(filePath)) {
+                if (
+                    isVideoFile(filePath) &&
+                    path.dirname(filePath) === directoryPath
+                ) {
                     // Cancel any existing timer for this file
                     if (pendingFiles.has(filePath)) {
                         clearTimeout(pendingFiles.get(filePath));

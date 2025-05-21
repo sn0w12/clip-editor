@@ -23,6 +23,7 @@ export interface ExportOptions {
     removeAudio?: boolean; // Optional flag to remove audio
     speedFactor?: number; // Optional playback speed adjustment
     audioTracks?: number[]; // Optional array of audio track indices to include
+    chooseExportLocation?: boolean; // Optional flag to choose export location
 }
 
 export interface TimeRange {

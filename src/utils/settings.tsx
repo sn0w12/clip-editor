@@ -153,7 +153,9 @@ export function useSettingsChange(
  * // theme will automatically update when the theme setting changes
  * ```
  */
-export function useSetting<K extends keyof SettingsInterface>(key: K) {
+export function useSetting<K extends keyof SettingsInterface>(
+    key: K,
+): SettingsInterface[K] {
     const [value, setValue] = React.useState<SettingsInterface[K]>(
         () => getSetting(key) ?? defaultSettings[key],
     );

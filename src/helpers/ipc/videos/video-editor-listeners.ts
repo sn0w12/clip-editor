@@ -1,22 +1,11 @@
 import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import path from "path";
+import crypto from "crypto";
+import fs from "fs";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import { createPerformanceLogger } from "@/helpers/performance";
-
-interface ExportOptions {
-    startTime: number; // Start time in seconds
-    endTime: number; // End time in seconds
-    outputFormat: string; // e.g., 'mp4', 'webm'
-    quality?: string; // e.g., 'high', 'medium', 'low'
-    qualityMode: "preset" | "targetSize"; // Whether to use quality preset or target size
-    targetSize?: number; // Target file size in MB
-    width?: number; // Optional width
-    height?: number; // Optional height
-    fps?: number; // Optional fps
-    audioBitrate?: number; // Audio bitrate in kbps
-    audioTracks?: number[]; // Selected audio tracks to include
-}
+import { ExportOptions } from "@/types/video-editor";
 
 /**
  * Safely calculates FPS from a frame rate string (typically in the format "numerator/denominator")
@@ -126,29 +115,94 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
 
             try {
                 perfLog.addStep("showSaveDialog");
-                // Ask user where to save the output file
-                const saveResult = await dialog.showSaveDialog({
-                    title: "Save Exported Clip",
-                    defaultPath: path.join(
-                        path.dirname(videoPath),
-                        `${path.basename(videoPath, path.extname(videoPath))}_clip.${options.outputFormat}`,
-                    ),
-                    filters: [
-                        {
-                            name: "Video Files",
-                            extensions: [options.outputFormat],
-                        },
-                        { name: "All Files", extensions: ["*"] },
-                    ],
-                });
+                let outputPath: string | undefined;
 
-                if (saveResult.canceled || !saveResult.filePath) {
-                    perfLog.end({ success: false, canceled: true });
-                    return { success: false, error: "Export cancelled" };
+                if (options.chooseExportLocation) {
+                    const saveResult = await dialog.showSaveDialog({
+                        title: "Save Exported Clip",
+                        defaultPath: path.join(
+                            path.dirname(videoPath),
+                            `${path.basename(videoPath, path.extname(videoPath))}_clip.${options.outputFormat}`,
+                        ),
+                        filters: [
+                            {
+                                name: "Video Files",
+                                extensions: [options.outputFormat],
+                            },
+                            { name: "All Files", extensions: ["*"] },
+                        ],
+                    });
+
+                    if (saveResult.canceled || !saveResult.filePath) {
+                        perfLog.end({ success: false, canceled: true });
+                        return { success: false, error: "Export cancelled" };
+                    }
+                    outputPath = saveResult.filePath;
+                } else {
+                    const optionsToHash = {
+                        startTime: options.startTime,
+                        endTime: options.endTime,
+                        width: options.width,
+                        height: options.height,
+                        fps: options.fps,
+                        qualityMode: options.qualityMode,
+                        quality: options.quality,
+                        targetSize: options.targetSize,
+                        audioBitrate: options.audioBitrate,
+                        audioTracks: options.audioTracks,
+                        outputFormat: options.outputFormat,
+                    };
+
+                    const optionsHash = crypto
+                        .createHash("md5")
+                        .update(JSON.stringify(optionsToHash))
+                        .digest("hex")
+                        .substring(0, 8); // Use first 8 characters of hash
+
+                    const originalFileName = path.basename(
+                        videoPath,
+                        path.extname(videoPath),
+                    );
+                    const originalDir = path.dirname(videoPath);
+                    const outputDir = path.join(
+                        originalDir,
+                        `${originalFileName}_clips`,
+                    );
+                    try {
+                        if (!fs.existsSync(outputDir)) {
+                            fs.mkdirSync(outputDir, { recursive: true });
+                        }
+                    } catch (err) {
+                        console.error("Error creating output directory:", err);
+                        perfLog.end({
+                            success: false,
+                            error: "Failed to create output directory",
+                        });
+                        return {
+                            success: false,
+                            error: "Failed to create output directory",
+                        };
+                    }
+
+                    outputPath = path.join(
+                        outputDir,
+                        `${originalFileName}_${optionsHash}.${options.outputFormat}`,
+                    );
+                    if (fs.existsSync(outputPath)) {
+                        perfLog.end({
+                            success: true,
+                            outputPath,
+                            fileAlreadyExists: true,
+                        });
+                        return {
+                            success: true,
+                            outputPath,
+                            fileAlreadyExists: true,
+                        };
+                    }
                 }
 
                 perfLog.addStep("prepareExportSettings");
-                const outputPath = saveResult.filePath;
                 let videoBitrate: string;
                 let audioBitrate: string;
 

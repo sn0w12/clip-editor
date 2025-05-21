@@ -11,6 +11,7 @@ import { ClipHeader } from "@/components/video-editor/clip-header";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { useBadge } from "@/contexts/badge-context";
+import { useSetting } from "@/utils/settings";
 
 export default function EditPage() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
@@ -31,6 +32,7 @@ export default function EditPage() {
     const [audioTracks, setAudioTracks] = useState<
         { index: number; label: string }[]
     >([]);
+    const chooseExportLocation = useSetting("chooseExportLocation");
 
     const currentVideo = useMemo(
         () => videos.find((video) => video.path === videoPath),
@@ -96,10 +98,10 @@ export default function EditPage() {
 
         setIsExporting(true);
         try {
-            const result = await window.videoEditor.exportClip(
-                videoPath,
-                options,
-            );
+            const result = await window.videoEditor.exportClip(videoPath, {
+                ...options,
+                chooseExportLocation,
+            });
 
             if (result.success) {
                 toast.success("Export completed successfully", {

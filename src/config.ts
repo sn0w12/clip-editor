@@ -1,4 +1,5 @@
 import { setTheme } from "./helpers/theme-helpers";
+import { Setting } from "./utils/settings";
 
 /**
  * Configuration object for the Electron application.
@@ -12,10 +13,23 @@ export const APP_CONFIG = {
     useLoadingWindow: false,
 };
 
+interface AppSettings {
+    [key: string]: {
+        label: string;
+        settings: {
+            [key: string]:
+                | Setting
+                | {
+                      customRender: boolean;
+                  };
+        };
+    };
+}
+
 /**
  * Application settings configuration with categorized groups
  */
-export const APP_SETTINGS = {
+export const APP_SETTINGS: AppSettings = {
     general: {
         label: "General",
         settings: {
@@ -28,8 +42,8 @@ export const APP_SETTINGS = {
                     { label: "System", value: "system" },
                 ],
                 default: "system",
-                onChange: (value: "light" | "dark" | "system") => {
-                    setTheme(value);
+                onChange: (value) => {
+                    setTheme(value as "light" | "dark" | "system");
                 },
                 description: "Choose the theme for the application",
                 groups: ["Appearance"],
@@ -120,12 +134,19 @@ export const APP_SETTINGS = {
                 description: "Default quality setting when exporting clips",
                 groups: ["Export"],
             },
+            chooseExportLocation: {
+                label: "Choose Export Location",
+                type: "checkbox",
+                default: true,
+                description: "Select the default directory for exported clips",
+                groups: ["Export"],
+            },
             seekIncrement: {
                 label: "Seek Increment",
                 type: "slider",
                 min: 1,
                 max: 60,
-                default: 5,
+                default: "5",
                 step: 1,
                 description:
                     "Set the time increment for skip forward/backward buttons",
@@ -136,7 +157,7 @@ export const APP_SETTINGS = {
                 type: "slider",
                 min: 1,
                 max: 10,
-                default: 2,
+                default: "2",
                 step: 0.1,
                 description:
                     "Set the speed multiplier when holding down the video",
@@ -216,8 +237,6 @@ export const APP_SETTINGS = {
         label: "About",
         settings: {
             appInfo: {
-                type: "button",
-                default: "",
                 customRender: true,
             },
         },

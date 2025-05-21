@@ -175,7 +175,7 @@ export function useSetting<K extends keyof SettingsInterface>(key: K) {
  */
 export function getSetting<K extends keyof SettingsInterface>(
     key: K,
-): SettingsInterface[K] | null {
+): SettingsInterface[K] {
     const storedSetting = localStorage.getItem("settings");
     if (storedSetting) {
         const settings = JSON.parse(storedSetting);
@@ -227,7 +227,10 @@ export const createSettingsMap = (
     for (const [key, settingDef] of Object.entries(categorySettings)) {
         const setting = settingDef as Setting;
         const createHandler = (value: SettingValue) => {
-            setSettings({ ...currentSettings, [key]: value });
+            setSettings({
+                ...currentSettings,
+                [key]: value,
+            } as SettingsInterface);
             setting.onChange?.(value);
         };
 

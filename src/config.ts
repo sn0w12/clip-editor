@@ -141,6 +141,14 @@ export const APP_SETTINGS: AppSettings = {
                 description: "Enable custom export location",
                 groups: ["Export"],
             },
+            alwaysCopyExport: {
+                label: "Always Copy Export",
+                type: "checkbox",
+                default: false,
+                description:
+                    "Enable automatic copying of the exported file to clipboard",
+                groups: ["Export"],
+            },
             seekIncrement: {
                 label: "Seek Increment",
                 type: "slider",

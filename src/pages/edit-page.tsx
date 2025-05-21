@@ -149,9 +149,15 @@ export default function EditPage() {
         }
     };
 
-    const handleSelectClip = (clipPath: string | null, clipDuration: number | null) => {
+    const handleSelectClip = (
+        clipPath: string | null,
+        clipDuration: number | null,
+    ) => {
         setSelectedClipPath(clipPath);
         setSelectedClipDuration(clipDuration);
+
+        const end = clipDuration ?? currentVideoMetadata?.duration ?? 0;
+        setTimeRange({ start: 0, end });
     };
 
     const videoSrc = selectedClipPath

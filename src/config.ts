@@ -137,7 +137,7 @@ export const APP_SETTINGS: AppSettings = {
             chooseExportLocation: {
                 label: "Choose Export Location",
                 type: "checkbox",
-                default: true,
+                default: false,
                 description: "Select the default directory for exported clips",
                 groups: ["Export"],
             },

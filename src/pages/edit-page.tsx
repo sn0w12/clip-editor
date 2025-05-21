@@ -11,7 +11,7 @@ import { ClipHeader } from "@/components/video-editor/clip-header";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { useBadge } from "@/contexts/badge-context";
-import { useSetting } from "@/utils/settings";
+import { getSetting, useSetting } from "@/utils/settings";
 
 export default function EditPage() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
@@ -113,6 +113,17 @@ export default function EditPage() {
                 window.dispatchEvent(
                     new CustomEvent("video-exported", { detail: result }),
                 );
+                const alwaysCopyExport = getSetting("alwaysCopyExport");
+                if (alwaysCopyExport) {
+                    await window.videoEditor.copyFileToClipboard(
+                        result.outputPath || "",
+                    );
+                    toast.success("Export completed successfully", {
+                        description: "File copied to clipboard",
+                    });
+                    return;
+                }
+
                 toast.success("Export completed successfully", {
                     action: {
                         label: "Copy to Clipboard",

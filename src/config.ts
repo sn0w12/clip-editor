@@ -138,7 +138,7 @@ export const APP_SETTINGS: AppSettings = {
                 label: "Choose Export Location",
                 type: "checkbox",
                 default: false,
-                description: "Select the default directory for exported clips",
+                description: "Enable custom export location",
                 groups: ["Export"],
             },
             seekIncrement: {

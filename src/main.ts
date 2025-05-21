@@ -294,8 +294,8 @@ async function handleImageRequest(
 
     if (fullImage) {
         // Return the full image
-        const fileBuffer = fs.readFileSync(filePath);
-        return new Response(fileBuffer, {
+        const stream = fs.createReadStream(filePath);
+        return new Response(stream as unknown as ReadableStream, {
             headers: {
                 "Content-Type": contentType,
                 "Content-Length": String(stats.size),

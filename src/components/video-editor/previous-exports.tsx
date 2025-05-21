@@ -68,6 +68,9 @@ export function PreviousExports({
             const result = await window.videos.deleteVideoFiles([clipPath]);
             if (result.success) {
                 setExports(exports.filter((clip) => clip.path !== clipPath));
+                if (selectedClipPath === clipPath) {
+                    onSelectClip(null, null);
+                }
                 toast.success("Clip deleted successfully");
             } else {
                 toast.error(`Failed to delete clip: ${result.error}`);
@@ -174,11 +177,14 @@ export function PreviousExports({
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-6 w-6 p-0"
-                                                onClick={() =>
+                                                onClick={(
+                                                    e: React.MouseEvent,
+                                                ) => {
+                                                    e.stopPropagation();
                                                     handleDeleteExport(
                                                         clip.path,
-                                                    )
-                                                }
+                                                    );
+                                                }}
                                                 disabled={
                                                     isDeletingPath === clip.path
                                                 }

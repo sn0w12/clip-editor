@@ -11,10 +11,17 @@ import { ClipHeader } from "@/components/video-editor/clip-header";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { useBadge } from "@/contexts/badge-context";
+import { useSetting } from "@/utils/settings";
 
 export default function EditPage() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
     const navigate = useNavigate();
+    const [selectedClipPath, setSelectedClipPath] = useState<string | null>(
+        null,
+    );
+    const [selectedClipDuration, setSelectedClipDuration] = useState<
+        number | null
+    >(null);
     const { videoMetadata: storedMetadata, videos } = useVideoStore();
     const { games, gameImages, loading } = useSteam();
     const { setBadgeContent, setBadgeVisible } = useBadge();
@@ -31,6 +38,7 @@ export default function EditPage() {
     const [audioTracks, setAudioTracks] = useState<
         { index: number; label: string }[]
     >([]);
+    const chooseExportLocation = useSetting("chooseExportLocation");
 
     const currentVideo = useMemo(
         () => videos.find((video) => video.path === videoPath),
@@ -96,12 +104,15 @@ export default function EditPage() {
 
         setIsExporting(true);
         try {
-            const result = await window.videoEditor.exportClip(
-                videoPath,
-                options,
-            );
+            const result = await window.videoEditor.exportClip(videoPath, {
+                ...options,
+                chooseExportLocation,
+            });
 
             if (result.success) {
+                window.dispatchEvent(
+                    new CustomEvent("video-exported", { detail: result }),
+                );
                 toast.success("Export completed successfully", {
                     action: {
                         label: "Copy to Clipboard",
@@ -141,6 +152,27 @@ export default function EditPage() {
         }
     };
 
+    const handleSelectClip = (
+        clipPath: string | null,
+        clipDuration: number | null,
+    ) => {
+        setSelectedClipPath(clipPath);
+        setSelectedClipDuration(clipDuration);
+
+        const end = clipDuration ?? currentVideoMetadata?.duration ?? 0;
+        setTimeRange({ start: 0, end });
+    };
+
+    const videoSrc = selectedClipPath
+        ? `clip-video:///${selectedClipPath}`
+        : videoPath
+          ? `clip-video:///${videoPath}`
+          : "";
+
+    const videoDuration = selectedClipDuration
+        ? selectedClipDuration
+        : currentVideoMetadata?.duration || 0;
+
     return (
         <div className="h-full pt-2">
             <ClipHeader />
@@ -158,10 +190,10 @@ export default function EditPage() {
                     <div className="grid h-full grid-cols-1 gap-3 lg:grid-cols-3">
                         <div className="flex flex-col lg:col-span-2">
                             <ClipVideoPlayer
-                                videoSrc={`clip-video:///${videoPath}`}
+                                videoSrc={videoSrc}
                                 onTimeRangeChange={setTimeRange}
                                 timeRange={timeRange}
-                                duration={currentVideoMetadata.duration}
+                                duration={videoDuration}
                                 onAudioTracksChange={setAudioTracks}
                             />
                         </div>
@@ -172,6 +204,9 @@ export default function EditPage() {
                                 onExport={handleExport}
                                 isExporting={isExporting}
                                 audioTracks={audioTracks}
+                                videoPath={videoPath}
+                                onSelectClip={handleSelectClip}
+                                selectedClipPath={selectedClipPath}
                             />
                         </div>
                     </div>

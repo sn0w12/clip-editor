@@ -373,6 +373,29 @@ export function ClipVideoPlayer({
         setPlaySelectedOnly((prev: boolean) => !prev);
     };
 
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video) return;
+
+        if (isPlaying) {
+            video.pause();
+            setIsPlaying(false);
+        }
+
+        setIsLoading(true);
+        setIsAudioTrackReady(false);
+        setCurrentTime(0);
+        setError(null);
+
+        if (animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = null;
+        }
+
+        video.playbackRate = 1.0;
+        isSpeedingUp.current = false;
+    }, [videoSrc]);
+
     // Save settings to localStorage when they change
     useEffect(() => {
         localStorage.setItem(STORAGE_KEYS.VOLUME, volume.toString());

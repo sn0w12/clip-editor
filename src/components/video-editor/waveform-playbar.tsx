@@ -12,6 +12,13 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+    ChevronRight,
+    SkipForward,
+    SkipBack,
+    ChevronLast,
+    ChevronFirst,
+} from "lucide-react";
 
 interface WaveformPlaybarProps {
     videoPath: string;
@@ -293,20 +300,29 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     </div>
                 </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className="w-40">
+            <ContextMenuContent className="w-48">
                 <ContextMenuSub>
-                    <ContextMenuSubTrigger>Go to</ContextMenuSubTrigger>
+                    <ContextMenuSubTrigger>
+                        <ChevronRight className="mr-2 h-4 w-4" />
+                        Go to
+                    </ContextMenuSubTrigger>
                     <ContextMenuSubContent>
                         <ContextMenuItem onClick={goToStart}>
+                            <ChevronFirst className="h-4 w-4" />
                             Start
                         </ContextMenuItem>
                         <ContextMenuItem onClick={goToStartMarker}>
+                            <SkipBack className="h-4 w-4" />
                             Start marker
                         </ContextMenuItem>
                         <ContextMenuItem onClick={goToEndMarker}>
+                            <SkipForward className="h-4 w-4" />
                             End marker
                         </ContextMenuItem>
-                        <ContextMenuItem onClick={goToEnd}>End</ContextMenuItem>
+                        <ContextMenuItem onClick={goToEnd}>
+                            <ChevronLast className="h-4 w-4" />
+                            End
+                        </ContextMenuItem>
                     </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
@@ -314,12 +330,14 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     onClick={setStartMarkerFromContextMenu}
                     disabled={isSetStartMarkerDisabled}
                 >
+                    <SkipBack className="h-4 w-4" />
                     Set start marker
                 </ContextMenuItem>
                 <ContextMenuItem
                     onClick={setEndMarkerFromContextMenu}
                     disabled={isSetEndMarkerDisabled}
                 >
+                    <SkipForward className="h-4 w-4" />
                     Set end marker
                 </ContextMenuItem>
             </ContextMenuContent>

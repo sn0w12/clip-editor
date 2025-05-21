@@ -67,6 +67,9 @@ interface VideoEditorAPI {
     copyFileToClipboard: (
         filePath: string,
     ) => Promise<{ success: boolean; error?: string }>;
+    getPreviousExports: (
+        videoPath: string,
+    ) => Promise<import("./types/video-editor").ExportedClip[]>;
 }
 
 interface AudioWaveformAPI {

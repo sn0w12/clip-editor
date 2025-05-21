@@ -30,3 +30,12 @@ export interface TimeRange {
     start: number;
     end: number;
 }
+
+export interface ExportedClip {
+    path: string;
+    name: string;
+    timestamp: number;
+    duration: number;
+    thumbnail: string;
+    size: number;
+}

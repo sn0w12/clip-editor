@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
-import { ExportOptions, VideoMetadata } from "@/types/video-editor";
+import {
+    ExportedClip,
+    ExportOptions,
+    VideoMetadata,
+} from "@/types/video-editor";
 
 /**
  * Exposes video editor-related functionality to the renderer process
@@ -37,5 +41,8 @@ export function exposeVideoEditorContext() {
             filePath: string,
         ): Promise<{ success: boolean; error?: string }> =>
             ipcRenderer.invoke("video-editor:copy-file-to-clipboard", filePath),
+
+        getPreviousExports: (videoPath: string): Promise<ExportedClip[]> =>
+            ipcRenderer.invoke("video-editor:get-previous-exports", videoPath),
     });
 }

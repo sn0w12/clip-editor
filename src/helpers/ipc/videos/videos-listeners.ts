@@ -8,8 +8,25 @@ import crypto from "crypto";
 import { getWaveformCacheFiles } from "./audio-waveform";
 import { createPerformanceLogger } from "@/helpers/performance";
 
-// Directory to store thumbnails
-const THUMBNAIL_DIR = path.join(app.getPath("userData"), "thumbnails");
+export const THUMBNAIL_DIR = path.join(app.getPath("userData"), "thumbnails");
+export const screenshot = promisify(
+    (
+        input: string,
+        output: string,
+        callback: (error: Error | null) => void,
+    ) => {
+        ffmpeg(input)
+            .screenshots({
+                count: 1,
+                folder: path.dirname(output),
+                filename: path.basename(output),
+                timemarks: ["00:00:02"], // Take screenshot at 2 seconds
+                size: "720x?",
+            })
+            .on("end", () => callback(null))
+            .on("error", (err) => callback(err));
+    },
+);
 
 /**
  * Creates the thumbnails directory if it doesn't exist
@@ -25,7 +42,7 @@ async function ensureThumbnailDirectory() {
 /**
  * Generate a thumbnail filename based on the video path
  */
-function getThumbnailFilename(videoPath: string): string {
+export function getThumbnailFilename(videoPath: string): string {
     const hash = crypto.createHash("md5").update(videoPath).digest("hex");
     return `${hash}.jpg`;
 }
@@ -138,25 +155,6 @@ export function addVideosEventListeners() {
             // Thumbnail doesn't exist, generate it
             try {
                 perfLog.addStep("generateNewThumbnail");
-                const screenshot = promisify(
-                    (
-                        input: string,
-                        output: string,
-                        callback: (error: Error | null) => void,
-                    ) => {
-                        ffmpeg(input)
-                            .screenshots({
-                                count: 1,
-                                folder: path.dirname(output),
-                                filename: path.basename(output),
-                                timemarks: ["00:00:02"], // Take screenshot at 2 seconds
-                                size: "720x?",
-                            })
-                            .on("end", () => callback(null))
-                            .on("error", (err) => callback(err));
-                    },
-                );
-
                 await screenshot(videoPath, thumbnailPath);
 
                 perfLog.addStep("returnNewThumbnail");

@@ -2,10 +2,16 @@ import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import path from "path";
 import crypto from "crypto";
 import fs from "fs";
+import * as fsP from "fs/promises";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
 import { createPerformanceLogger } from "@/helpers/performance";
-import { ExportOptions } from "@/types/video-editor";
+import { ExportedClip, ExportOptions } from "@/types/video-editor";
+import {
+    getThumbnailFilename,
+    screenshot,
+    THUMBNAIL_DIR,
+} from "./videos-listeners";
 
 /**
  * Safely calculates FPS from a frame rate string (typically in the format "numerator/denominator")
@@ -406,6 +412,134 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
                 });
 
                 return result;
+            }
+        },
+    );
+
+    ipcMain.handle(
+        "video-editor:get-previous-exports",
+        async (_, videoPath: string) => {
+            try {
+                const originalFileName = path.basename(
+                    videoPath,
+                    path.extname(videoPath),
+                );
+                const originalDir = path.dirname(videoPath);
+                const outputDir = path.join(
+                    originalDir,
+                    `${originalFileName}_clips`,
+                );
+
+                // Check if directory exists
+                if (!fs.existsSync(outputDir)) {
+                    return { success: true, exports: [] };
+                }
+
+                const files = fs.readdirSync(outputDir);
+                const exports = await Promise.all(
+                    files
+                        .filter((file) => {
+                            // Filter for video files
+                            const ext = path.extname(file).toLowerCase();
+                            return [
+                                ".mp4",
+                                ".webm",
+                                ".mov",
+                                ".mkv",
+                                ".gif",
+                            ].includes(ext);
+                        })
+                        .map(async (file) => {
+                            const filePath = path.join(outputDir, file);
+                            const stats = fs.statSync(filePath);
+
+                            // Get metadata from the video file using ffprobe
+                            try {
+                                const getMetadata = promisify<
+                                    string,
+                                    ffmpeg.FfprobeData
+                                >((input, callback) => {
+                                    ffmpeg.ffprobe(input, (err, metadata) => {
+                                        if (err)
+                                            callback(
+                                                err,
+                                                {} as ffmpeg.FfprobeData,
+                                            );
+                                        else callback(null, metadata);
+                                    });
+                                });
+
+                                const metadata = await getMetadata(filePath);
+                                const duration = metadata.format.duration || 0;
+
+                                const thumbnailFilename =
+                                    getThumbnailFilename(filePath);
+                                const thumbnailPath = path.join(
+                                    THUMBNAIL_DIR,
+                                    thumbnailFilename,
+                                );
+                                let thumbnail = "";
+
+                                try {
+                                    await fsP.access(thumbnailPath);
+                                    thumbnail = thumbnailPath;
+                                } catch {
+                                    // Thumbnail doesn't exist, generate it
+                                    try {
+                                        await screenshot(
+                                            filePath,
+                                            thumbnailPath,
+                                        );
+                                        thumbnail = thumbnailPath;
+                                    } catch (thumbnailError) {
+                                        console.error(
+                                            "Error generating thumbnail:",
+                                            thumbnailError,
+                                        );
+                                    }
+                                }
+
+                                return {
+                                    path: filePath,
+                                    name: path.basename(filePath),
+                                    timestamp: stats.mtime.getTime(),
+                                    duration,
+                                    size: stats.size,
+                                    thumbnail,
+                                };
+                            } catch (error) {
+                                console.error(
+                                    `Error getting metadata for ${filePath}:`,
+                                    error,
+                                );
+                                return {
+                                    path: filePath,
+                                    timestamp: stats.mtime.getTime(),
+                                    duration: 0,
+                                    size: stats.size,
+                                };
+                            }
+                        }),
+                );
+
+                const validExports = exports.filter(
+                    (item): item is ExportedClip =>
+                        typeof item !== "string" &&
+                        item !== null &&
+                        item !== undefined,
+                );
+                validExports.sort((a, b) => b.timestamp - a.timestamp);
+
+                return validExports;
+            } catch (error) {
+                console.error("Error getting previous exports:", error);
+                return {
+                    success: false,
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : "Unknown error",
+                };
             }
         },
     );

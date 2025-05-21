@@ -16,6 +16,12 @@ import { useSetting } from "@/utils/settings";
 export default function EditPage() {
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
     const navigate = useNavigate();
+    const [selectedClipPath, setSelectedClipPath] = useState<string | null>(
+        null,
+    );
+    const [selectedClipDuration, setSelectedClipDuration] = useState<
+        number | null
+    >(null);
     const { videoMetadata: storedMetadata, videos } = useVideoStore();
     const { games, gameImages, loading } = useSteam();
     const { setBadgeContent, setBadgeVisible } = useBadge();
@@ -143,6 +149,21 @@ export default function EditPage() {
         }
     };
 
+    const handleSelectClip = (clipPath: string | null, clipDuration: number | null) => {
+        setSelectedClipPath(clipPath);
+        setSelectedClipDuration(clipDuration);
+    };
+
+    const videoSrc = selectedClipPath
+        ? `clip-video:///${selectedClipPath}`
+        : videoPath
+          ? `clip-video:///${videoPath}`
+          : "";
+
+    const videoDuration = selectedClipDuration
+        ? selectedClipDuration
+        : currentVideoMetadata?.duration || 0;
+
     return (
         <div className="h-full pt-2">
             <ClipHeader />
@@ -160,10 +181,10 @@ export default function EditPage() {
                     <div className="grid h-full grid-cols-1 gap-3 lg:grid-cols-3">
                         <div className="flex flex-col lg:col-span-2">
                             <ClipVideoPlayer
-                                videoSrc={`clip-video:///${videoPath}`}
+                                videoSrc={videoSrc}
                                 onTimeRangeChange={setTimeRange}
                                 timeRange={timeRange}
-                                duration={currentVideoMetadata.duration}
+                                duration={videoDuration}
                                 onAudioTracksChange={setAudioTracks}
                             />
                         </div>
@@ -174,6 +195,9 @@ export default function EditPage() {
                                 onExport={handleExport}
                                 isExporting={isExporting}
                                 audioTracks={audioTracks}
+                                videoPath={videoPath}
+                                onSelectClip={handleSelectClip}
+                                selectedClipPath={selectedClipPath}
                             />
                         </div>
                     </div>

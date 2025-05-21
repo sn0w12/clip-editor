@@ -432,7 +432,7 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
 
                 // Check if directory exists
                 if (!fs.existsSync(outputDir)) {
-                    return { success: true, exports: [] };
+                    return [];
                 }
 
                 const files = fs.readdirSync(outputDir);

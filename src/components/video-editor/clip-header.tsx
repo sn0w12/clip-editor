@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { EditVideoRoute } from "@/routes/routes";
@@ -16,10 +16,9 @@ import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { useSetting } from "@/utils/settings";
 
-export function ClipHeader() {
+function ClipHeaderLocal() {
     const [width, setWidth] = useState<number | undefined>(undefined);
     const [thumbWidth] = useState(64);
-    const [totalThumbs, setTotalThumbs] = useState(calculateTotalThumbs(width));
     const { videoPath } = useSearch({ from: EditVideoRoute.id });
     const { videos, thumbnails } = useVideoStore();
     const { games, gameImages, loading } = useSteam();
@@ -27,24 +26,27 @@ export function ClipHeader() {
     const mainElement = useMainElement();
     const navigate = useNavigate();
 
-    function calculateTotalThumbs(width: number | undefined): number {
-        if (!width) return 0;
-        const widthPadding = 336;
-        const thumbPadding = 8;
-        return Math.floor((width - widthPadding) / (thumbWidth + thumbPadding));
-    }
+    const calculateTotalThumbs = useCallback(
+        (width: number | undefined): number => {
+            if (!width) return 0;
+            const widthPadding = 336;
+            const thumbPadding = 8;
+            return Math.floor(
+                (width - widthPadding) / (thumbWidth + thumbPadding),
+            );
+        },
+        [thumbWidth],
+    );
+    const [totalThumbs, setTotalThumbs] = useState(calculateTotalThumbs(width));
 
     useEffect(() => {
-        // Set initial width
-        if (mainElement.current) {
-            setWidth(mainElement.current.clientWidth);
-            setTotalThumbs(
-                calculateTotalThumbs(mainElement.current.clientWidth),
-            );
-        }
+        if (!mainElement.current) return;
 
-        // Add resize listener
-        const handleResize = () => {
+        const updateDimensions = () => {
+            console.log(
+                "Updating dimensions",
+                mainElement.current?.clientWidth,
+            );
             if (mainElement.current) {
                 const newWidth = mainElement.current.clientWidth;
                 setWidth(newWidth);
@@ -52,13 +54,17 @@ export function ClipHeader() {
             }
         };
 
-        window.addEventListener("resize", handleResize);
+        updateDimensions();
+        const resizeObserver = new ResizeObserver(updateDimensions);
+        resizeObserver.observe(mainElement.current);
+        window.addEventListener("resize", updateDimensions);
 
-        // Clean up event listener
+        // Clean up
         return () => {
-            window.removeEventListener("resize", handleResize);
+            resizeObserver.disconnect();
+            window.removeEventListener("resize", updateDimensions);
         };
-    }, [mainElement]);
+    }, [calculateTotalThumbs, mainElement]);
 
     const sortedVideos = useMemo(() => {
         return [...videos].sort((a, b) => {
@@ -164,7 +170,7 @@ export function ClipHeader() {
                         <Button
                             variant="secondary"
                             size="icon"
-                            className="bg-sidebar group mr-auto h-8 w-24 max-w-48 flex-grow self-end"
+                            className="bg-sidebar group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end"
                             onClick={() => navigate({ to: "/" })}
                         >
                             <div className="bg-border group-hover:bg-secondary-foreground mx-6 h-0.5 w-full transition-colors duration-200"></div>
@@ -265,3 +271,5 @@ export function ClipHeader() {
         </div>
     );
 }
+
+export const ClipHeader = React.memo(ClipHeaderLocal);

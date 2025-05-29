@@ -13,9 +13,10 @@
             "labels": ["chore", "documentation"]
         }
     ],
-    "template": "#{{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>\n\n[View all changes](https://github.com/{{OWNER}}/{{REPO}}/compare/#{{FROM_TAG}}...#{{TO_TAG}})",
-    "pr_template": "- #{{TITLE}} (#{{NUMBER}})",
+    "template": "#{{CHANGELOG}}#{{UNCATEGORIZED}}\n[View all changes](https://github.com/sn0w12/clip-editor/compare/#{{FROM_TAG}}...#{{TO_TAG}})",
+    "pr_template": "- #{{TITLE}} ([#{{NUMBER}}]({{URL}}))",
     "empty_template": "- No changes in this release",
+    "uncategorized_template": "\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
     "transformers": [
         {
             "pattern": "[\\s\\S]*?\\[Dependabot\\][\\s\\S]*?",

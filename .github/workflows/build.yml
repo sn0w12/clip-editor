@@ -6,7 +6,42 @@ on:
             - "v*.*.*"
 
 jobs:
+    create-release:
+        runs-on: ubuntu-latest
+        outputs:
+            release_id: ${{ steps.create_release.outputs.id }}
+            upload_url: ${{ steps.create_release.outputs.upload_url }}
+
+        permissions:
+            contents: write
+            packages: write
+            issues: write
+            pull-requests: read
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Generate Release Notes
+              id: generate_release_notes
+              uses: mikepenz/release-changelog-builder-action@v5
+              with:
+                  configuration: .github/changelog-config.json
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Create Release
+              id: create_release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  release_name: Release ${{ github.ref_name }}
+                  body: ${{ steps.generate_release_notes.outputs.changelog }}
+                  draft: true
+
     build:
+        needs: create-release
         runs-on: ${{ matrix.os }}
         strategy:
             matrix:
@@ -28,24 +63,6 @@ jobs:
 
             - name: Install dependencies
               run: npm install
-
-            - name: Generate Release Notes
-              id: generate_release_notes
-              uses: mikepenz/release-changelog-builder-action@v5
-              with:
-                  configuration: .github/changelog-config.json
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Create Release
-              uses: actions/create-release@v1
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              with:
-                  tag_name: ${{ github.ref_name }}
-                  release_name: Release ${{ github.ref_name }}
-                  body: ${{ steps.generate_release_notes.outputs.changelog }}
-                  draft: true
 
             - name: Publish to GitHub Releases
               env:

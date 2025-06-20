@@ -102,18 +102,23 @@ export function ClipVideoPlayer({
     const [showFullscreenControls, setShowFullscreenControls] = useState(false);
     const fullscreenControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const seekIncrement = useSetting("seekIncrement") || 5;
+    const sortedCutsRef = useRef<Cut[]>([]);
 
-    const updateTimeSmooth = () => {
+    useEffect(() => {
+        sortedCutsRef.current = [...cuts].sort((a, b) => a.start - b.start);
+    }, [cuts]);
+
+    const updateTimeSmooth = useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
 
         const currentVideoTime = video.currentTime;
         setCurrentTime(currentVideoTime);
 
-        // Check if current time falls within any cut and skip it
-        const activeCut = cuts.find(
-            (cut) =>
-                currentVideoTime >= cut.start && currentVideoTime < cut.end,
+        // Use binary search to find if current time falls within any cut
+        const activeCut = findActiveCut(
+            currentVideoTime,
+            sortedCutsRef.current,
         );
 
         if (activeCut) {
@@ -140,7 +145,30 @@ export function ClipVideoPlayer({
         if (!video.paused) {
             animationFrameId.current = requestAnimationFrame(updateTimeSmooth);
         }
-    };
+    }, [playSelectedOnly, timeRange.start, timeRange.end]);
+
+    function findActiveCut(
+        currentTime: number,
+        sortedCuts: Cut[],
+    ): Cut | undefined {
+        let left = 0;
+        let right = sortedCuts.length - 1;
+
+        while (left <= right) {
+            const mid = Math.floor((left + right) / 2);
+            const cut = sortedCuts[mid];
+
+            if (currentTime >= cut.start && currentTime < cut.end) {
+                return cut;
+            } else if (currentTime < cut.start) {
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        }
+
+        return undefined;
+    }
 
     const togglePlayPause = () => {
         const video = videoRef.current;

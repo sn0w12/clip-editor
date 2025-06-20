@@ -440,7 +440,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     >
                         <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
                         <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-                    </div>{" "}
+                    </div>
                     {/* Render cuts as overlays and draggable handles */}
                     {cuts.map((cut, idx) => {
                         const cutStartPercent = getCutPercent(cut.start);

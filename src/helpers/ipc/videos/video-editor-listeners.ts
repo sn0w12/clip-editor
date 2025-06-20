@@ -460,7 +460,7 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
                                     "-c:v",
                                     "libx264",
                                     "-crf",
-                                    "18", // High quality CRF value
+                                    "10",
                                     "-preset",
                                     "medium",
                                 ]);

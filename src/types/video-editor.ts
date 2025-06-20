@@ -24,9 +24,15 @@ export interface ExportOptions {
     speedFactor?: number; // Optional playback speed adjustment
     audioTracks?: number[]; // Optional array of audio track indices to include
     chooseExportLocation?: boolean; // Optional flag to choose export location
+    cuts?: Cut[];
 }
 
 export interface TimeRange {
+    start: number;
+    end: number;
+}
+
+export interface Cut {
     start: number;
     end: number;
 }

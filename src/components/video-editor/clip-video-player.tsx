@@ -17,7 +17,7 @@ import {
     Minimize,
 } from "lucide-react";
 import { getSetting, useSetting } from "@/utils/settings";
-import { TimeRange } from "@/types/video-editor";
+import { Cut, TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
 import {
     Tooltip,
@@ -54,6 +54,8 @@ interface ClipVideoPlayerProps {
     timeRange: TimeRange;
     duration: number;
     onAudioTracksChange?: (tracks: { index: number; label: string }[]) => void;
+    cuts: Cut[];
+    onCutsChange: (cuts: Cut[]) => void;
 }
 
 export function ClipVideoPlayer({
@@ -62,6 +64,8 @@ export function ClipVideoPlayer({
     timeRange,
     duration,
     onAudioTracksChange,
+    cuts,
+    onCutsChange,
 }: ClipVideoPlayerProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -103,10 +107,34 @@ export function ClipVideoPlayer({
         const video = videoRef.current;
         if (!video) return;
 
-        setCurrentTime(video.currentTime);
+        const currentVideoTime = video.currentTime;
+        setCurrentTime(currentVideoTime);
+
+        // Check if current time falls within any cut and skip it
+        const activeCut = cuts.find(
+            (cut) =>
+                currentVideoTime >= cut.start && currentVideoTime < cut.end,
+        );
+
+        if (activeCut) {
+            // Only seek if we're not already at the end of the cut
+            const targetTime = activeCut.end;
+            if (Math.abs(currentVideoTime - targetTime) > 0.1) {
+                video.currentTime = targetTime;
+                setCurrentTime(targetTime);
+            }
+
+            // Continue the animation frame immediately without waiting
+            if (!video.paused) {
+                animationFrameId.current =
+                    requestAnimationFrame(updateTimeSmooth);
+            }
+            return;
+        }
 
         if (playSelectedOnly && video.currentTime >= timeRange.end) {
             video.currentTime = timeRange.start;
+            setCurrentTime(timeRange.start);
         }
 
         if (!video.paused) {
@@ -865,6 +893,8 @@ export function ClipVideoPlayer({
                             onTimeRangeChange={onTimeRangeChange}
                             audioTrack={selectedAudioTrack}
                             waveformHeight={150}
+                            cuts={cuts}
+                            onCutsChange={onCutsChange}
                         />
                     ) : (
                         <div className="bg-background h-10 w-full" />

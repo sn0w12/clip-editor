@@ -259,142 +259,359 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
                 }
 
                 perfLog.addStep("runFFMPEGExport");
-                // Convert promise-based
-                const exportClip = () => {
-                    return new Promise((resolve, reject) => {
-                        let command = ffmpeg(videoPath)
-                            .inputOptions(["-hwaccel", "auto"])
-                            .setStartTime(options.startTime)
-                            .setDuration(options.endTime - options.startTime)
-                            .videoBitrate(videoBitrate)
-                            .format(options.outputFormat);
 
-                        if (options.outputFormat === "mp4") {
-                            command = command.outputOptions([
-                                "-c:v",
-                                "h264_nvenc",
-                            ]);
-                        } else if (options.outputFormat === "webm") {
-                            command = command.outputOptions([
-                                "-c:v",
-                                "vp9_nvenc",
-                            ]);
+                const cuts = options.cuts || [];
+                let keepSegments: { start: number; end: number }[] = [];
+
+                if (cuts.length > 0) {
+                    // Sort cuts and build keep segments
+                    let last = options.startTime;
+                    const sortedCuts = [...cuts].sort(
+                        (a, b) => a.start - b.start,
+                    );
+                    for (const cut of sortedCuts) {
+                        if (cut.start > last) {
+                            keepSegments.push({ start: last, end: cut.start });
                         }
+                        last = Math.max(last, cut.end);
+                    }
+                    if (last < options.endTime) {
+                        keepSegments.push({
+                            start: last,
+                            end: options.endTime,
+                        });
+                    }
+                } else {
+                    keepSegments = [
+                        { start: options.startTime, end: options.endTime },
+                    ];
+                }
 
-                        // Apply optional settings if provided
-                        if (options.width && options.height) {
-                            command = command.size(
-                                `${options.width}x${options.height}`,
-                            );
-                        }
+                if (keepSegments.length === 1) {
+                    // Convert promise-based
+                    const exportClip = () => {
+                        return new Promise((resolve, reject) => {
+                            let command = ffmpeg(videoPath)
+                                .inputOptions(["-hwaccel", "auto"])
+                                .setStartTime(options.startTime)
+                                .setDuration(
+                                    options.endTime - options.startTime,
+                                )
+                                .videoBitrate(videoBitrate)
+                                .format(options.outputFormat);
 
-                        if (options.fps) {
-                            command = command.fps(options.fps);
-                        }
-
-                        // Handle audio options
-                        const hasAudio =
-                            options.audioTracks &&
-                            options.audioTracks.length > 0;
-
-                        if (!hasAudio) {
-                            command = command.noAudio();
-                        } else {
-                            // Set audio bitrate
-                            command = command.audioBitrate(audioBitrate);
-
-                            // Handle audio track selection
-                            // First, map the video stream
-                            command = command.outputOptions([`-map 0:v:0`]);
-
-                            // Create a consolidated audio filter chain for the selected tracks
-                            if (
-                                options.audioTracks &&
-                                options.audioTracks.length === 1
-                            ) {
-                                // If only one track, map it directly
+                            if (options.outputFormat === "mp4") {
                                 command = command.outputOptions([
-                                    `-map 0:a:${options.audioTracks[0]}`,
+                                    "-c:v",
+                                    "h264_nvenc",
                                 ]);
-                            } else if (options.audioTracks) {
-                                const inputs = options.audioTracks
-                                    .map((track) => `[0:a:${track}]`)
-                                    .join("");
-
-                                // Define the amerge filter with the correct number of inputs
-                                const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
-
-                                // Apply the filter complex and map the output
-                                command = command
-                                    .complexFilter(filterComplex)
-                                    .outputOptions(["-map [aout]"]);
+                            } else if (options.outputFormat === "webm") {
+                                command = command.outputOptions([
+                                    "-c:v",
+                                    "vp9_nvenc",
+                                ]);
                             }
+
+                            // Apply optional settings if provided
+                            if (options.width && options.height) {
+                                command = command.size(
+                                    `${options.width}x${options.height}`,
+                                );
+                            }
+
+                            if (options.fps) {
+                                command = command.fps(options.fps);
+                            }
+
+                            // Handle audio options
+                            const hasAudio =
+                                options.audioTracks &&
+                                options.audioTracks.length > 0;
+
+                            if (!hasAudio) {
+                                command = command.noAudio();
+                            } else {
+                                // Set audio bitrate
+                                command = command.audioBitrate(audioBitrate);
+
+                                // Handle audio track selection
+                                // First, map the video stream
+                                command = command.outputOptions([`-map 0:v:0`]);
+
+                                // Create a consolidated audio filter chain for the selected tracks
+                                if (
+                                    options.audioTracks &&
+                                    options.audioTracks.length === 1
+                                ) {
+                                    // If only one track, map it directly
+                                    command = command.outputOptions([
+                                        `-map 0:a:${options.audioTracks[0]}`,
+                                    ]);
+                                } else if (options.audioTracks) {
+                                    const inputs = options.audioTracks
+                                        .map((track) => `[0:a:${track}]`)
+                                        .join("");
+
+                                    // Define the amerge filter with the correct number of inputs
+                                    const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
+
+                                    // Apply the filter complex and map the output
+                                    command = command
+                                        .complexFilter(filterComplex)
+                                        .outputOptions(["-map [aout]"]);
+                                }
+                            }
+
+                            command.on("progress", (progress) => {
+                                const timemarkToSeconds = (
+                                    timemark: string,
+                                ): number => {
+                                    const parts = timemark.split(":");
+                                    if (parts.length !== 3) return 0;
+
+                                    const hours = parseInt(parts[0], 10);
+                                    const minutes = parseInt(parts[1], 10);
+                                    const seconds = parseFloat(parts[2]);
+
+                                    return (
+                                        hours * 3600 + minutes * 60 + seconds
+                                    );
+                                };
+
+                                const currentTime = timemarkToSeconds(
+                                    progress.timemark,
+                                );
+
+                                // Calculate overall progress as a value between 0 and 1
+                                const progressValue = Math.min(
+                                    currentTime /
+                                        (options.endTime - options.startTime),
+                                    1,
+                                );
+
+                                if (mainWindow) {
+                                    mainWindow.setProgressBar(progressValue);
+                                    mainWindow.webContents.send(
+                                        "export-progress",
+                                        {
+                                            progress: progressValue,
+                                            currentTime,
+                                            totalDuration:
+                                                options.endTime -
+                                                options.startTime,
+                                        },
+                                    );
+                                }
+                            });
+
+                            command
+                                .on("end", () => {
+                                    if (mainWindow) {
+                                        mainWindow.setProgressBar(-1); // -1 removes the progress bar
+                                    }
+                                    resolve({ success: true, outputPath });
+                                })
+                                .on("error", (err) => {
+                                    if (mainWindow) {
+                                        mainWindow.setProgressBar(-1);
+                                    }
+                                    reject(err);
+                                })
+                                .save(outputPath);
+                        });
+                    };
+
+                    const result = await exportClip();
+
+                    perfLog.end({
+                        success: true,
+                        outputPath,
+                        duration: options.endTime - options.startTime,
+                        hasAudio:
+                            options.audioTracks &&
+                            options.audioTracks.length > 0,
+                    });
+
+                    return result;
+                } else {
+                    // Multiple segments: export each, then concat
+                    const tempDir = path.join(
+                        path.dirname(outputPath),
+                        `__temp_cuts_${Date.now()}`,
+                    );
+                    fs.mkdirSync(tempDir, { recursive: true });
+                    const segmentFiles: string[] = [];
+
+                    try {
+                        // Export each segment with highest quality settings to minimize quality loss
+                        for (let i = 0; i < keepSegments.length; i++) {
+                            const seg = keepSegments[i];
+                            const segPath = path.join(tempDir, `seg${i}.ts`);
+                            await new Promise((resolve, reject) => {
+                                let cmd = ffmpeg(videoPath)
+                                    .inputOptions(["-hwaccel", "auto"])
+                                    .setStartTime(seg.start)
+                                    .setDuration(seg.end - seg.start)
+                                    .format("mpegts");
+
+                                // Use high quality settings for intermediate segments
+                                // Use h264 for compatibility regardless of final format
+                                cmd = cmd.outputOptions([
+                                    "-c:v",
+                                    "libx264",
+                                    "-crf",
+                                    "18", // High quality CRF value
+                                    "-preset",
+                                    "medium",
+                                ]);
+
+                                // Apply resolution and fps changes at segment level to avoid double processing
+                                if (options.width && options.height) {
+                                    cmd = cmd.size(
+                                        `${options.width}x${options.height}`,
+                                    );
+                                }
+                                if (options.fps) {
+                                    cmd = cmd.fps(options.fps);
+                                }
+
+                                const hasAudio =
+                                    options.audioTracks &&
+                                    options.audioTracks.length > 0;
+                                if (!hasAudio) {
+                                    cmd = cmd.noAudio();
+                                } else {
+                                    // Use high quality audio for intermediate segments
+                                    cmd = cmd.audioBitrate("320k");
+                                    cmd = cmd.outputOptions([`-map 0:v:0`]);
+                                    if (
+                                        options.audioTracks &&
+                                        options.audioTracks.length === 1
+                                    ) {
+                                        cmd = cmd.outputOptions([
+                                            `-map 0:a:${options.audioTracks[0]}`,
+                                        ]);
+                                    } else if (options.audioTracks) {
+                                        const inputs = options.audioTracks
+                                            .map((track) => `[0:a:${track}]`)
+                                            .join("");
+                                        const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
+                                        cmd = cmd
+                                            .complexFilter(filterComplex)
+                                            .outputOptions(["-map [aout]"]);
+                                    }
+                                }
+
+                                cmd.on("end", resolve)
+                                    .on("error", reject)
+                                    .save(segPath);
+                            });
+                            segmentFiles.push(segPath);
                         }
 
-                        command.on("progress", (progress) => {
-                            const timemarkToSeconds = (
-                                timemark: string,
-                            ): number => {
-                                const parts = timemark.split(":");
-                                if (parts.length !== 3) return 0;
+                        // Create concat file list
+                        const concatListPath = path.join(tempDir, "concat.txt");
+                        fs.writeFileSync(
+                            concatListPath,
+                            segmentFiles
+                                .map(
+                                    (f) => `file '${f.replace(/'/g, "'\\''")}'`,
+                                )
+                                .join("\n"),
+                        );
 
-                                const hours = parseInt(parts[0], 10);
-                                const minutes = parseInt(parts[1], 10);
-                                const seconds = parseFloat(parts[2]);
+                        // Concat segments and apply final quality settings
+                        await new Promise((resolve, reject) => {
+                            let concatCmd = ffmpeg()
+                                .input(concatListPath)
+                                .inputOptions(["-f", "concat", "-safe", "0"])
+                                .format(options.outputFormat)
+                                .videoBitrate(videoBitrate);
 
-                                return hours * 3600 + minutes * 60 + seconds;
-                            };
-
-                            const currentTime = timemarkToSeconds(
-                                progress.timemark,
-                            );
-
-                            // Calculate overall progress as a value between 0 and 1
-                            const progressValue = Math.min(
-                                currentTime /
-                                    (options.endTime - options.startTime),
-                                1,
-                            );
-
-                            if (mainWindow) {
-                                mainWindow.setProgressBar(progressValue);
-                                mainWindow.webContents.send("export-progress", {
-                                    progress: progressValue,
-                                    currentTime,
-                                    totalDuration:
-                                        options.endTime - options.startTime,
-                                });
+                            // Apply final codec settings for the output format
+                            if (options.outputFormat === "mp4") {
+                                concatCmd = concatCmd.outputOptions([
+                                    "-c:v",
+                                    "h264_nvenc",
+                                    "-c:a",
+                                    "aac",
+                                ]);
+                            } else if (options.outputFormat === "webm") {
+                                concatCmd = concatCmd.outputOptions([
+                                    "-c:v",
+                                    "vp9_nvenc",
+                                    "-c:a",
+                                    "libopus",
+                                ]);
+                            } else {
+                                // For other formats, use software encoding
+                                concatCmd = concatCmd.outputOptions([
+                                    "-c:v",
+                                    "libx264",
+                                    "-c:a",
+                                    "aac",
+                                ]);
                             }
+
+                            // Apply final audio bitrate if audio is present
+                            const hasAudio =
+                                options.audioTracks &&
+                                options.audioTracks.length > 0;
+                            if (hasAudio) {
+                                concatCmd =
+                                    concatCmd.audioBitrate(audioBitrate);
+                            }
+
+                            concatCmd
+                                .output(outputPath)
+                                .on("end", resolve)
+                                .on("error", reject)
+                                .run();
                         });
 
-                        command
-                            .on("end", () => {
-                                if (mainWindow) {
-                                    mainWindow.setProgressBar(-1); // -1 removes the progress bar
-                                }
-                                resolve({ success: true, outputPath });
-                            })
-                            .on("error", (err) => {
-                                if (mainWindow) {
-                                    mainWindow.setProgressBar(-1);
-                                }
-                                reject(err);
-                            })
-                            .save(outputPath);
-                    });
-                };
+                        // Clean up temp files
+                        segmentFiles.forEach((f) => fs.unlinkSync(f));
+                        fs.unlinkSync(concatListPath);
+                        fs.rmdirSync(tempDir);
 
-                const result = await exportClip();
+                        perfLog.end({
+                            success: true,
+                            outputPath,
+                            duration: options.endTime - options.startTime,
+                            hasAudio:
+                                options.audioTracks &&
+                                options.audioTracks.length > 0,
+                        });
 
-                perfLog.end({
-                    success: true,
-                    outputPath,
-                    duration: options.endTime - options.startTime,
-                    hasAudio:
-                        options.audioTracks && options.audioTracks.length > 0,
-                });
-
-                return result;
+                        return { success: true, outputPath };
+                    } catch (err) {
+                        // Clean up on error
+                        try {
+                            segmentFiles.forEach(
+                                (f) => fs.existsSync(f) && fs.unlinkSync(f),
+                            );
+                            if (fs.existsSync(tempDir)) {
+                                fs.rmdirSync(tempDir, { recursive: true });
+                            }
+                        } catch {
+                            // Ignore errors during cleanup
+                        }
+                        perfLog.end({
+                            success: false,
+                            error:
+                                err instanceof Error
+                                    ? err.message
+                                    : String(err),
+                        });
+                        return {
+                            success: false,
+                            error:
+                                err instanceof Error
+                                    ? err.message
+                                    : String(err),
+                        };
+                    }
+                }
             } catch (error: unknown) {
                 console.error("Error exporting video clip:", error);
 

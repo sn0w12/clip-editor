@@ -83,7 +83,10 @@ export function PreviousExports({
                     </p>
                 </div>
             ) : (
-                <ScrollArea className="max-h-48 overflow-auto">
+                <ScrollArea
+                    className="overflow-auto"
+                    style={{ maxHeight: "calc(100vh - 200px)" }}
+                >
                     <div className="grid gap-2">
                         {exports.map((clip, index) => (
                             <div

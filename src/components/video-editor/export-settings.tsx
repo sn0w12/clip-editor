@@ -10,6 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+    Cut,
     ExportedClip,
     ExportOptions,
     TimeRange,
@@ -36,6 +37,7 @@ interface ExportSettingsProps {
         clipDuration: number | null,
     ) => void;
     selectedClipPath: string | null;
+    cuts: Cut[];
 }
 
 export function ExportSettings({
@@ -47,6 +49,7 @@ export function ExportSettings({
     videoPath,
     onSelectClip,
     selectedClipPath,
+    cuts = [],
 }: ExportSettingsProps) {
     const [outputFormat, setOutputFormat] = useState<string>(
         getSetting("defaultExportFormat") || "mp4",
@@ -152,7 +155,24 @@ export function ExportSettings({
         if (!videoMetadata) return;
 
         // Calculate duration in seconds
-        const duration = clipDuration;
+        let duration = clipDuration;
+
+        if (cuts && cuts.length > 0) {
+            // Calculate total duration of cut segments
+            const cutDuration = cuts.reduce((total, cut) => {
+                // Ensure cut times are within the clip range
+                const cutStart = Math.max(cut.start, timeRange.start);
+                const cutEnd = Math.min(cut.end, timeRange.end);
+
+                if (cutStart < cutEnd) {
+                    return total + (cutEnd - cutStart);
+                }
+                return total;
+            }, 0);
+
+            duration = clipDuration - cutDuration;
+            duration = Math.max(duration, 0);
+        }
 
         let videoBitrate = 0;
 
@@ -213,6 +233,7 @@ export function ExportSettings({
         audioBitrate,
         clipDuration,
         selectedAudioTracks,
+        cuts,
     ]);
 
     const handleExport = (partialOptions?: Partial<ExportOptions>) => {
@@ -227,6 +248,7 @@ export function ExportSettings({
             fps,
             ...(selectedAudioTracks.length > 0 ? { audioBitrate } : {}),
             audioTracks: selectedAudioTracks,
+            cuts: cuts,
         };
 
         if (partialOptions) {

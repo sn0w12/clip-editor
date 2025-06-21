@@ -17,7 +17,7 @@ import {
     Minimize,
 } from "lucide-react";
 import { getSetting, useSetting } from "@/utils/settings";
-import { TimeRange } from "@/types/video-editor";
+import { Cut, TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
 import {
     Tooltip,
@@ -54,6 +54,8 @@ interface ClipVideoPlayerProps {
     timeRange: TimeRange;
     duration: number;
     onAudioTracksChange?: (tracks: { index: number; label: string }[]) => void;
+    cuts: Cut[];
+    onCutsChange: (cuts: Cut[]) => void;
 }
 
 export function ClipVideoPlayer({
@@ -62,6 +64,8 @@ export function ClipVideoPlayer({
     timeRange,
     duration,
     onAudioTracksChange,
+    cuts,
+    onCutsChange,
 }: ClipVideoPlayerProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
@@ -98,21 +102,73 @@ export function ClipVideoPlayer({
     const [showFullscreenControls, setShowFullscreenControls] = useState(false);
     const fullscreenControlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const seekIncrement = useSetting("seekIncrement") || 5;
+    const sortedCutsRef = useRef<Cut[]>([]);
 
-    const updateTimeSmooth = () => {
+    useEffect(() => {
+        sortedCutsRef.current = [...cuts].sort((a, b) => a.start - b.start);
+    }, [cuts]);
+
+    const updateTimeSmooth = useCallback(() => {
         const video = videoRef.current;
         if (!video) return;
 
-        setCurrentTime(video.currentTime);
+        const currentVideoTime = video.currentTime;
+        setCurrentTime(currentVideoTime);
+
+        // Use binary search to find if current time falls within any cut
+        const activeCut = findActiveCut(
+            currentVideoTime,
+            sortedCutsRef.current,
+        );
+
+        if (activeCut) {
+            // Only seek if we're not already at the end of the cut
+            const targetTime = activeCut.end;
+            if (Math.abs(currentVideoTime - targetTime) > 0.1) {
+                video.currentTime = targetTime;
+                setCurrentTime(targetTime);
+            }
+
+            // Continue the animation frame immediately without waiting
+            if (!video.paused) {
+                animationFrameId.current =
+                    requestAnimationFrame(updateTimeSmooth);
+            }
+            return;
+        }
 
         if (playSelectedOnly && video.currentTime >= timeRange.end) {
             video.currentTime = timeRange.start;
+            setCurrentTime(timeRange.start);
         }
 
         if (!video.paused) {
             animationFrameId.current = requestAnimationFrame(updateTimeSmooth);
         }
-    };
+    }, [playSelectedOnly, timeRange.start, timeRange.end]);
+
+    function findActiveCut(
+        currentTime: number,
+        sortedCuts: Cut[],
+    ): Cut | undefined {
+        let left = 0;
+        let right = sortedCuts.length - 1;
+
+        while (left <= right) {
+            const mid = Math.floor((left + right) / 2);
+            const cut = sortedCuts[mid];
+
+            if (currentTime >= cut.start && currentTime < cut.end) {
+                return cut;
+            } else if (currentTime < cut.start) {
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        }
+
+        return undefined;
+    }
 
     const togglePlayPause = () => {
         const video = videoRef.current;
@@ -865,6 +921,8 @@ export function ClipVideoPlayer({
                             onTimeRangeChange={onTimeRangeChange}
                             audioTrack={selectedAudioTrack}
                             waveformHeight={150}
+                            cuts={cuts}
+                            onCutsChange={onCutsChange}
                         />
                     ) : (
                         <div className="bg-background h-10 w-full" />

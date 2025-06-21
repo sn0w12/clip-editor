@@ -32,6 +32,7 @@ export default function EditPage() {
         start: 0,
         end: 0,
     });
+    const [cuts, setCuts] = useState<{ start: number; end: number }[]>([]);
 
     const [isExporting, setIsExporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -97,6 +98,10 @@ export default function EditPage() {
             setTimeRange({ start: 0, end: 0 });
         }
     }, [videoPath, currentVideoMetadata]);
+
+    useEffect(() => {
+        setCuts([]);
+    }, [videoPath, selectedClipPath]);
 
     // Handle export button click
     const handleExport = async (options: ExportOptions) => {
@@ -206,6 +211,8 @@ export default function EditPage() {
                                 timeRange={timeRange}
                                 duration={videoDuration}
                                 onAudioTracksChange={setAudioTracks}
+                                cuts={cuts}
+                                onCutsChange={setCuts}
                             />
                         </div>
                         <div className="flex h-full flex-col">
@@ -218,6 +225,7 @@ export default function EditPage() {
                                 videoPath={videoPath}
                                 onSelectClip={handleSelectClip}
                                 selectedClipPath={selectedClipPath}
+                                cuts={cuts}
                             />
                         </div>
                     </div>

@@ -171,43 +171,30 @@ export function addAudioWaveformListeners() {
 
                 // Create a working copy without the initial spike
                 const workingSamples = samples.slice(skipSamples);
-
-                // Downsample to requested number of samples
                 const result = new Float32Array(sampleCount);
-                const blockSize = Math.floor(
-                    workingSamples.length / sampleCount,
-                );
+                const totalSamples = workingSamples.length;
 
-                if (blockSize <= 0) {
-                    throw new Error(
-                        "Sample count is too high for the audio length",
-                    );
-                }
-
-                // Calculate the downsampled values
                 for (let i = 0; i < sampleCount; i++) {
-                    const startIdx = i * blockSize;
+                    // Calculate the start and end indices for this block
+                    const startIdx = Math.floor(
+                        (i * totalSamples) / sampleCount,
+                    );
+                    const endIdx = Math.floor(
+                        ((i + 1) * totalSamples) / sampleCount,
+                    );
+
                     let sum = 0;
                     let max = 0;
                     let count = 0;
 
-                    // Find both peak value and RMS in this block
-                    for (
-                        let j = 0;
-                        j < blockSize && startIdx + j < workingSamples.length;
-                        j++
-                    ) {
-                        const value = Math.abs(workingSamples[startIdx + j]);
-                        sum += value * value; // For RMS calculation
-                        max = Math.max(max, value); // For peak detection
+                    for (let j = startIdx; j < endIdx; j++) {
+                        const value = Math.abs(workingSamples[j]);
+                        sum += value * value;
+                        max = Math.max(max, value);
                         count++;
                     }
 
-                    // Use a combination of RMS and peak for better representation
                     const rms = count > 0 ? Math.sqrt(sum / count) : 0;
-
-                    // Blend RMS and peak values (gives more natural looking waveforms)
-                    // Use more RMS and less peak to reduce spikes
                     result[i] = Math.max(rms * 1.6, max * 0.4);
                 }
                 perfLogger.addStep("downsampling");

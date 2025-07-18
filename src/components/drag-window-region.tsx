@@ -18,8 +18,8 @@ interface DragWindowRegionProps {
 
 export default function DragWindowRegion({ children }: DragWindowRegionProps) {
     return (
-        <div className="bg-sidebar flex w-screen items-stretch justify-between overflow-visible">
-            <div className="draglayer bg-sidebar flex w-full items-center overflow-visible">
+        <div className="bg-sidebar z-1000 flex w-screen items-stretch justify-between overflow-visible">
+            <div className="draglayer bg-sidebar z-1000 flex w-full items-center overflow-visible">
                 <SidebarTrigger
                     className="z-20 ml-2 h-8 w-8 overflow-visible"
                     style={
@@ -68,7 +68,7 @@ function WindowButtons() {
 
     if (windowIconsStyle === "traditional") {
         return (
-            <div className="flex">
+            <div className="z-1002 flex">
                 <button
                     title="Minimize"
                     type="button"
@@ -103,7 +103,7 @@ function WindowButtons() {
 
     return (
         <div
-            className="absolute top-1.5 right-1.5 z-50 flex items-center justify-end gap-1 overflow-visible"
+            className="absolute top-1.5 right-1.5 z-1002 flex items-center justify-end gap-1 overflow-visible"
             style={
                 {
                     WebkitAppRegion: "no-drag",

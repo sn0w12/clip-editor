@@ -9,28 +9,49 @@ export function useSticky(
 ): [React.RefObject<HTMLDivElement | null>, boolean] {
     const ref = useRef<HTMLDivElement>(null);
     const [isSticky, setIsSticky] = useState(false);
+    const inDevelopment = process.env.NODE_ENV === "development";
 
     useEffect(() => {
         const element = ref.current;
-        if (!element) {
+        if (!element || !element.parentElement) {
             console.log("Sticky ref not attached to any element.");
             return;
         }
 
-        const stickyTop = parseInt(
-            window.getComputedStyle(element).top || "0",
-            10,
-        );
+        const parent = element.parentElement;
+        if (window.getComputedStyle(parent).position === "static") {
+            parent.style.position = "relative";
+        }
+
+        const grandParent = parent.parentElement;
+        if (!grandParent) {
+            console.warn(
+                "No grandparent found for sticky element, sentinel will be appended to body.",
+            );
+        }
+
+        const elementRect = element.getBoundingClientRect();
+        const grandParentRect = grandParent
+            ? grandParent.getBoundingClientRect()
+            : { top: 0 };
+        const top = elementRect.top - grandParentRect.top + offset;
 
         const sentinel = document.createElement("div");
-        sentinel.style.position = "absolute";
+        sentinel.style.position = "relative";
         sentinel.style.left = "0";
-        sentinel.style.width = "1px";
+        sentinel.style.width = "100%";
         sentinel.style.height = "1px";
-        sentinel.style.top = `${stickyTop - 2 + offset}px`;
+        sentinel.style.top = `${top}px`;
+        if (inDevelopment) {
+            sentinel.style.backgroundColor = "blue";
+            sentinel.style.opacity = "0.5";
+            sentinel.style.zIndex = "10000";
+        }
 
-        if (element.parentElement) {
-            element.parentElement.insertBefore(sentinel, element.nextSibling);
+        if (grandParent) {
+            grandParent.insertBefore(sentinel, parent);
+        } else {
+            document.body.appendChild(sentinel);
         }
 
         const observer = new window.IntersectionObserver(
@@ -47,9 +68,11 @@ export function useSticky(
 
         return () => {
             observer.disconnect();
-            sentinel.remove();
+            if (sentinel.parentElement) {
+                sentinel.parentElement.removeChild(sentinel);
+            }
         };
-    }, []);
+    }, [offset]);
 
     return [ref, isSticky];
 }

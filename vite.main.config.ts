@@ -11,11 +11,18 @@ export default defineConfig({
                 "electron-squirrel-startup",
             ],
         },
-        chunkSizeWarningLimit: 1600,
     },
     resolve: {
         alias: {
             "@": path.resolve(__dirname, "./src"),
         },
+    },
+    define: {
+        "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
+            process.env.GOOGLE_CLIENT_ID,
+        ),
+        "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
+            process.env.GOOGLE_CLIENT_SECRET,
+        ),
     },
 });

@@ -45,7 +45,7 @@ cd clip-editor
 # Install dependencies
 npm install
 # Start the development server
-npm run dev
+npm run start
 ```
 
 > [!IMPORTANT]
@@ -56,14 +56,14 @@ npm run dev
 > ```bash
 > export GOOGLE_CLIENT_ID=your-google-client-id
 > export GOOGLE_CLIENT_SECRET=your-google-client-secret
-> npm run dev
+> npm run make
 > ```
 >
 > **Example (Windows PowerShell):**
 > ```powershell
 > $env:GOOGLE_CLIENT_ID="your-google-client-id"
 > $env:GOOGLE_CLIENT_SECRET="your-google-client-secret"
-> npm run dev
+> npm run make
 > ```
 
 ## Usage

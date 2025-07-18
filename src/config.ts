@@ -257,6 +257,14 @@ export const APP_SETTINGS = {
             },
         },
     },
+    cloudSync: {
+        label: "Cloud Sync",
+        settings: {
+            googleAuth: {
+                customRender: true,
+            },
+        },
+    },
     about: {
         label: "About",
         settings: {

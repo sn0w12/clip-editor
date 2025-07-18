@@ -7,6 +7,7 @@ import { addAudioWaveformListeners } from "./videos/audio-waveform";
 import { addSteamEventListeners } from "./steam/steam-listeners";
 import { addDirectoryWatcherListeners } from "./videos/directory-watcher";
 import { addPerformanceEventListeners } from "./performance/performance-listeners";
+import { addGoogleEventListeners } from "./google/google-listeners";
 
 export default function registerListeners(mainWindow: BrowserWindow) {
     addWindowEventListeners(mainWindow);
@@ -17,4 +18,5 @@ export default function registerListeners(mainWindow: BrowserWindow) {
     addSteamEventListeners();
     addDirectoryWatcherListeners();
     addPerformanceEventListeners();
+    addGoogleEventListeners();
 }

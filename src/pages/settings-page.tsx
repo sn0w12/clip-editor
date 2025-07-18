@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import pkg from "../../package.json";
 import { assetSrc } from "@/utils/assets";
+import { Input } from "@/components/ui/input";
+import { useGoogle } from "@/contexts/google-context";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -22,6 +24,109 @@ export default function SettingsPage() {
 
     // Custom renderers for special settings
     const customRenderers = {
+        googleAuth: function GoogleAuthSetting() {
+            const { profile, setTokens, refreshProfile, signOut } = useGoogle();
+            const [authUrl, setAuthUrl] = useState<string | null>(null);
+            const [code, setCode] = useState("");
+            const [loading, setLoading] = useState(false);
+            const [error, setError] = useState<string | null>(null);
+
+            const handleGetAuthUrl = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const url = await window.googleDrive.getAuthUrl();
+                    setAuthUrl(url);
+                    window.open(url, "_blank");
+                } catch {
+                    setError("Failed to get authentication URL.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const handleExchangeCode = async () => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const result = await window.googleDrive.exchangeCode(code);
+                    setTokens(result);
+                    await refreshProfile();
+                } catch {
+                    setError("Failed to exchange code.");
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={handleGetAuthUrl}
+                            size="sm"
+                            disabled={loading}
+                        >
+                            {loading
+                                ? "Loading..."
+                                : "Authenticate with Google"}
+                        </Button>
+                        {authUrl && (
+                            <div className="text-muted-foreground text-xs">
+                                Authentication window opened. Paste the code
+                                below.
+                            </div>
+                        )}
+                        <Input
+                            type="text"
+                            value={code}
+                            onChange={(e) => setCode(e.target.value)}
+                            placeholder="Paste Google code here"
+                            style={{ minWidth: 220 }}
+                        />
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleExchangeCode}
+                            disabled={!code || loading}
+                        >
+                            Submit Code
+                        </Button>
+                    </div>
+                    {error && (
+                        <div className="text-xs text-red-600">{error}</div>
+                    )}
+                    {profile && (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <img
+                                    src={profile.photo}
+                                    alt="Google Avatar"
+                                    className="h-8 w-8 rounded-full"
+                                />
+                                <div>
+                                    <div className="font-medium">
+                                        {profile.name}
+                                    </div>
+                                    <div className="text-muted-foreground text-xs">
+                                        {profile.email}
+                                    </div>
+                                </div>
+                            </div>
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={async () => {
+                                    await signOut();
+                                }}
+                            >
+                                Sign Out
+                            </Button>
+                        </div>
+                    )}
+                </div>
+            );
+        },
         appInfo: (
             <div className="space-y-8">
                 <div className="flex flex-col gap-4">
@@ -457,9 +562,19 @@ export default function SettingsPage() {
                                                                 </div>
                                                                 <div className="mt-1">
                                                                     {setting.customRender
-                                                                        ? customRenderers[
+                                                                        ? typeof customRenderers[
                                                                               key as keyof typeof customRenderers
-                                                                          ]
+                                                                          ] ===
+                                                                          "function"
+                                                                            ? (
+                                                                                  customRenderers[
+                                                                                      key as keyof typeof customRenderers
+                                                                                      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+                                                                                  ] as Function
+                                                                              )()
+                                                                            : customRenderers[
+                                                                                  key as keyof typeof customRenderers
+                                                                              ]
                                                                         : renderInput(
                                                                               key,
                                                                               setting as Setting,

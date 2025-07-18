@@ -122,6 +122,47 @@ interface PerformanceAPI {
     }>;
 }
 
+interface GoogleDriveFile {
+    id: string;
+    name: string;
+    mimeType: string;
+    webViewLink?: string;
+}
+
+interface GoogleDriveAPI {
+    getAuthUrl: () => Promise<string>;
+    exchangeCode: (
+        code: string,
+    ) => Promise<import("google-auth-library").Credentials>;
+    uploadFile: (
+        filePath: string,
+        tokens: import("google-auth-library").Credentials,
+    ) => Promise<{
+        success: boolean;
+        fileId: string;
+        webViewLink: string;
+    }>;
+    downloadFile: (
+        fileId: string,
+        savePath: string,
+        tokens: import("google-auth-library").Credentials,
+    ) => Promise<{ success: boolean; savePath: string }>;
+    getProfile: (
+        tokens: import("google-auth-library").Credentials,
+    ) => Promise<{ name: string; email: string; photo: string } | null>;
+    getSavedTokens: () => Promise<
+        import("google-auth-library").Credentials | null
+    >;
+    signOut: () => Promise<void>;
+    getVideoFolderFiles: (
+        tokens: import("google-auth-library").Credentials,
+    ) => Promise<{
+        success: boolean;
+        files: GoogleDriveFile[];
+        error?: string;
+    }>;
+}
+
 declare interface Window {
     themeMode: ThemeModeContext;
     electronWindow: ElectronWindow;
@@ -137,5 +178,6 @@ declare interface Window {
     steam: SteamAPI;
     performanceMonitor: PerformanceAPI;
     directoryWatcher: DirectoryWatcherAPI;
+    googleDrive: GoogleDriveAPI;
     __REDUX_DEVTOOLS_EXTENSION__?: unknown;
 }

@@ -31,6 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { BadgeProvider, useBadge } from "@/contexts/badge-context";
 import { useSetting } from "@/utils/settings";
+import { GoogleProvider } from "@/contexts/google-context";
 
 const inDevelopment = process.env.NODE_ENV === "development";
 scan({
@@ -242,26 +243,30 @@ export default function BaseLayout({
     return (
         <MainElementContext.Provider value={mainRef}>
             <SteamProvider>
-                <VideoStoreProvider>
-                    <SelectionProvider>
-                        <ConfirmProvider>
-                            <BadgeProvider>
-                                <SelectionOverlay containerRef={mainRef} />
-                                {isWeb ? (
-                                    <BaseLayoutContent mainRef={mainRef}>
-                                        {children}
-                                    </BaseLayoutContent>
-                                ) : (
-                                    <DevContextMenu>
+                <GoogleProvider>
+                    <VideoStoreProvider>
+                        <SelectionProvider>
+                            <ConfirmProvider>
+                                <BadgeProvider>
+                                    <SelectionOverlay containerRef={mainRef} />
+                                    {isWeb ? (
                                         <BaseLayoutContent mainRef={mainRef}>
                                             {children}
                                         </BaseLayoutContent>
-                                    </DevContextMenu>
-                                )}
-                            </BadgeProvider>
-                        </ConfirmProvider>
-                    </SelectionProvider>
-                </VideoStoreProvider>
+                                    ) : (
+                                        <DevContextMenu>
+                                            <BaseLayoutContent
+                                                mainRef={mainRef}
+                                            >
+                                                {children}
+                                            </BaseLayoutContent>
+                                        </DevContextMenu>
+                                    )}
+                                </BadgeProvider>
+                            </ConfirmProvider>
+                        </SelectionProvider>
+                    </VideoStoreProvider>
+                </GoogleProvider>
             </SteamProvider>
         </MainElementContext.Provider>
     );

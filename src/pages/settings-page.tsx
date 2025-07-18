@@ -11,6 +11,8 @@ import pkg from "../../package.json";
 import { assetSrc } from "@/utils/assets";
 import { Input } from "@/components/ui/input";
 import { useGoogle } from "@/contexts/google-context";
+import { SAVED_DIRECTORY_KEY } from "@/contexts/video-store-context";
+import { formatDate } from "@/utils/format";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -25,31 +27,46 @@ export default function SettingsPage() {
     // Custom renderers for special settings
     const customRenderers = {
         googleAuth: function GoogleAuthSetting() {
-            const { tokens, profile, setTokens, refreshProfile, signOut } =
-                useGoogle();
+            const {
+                tokens,
+                profile,
+                videos,
+                setTokens,
+                refreshProfile,
+                signOut,
+            } = useGoogle();
             const [code, setCode] = useState("");
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState<string | null>(null);
             const [storage, setStorage] = useState<{
                 limit?: string;
                 usage?: string;
+                usageInDrive?: string;
             } | null>(null);
+            const [syncing, setSyncing] = useState(false);
+            const [lastSync, setLastSync] = useState<string | null>(null);
 
             React.useEffect(() => {
                 async function fetchStorage() {
-                    if (profile) {
-                        if (tokens) {
-                            const quota =
-                                await window.googleDrive.getStorage(tokens);
-                            setStorage({
-                                limit: quota.limit,
-                                usage: quota.usage,
-                            });
-                        }
+                    if (profile && tokens) {
+                        const quota =
+                            await window.googleDrive.getStorage(tokens);
+                        setStorage({
+                            limit: quota.limit,
+                            usage: quota.usage,
+                            usageInDrive: quota.usageInDrive,
+                        });
                     }
                 }
                 fetchStorage();
-            }, [profile]);
+            }, [profile, tokens]);
+
+            React.useEffect(() => {
+                const last = localStorage.getItem(
+                    "clip-editor-google-last-sync",
+                );
+                if (last) setLastSync(last);
+            }, []);
 
             const handleGetAuthUrl = async () => {
                 setLoading(true);
@@ -75,6 +92,36 @@ export default function SettingsPage() {
                     setError("Failed to exchange code.");
                 } finally {
                     setLoading(false);
+                }
+            };
+
+            const handleSync = async () => {
+                setSyncing(true);
+                setError(null);
+                try {
+                    const localVideoDir =
+                        localStorage.getItem(SAVED_DIRECTORY_KEY);
+                    if (!tokens || !localVideoDir)
+                        throw new Error(
+                            "Missing tokens or local video directory.",
+                        );
+                    const result = await window.googleDrive.syncVideos(
+                        tokens,
+                        localVideoDir,
+                    );
+                    if (result.success) {
+                        setLastSync(new Date().toLocaleString());
+                        localStorage.setItem(
+                            "clip-editor-google-last-sync",
+                            new Date().toLocaleString(),
+                        );
+                    } else {
+                        setError(result.error || "Sync failed.");
+                    }
+                } catch {
+                    setError("Failed to sync videos.");
+                } finally {
+                    setSyncing(false);
                 }
             };
 
@@ -137,12 +184,38 @@ export default function SettingsPage() {
                             </Button>
                         </div>
                     )}
-                    {storage && (
-                        <div className="text-muted-foreground text-xs">
-                            Storage used:{" "}
-                            {Math.round(Number(storage.usage) / 1024 / 1024)} MB
-                            / {Math.round(Number(storage.limit) / 1024 / 1024)}{" "}
-                            MB
+                    {tokens && (
+                        <div className="flex items-center gap-3">
+                            <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={handleSync}
+                                disabled={syncing}
+                            >
+                                {syncing ? "Syncing..." : "Sync Videos"}
+                            </Button>
+                            <div className="text-muted-foreground text-xs">
+                                Last sync:{" "}
+                                {lastSync ? formatDate(lastSync) : "Never"}
+                            </div>
+                            <div className="text-muted-foreground text-xs">
+                                Files synced: {videos ? videos.length : 0}
+                            </div>
+                            {storage && (
+                                <div className="text-muted-foreground space-y-1 text-xs">
+                                    <div>
+                                        Storage used:{" "}
+                                        {Math.round(
+                                            Number(storage.usage) / 1024 / 1024,
+                                        )}{" "}
+                                        MB /{" "}
+                                        {Math.round(
+                                            Number(storage.limit) / 1024 / 1024,
+                                        )}{" "}
+                                        MB
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

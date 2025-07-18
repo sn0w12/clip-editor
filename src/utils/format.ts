@@ -61,3 +61,30 @@ export function formatTime(
 
     return result;
 }
+
+export function formatDate(date: Date | string): string {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    let formattedDate;
+    if (typeof date === "string") {
+        formattedDate = new Date(date);
+    } else {
+        formattedDate = date;
+    }
+
+    if (formattedDate.toDateString() === today.toDateString()) {
+        formattedDate = "Today";
+    } else if (formattedDate.toDateString() === yesterday.toDateString()) {
+        formattedDate = "Yesterday";
+    } else {
+        formattedDate = formattedDate.toLocaleDateString("en-US", {
+            weekday: "long",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+    }
+    return formattedDate;
+}

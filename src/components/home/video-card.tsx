@@ -1,12 +1,13 @@
 import React, { useRef, useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { VideoFile, VideoGroup } from "@/types/video";
-import { FileVideo, Gamepad2 } from "lucide-react";
+import { CloudCheck, FileVideo, Gamepad2 } from "lucide-react";
 import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { Skeleton } from "../ui/skeleton";
+import { useGoogle } from "@/contexts/google-context";
 
 interface VideoCardProps {
     video: VideoFile;
@@ -25,7 +26,9 @@ export function VideoCard({
 }: VideoCardProps) {
     const navigate = useNavigate();
     const { games, gameImages, loading } = useSteam();
+    const { videos } = useGoogle();
 
+    const [videoNames, setVideoNames] = useState<string[]>([]);
     const [showVideo, setShowVideo] = useState(false);
     const [videoLoaded, setVideoLoaded] = useState(false);
     const [progress, setProgress] = useState(0);
@@ -146,6 +149,10 @@ export function VideoCard({
     const handleProgressBarMouseLeave = () => {
         setIsHoveringProgressBar(false);
     };
+
+    useEffect(() => {
+        setVideoNames(videos.map((video) => video.name));
+    }, [videos]);
 
     // Handle video playback after the video is shown
     useEffect(() => {
@@ -340,10 +347,16 @@ export function VideoCard({
                     <p className="text-muted-foreground text-sm">
                         {(video.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
-                    <p className="text-muted-foreground text-sm">
+                    <p className="text-muted-foreground flex items-center text-sm">
                         {format(
                             new Date(video.lastModified),
                             "MMM d, yyyy, HH:mm",
+                        )}
+                        {videoNames.includes(video.name) && (
+                            <CloudCheck
+                                size={16}
+                                className="text-accent-positive ml-2"
+                            />
                         )}
                     </p>
                 </div>

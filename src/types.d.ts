@@ -161,6 +161,19 @@ interface GoogleDriveAPI {
         files: GoogleDriveFile[];
         error?: string;
     }>;
+    syncVideos: (
+        tokens: import("google-auth-library").Credentials,
+        localVideoDir: string,
+    ) => Promise<{
+        success: boolean;
+        error?: string;
+    }>;
+    getStorage: (tokens: import("google-auth-library").Credentials) => Promise<{
+        limit: string;
+        usage: string;
+        usageInDrive: string;
+        usageInDriveTrash: string;
+    }>;
 }
 
 declare interface Window {

@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from "uuid";
 import { videoMetadataIpc } from "@/helpers/ipc/video-metadata";
 import { useSteam } from "./steam-context";
 
-const SAVED_DIRECTORY_KEY = "saved-video-directory";
+export const SAVED_DIRECTORY_KEY = "saved-video-directory";
 const SAVED_GROUPS_KEY = "video-groups";
 const SAVED_VIDEO_GROUP_ASSIGNMENTS_KEY = "video-group-assignments";
 

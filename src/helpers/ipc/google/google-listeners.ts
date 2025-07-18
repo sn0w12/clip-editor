@@ -2,6 +2,7 @@ import { app, ipcMain } from "electron";
 import { Credentials } from "google-auth-library";
 import fs from "fs";
 import path from "path";
+import { Worker } from "worker_threads";
 import {
     GOOGLE_AUTH_URL_CHANNEL,
     GOOGLE_EXCHANGE_CODE_CHANNEL,
@@ -11,10 +12,13 @@ import {
     GOOGLE_GET_SAVED_TOKENS_CHANNEL,
     GOOGLE_SIGN_OUT_CHANNEL,
     GOOGLE_GET_VIDEO_FOLDER_FILES_CHANNEL,
+    GOOGLE_SYNC_FILE_CHANNEL,
+    GOOGLE_GET_STORAGE_CHANNEL,
 } from "./google-channels";
 import { OAuth2Client } from "google-auth-library";
 import { drive_v3, people_v1 } from "googleapis";
 import dotenv from "dotenv";
+import { nodeAssetSrc } from "@/utils/assets";
 
 dotenv.config();
 
@@ -78,6 +82,7 @@ export function addGoogleEventListeners() {
             access_type: "offline",
             scope: [
                 "https://www.googleapis.com/auth/drive.file",
+                "https://www.googleapis.com/auth/drive.metadata.readonly",
                 "https://www.googleapis.com/auth/userinfo.profile",
                 "https://www.googleapis.com/auth/userinfo.email",
                 "openid",
@@ -222,6 +227,51 @@ export function addGoogleEventListeners() {
                 success: true,
                 files: res.data.files ?? [],
             };
+        },
+    );
+
+    ipcMain.handle(
+        GOOGLE_SYNC_FILE_CHANNEL,
+        async (_, tokens: Credentials, localVideoDir: string) => {
+            return new Promise((resolve, reject) => {
+                const worker = new Worker(
+                    path.join(
+                        __dirname,
+                        nodeAssetSrc("/assets/scripts/sync-worker.js"),
+                    ),
+                    {
+                        workerData: {
+                            tokens,
+                            localVideoDir,
+                            GOOGLE_CLIENT_ID,
+                            GOOGLE_CLIENT_SECRET,
+                        },
+                    },
+                );
+                worker.on("message", resolve);
+                worker.on("error", reject);
+                worker.on("exit", (code: number) => {
+                    if (code !== 0)
+                        reject(
+                            new Error(`Worker stopped with exit code ${code}`),
+                        );
+                });
+            });
+        },
+    );
+
+    ipcMain.handle(
+        GOOGLE_GET_STORAGE_CHANNEL,
+        async (_, tokens: Credentials) => {
+            const oAuth2Client = new OAuth2Client(
+                GOOGLE_CLIENT_ID,
+                GOOGLE_CLIENT_SECRET,
+                GOOGLE_REDIRECT_URI,
+            );
+            oAuth2Client.setCredentials(tokens);
+            const drive = new drive_v3.Drive({ auth: oAuth2Client });
+            const about = await drive.about.get({ fields: "storageQuota" });
+            return about.data.storageQuota;
         },
     );
 }

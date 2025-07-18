@@ -7,3 +7,14 @@ export function assetSrc(path: string) {
         return `../../../..${path}`;
     }
 }
+
+export function nodeAssetSrc(path: string) {
+    let normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    normalizedPath = normalizedPath.replace(/\/{2,}/g, "/");
+
+    if (inDevelopment) {
+        return `../../src${normalizedPath}`;
+    } else {
+        return `../../../../resources${normalizedPath}`;
+    }
+}

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Credentials } from "google-auth-library";
+import { SAVED_DIRECTORY_KEY } from "./video-store-context";
 
 interface GoogleProfile {
     name: string;
@@ -35,6 +36,7 @@ export const GoogleProvider: React.FC<{ children: React.ReactNode }> = ({
         if (tokens) {
             refreshProfile();
             getVideos();
+            syncVideos();
         } else {
             setProfile(null);
         }
@@ -76,6 +78,25 @@ export const GoogleProvider: React.FC<{ children: React.ReactNode }> = ({
         await window.googleDrive.signOut();
         setTokens(null);
         setProfile(null);
+    };
+
+    const syncVideos = async () => {
+        const localVideoDir = localStorage.getItem(SAVED_DIRECTORY_KEY);
+
+        if (!tokens || !localVideoDir) return;
+        try {
+            const result = await window.googleDrive.syncVideos(
+                tokens,
+                localVideoDir,
+            );
+            if (result.success) {
+                getVideos(); // Refresh video list after sync
+            } else {
+                console.error("Failed to sync videos:", result.error);
+            }
+        } catch (error) {
+            console.error("Error syncing videos:", error);
+        }
     };
 
     return (

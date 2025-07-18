@@ -25,10 +25,31 @@ export default function SettingsPage() {
     // Custom renderers for special settings
     const customRenderers = {
         googleAuth: function GoogleAuthSetting() {
-            const { profile, setTokens, refreshProfile, signOut } = useGoogle();
+            const { tokens, profile, setTokens, refreshProfile, signOut } =
+                useGoogle();
             const [code, setCode] = useState("");
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState<string | null>(null);
+            const [storage, setStorage] = useState<{
+                limit?: string;
+                usage?: string;
+            } | null>(null);
+
+            React.useEffect(() => {
+                async function fetchStorage() {
+                    if (profile) {
+                        if (tokens) {
+                            const quota =
+                                await window.googleDrive.getStorage(tokens);
+                            setStorage({
+                                limit: quota.limit,
+                                usage: quota.usage,
+                            });
+                        }
+                    }
+                }
+                fetchStorage();
+            }, [profile]);
 
             const handleGetAuthUrl = async () => {
                 setLoading(true);
@@ -114,6 +135,14 @@ export default function SettingsPage() {
                             >
                                 Sign Out
                             </Button>
+                        </div>
+                    )}
+                    {storage && (
+                        <div className="text-muted-foreground text-xs">
+                            Storage used:{" "}
+                            {Math.round(Number(storage.usage) / 1024 / 1024)} MB
+                            / {Math.round(Number(storage.limit) / 1024 / 1024)}{" "}
+                            MB
                         </div>
                     )}
                 </div>

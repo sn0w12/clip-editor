@@ -121,7 +121,7 @@ export default function GroupDetailPage() {
     }
 
     return (
-        <div className="flex flex-col p-4 px-6">
+        <div className="flex flex-col p-4 px-6 pr-4">
             <div className="bg-background sticky top-0 z-10">
                 <div className="flex items-center">
                     <span

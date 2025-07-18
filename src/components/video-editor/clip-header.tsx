@@ -166,7 +166,7 @@ function ClipHeaderLocal() {
     }
 
     return (
-        <div className="w-full px-4">
+        <div className="w-full pr-2 pl-4">
             <div className="flex items-center gap-2">
                 <div className="flex-1 overflow-auto">
                     <div className="flex justify-end gap-2">

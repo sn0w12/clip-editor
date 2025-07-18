@@ -91,7 +91,7 @@ export default function HomePage() {
 
     // Use SelectionContainer for video selection
     return (
-        <div className="flex flex-col p-4 px-6">
+        <div className="flex flex-col p-4 px-6 pr-4">
             <FilterHeader
                 directoryPath={directoryPath}
                 filteredVideosCount={filteredVideos.length}

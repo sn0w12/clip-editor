@@ -282,7 +282,7 @@ export default function GamesPage() {
     }
 
     return (
-        <div className="flex flex-col p-4 px-6">
+        <div className="flex flex-col p-4 px-6 pr-4">
             <div>
                 <h1 className="text-3xl font-bold">Games</h1>
                 <p className="text-muted-foreground mt-1">

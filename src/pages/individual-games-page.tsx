@@ -153,7 +153,7 @@ export default function GameDetailPage() {
             </div>
 
             {/* Content */}
-            <div className="p-4 px-6">
+            <div className="p-4 px-6 pr-4">
                 <div className="bg-background sticky top-0 z-10 py-2">
                     <h1 className="text-3xl font-bold">{decodedGameName}</h1>
 

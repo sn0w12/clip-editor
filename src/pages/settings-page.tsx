@@ -413,7 +413,7 @@ export default function SettingsPage() {
     };
 
     return (
-        <div className="flex flex-col gap-3 p-4 px-6">
+        <div className="flex flex-col gap-3 p-4 px-6 pr-4">
             {/* Sticky header and tabs */}
             <div className="bg-background pb-2">
                 <h1 className="pt-2 text-3xl font-bold">Settings</h1>

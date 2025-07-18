@@ -26,7 +26,6 @@ export default function SettingsPage() {
     const customRenderers = {
         googleAuth: function GoogleAuthSetting() {
             const { profile, setTokens, refreshProfile, signOut } = useGoogle();
-            const [authUrl, setAuthUrl] = useState<string | null>(null);
             const [code, setCode] = useState("");
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState<string | null>(null);
@@ -36,7 +35,6 @@ export default function SettingsPage() {
                 setError(null);
                 try {
                     const url = await window.googleDrive.getAuthUrl();
-                    setAuthUrl(url);
                     window.open(url, "_blank");
                 } catch {
                     setError("Failed to get authentication URL.");
@@ -71,12 +69,6 @@ export default function SettingsPage() {
                                 ? "Loading..."
                                 : "Authenticate with Google"}
                         </Button>
-                        {authUrl && (
-                            <div className="text-muted-foreground text-xs">
-                                Authentication window opened. Paste the code
-                                below.
-                            </div>
-                        )}
                         <Input
                             type="text"
                             value={code}

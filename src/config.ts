@@ -292,6 +292,14 @@ export const APP_SETTINGS = {
             },
         },
     },
+    search: {
+        label: "Search",
+        settings: {
+            settingsSearch: {
+                customRender: true,
+            },
+        },
+    },
     about: {
         label: "About",
         settings: {

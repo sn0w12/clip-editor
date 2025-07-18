@@ -11,7 +11,7 @@ import { Setting } from "./utils/settings";
 export const APP_CONFIG = {
     name: "Clip Editor",
     protocolName: "clip-editor",
-    useLoadingWindow: false,
+    useLoadingWindow: true,
     selectionOverlay: {
         border: {
             width: "2px",

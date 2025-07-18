@@ -6,30 +6,30 @@ import { Setting } from "./utils/settings";
  * @property {string} name - The display name of the application.
  * @property {string} protocolName - The custom protocol name used for deep linking.
  * @property {boolean} useLoadingWindow - Whether to display a loading window during application startup.
+ * @property {object} selectionOverlay - Configuration for the selection overlay.
  */
 export const APP_CONFIG = {
     name: "Clip Editor",
     protocolName: "clip-editor",
     useLoadingWindow: false,
+    selectionOverlay: {
+        border: {
+            width: "2px",
+            style: "dashed",
+            color: "var(--primary)",
+        },
+        background: {
+            color: "color-mix(in srgb, var(--primary) 10%, transparent)",
+        },
+        borderRadius: "0.5rem",
+        zIndex: 50,
+    },
 };
-
-interface AppSettings {
-    [key: string]: {
-        label: string;
-        settings: {
-            [key: string]:
-                | Setting
-                | {
-                      customRender: boolean;
-                  };
-        };
-    };
-}
 
 /**
  * Application settings configuration with categorized groups
  */
-export const APP_SETTINGS: AppSettings = {
+export const APP_SETTINGS = {
     general: {
         label: "General",
         settings: {
@@ -204,6 +204,22 @@ export const APP_SETTINGS: AppSettings = {
                 description: "Shortcut to invert selection.",
                 groups: ["Selection"],
             },
+            continueSelection: {
+                label: "Continue Selection",
+                type: "shortcut",
+                default: "Shift",
+                description: "Shortcut to continue selection.",
+                groups: ["Selection"],
+                allowOverlap: ["selectBetween"],
+            },
+            selectBetween: {
+                label: "Select Between",
+                type: "shortcut",
+                default: "Shift",
+                description: "Shortcut to select between two items.",
+                groups: ["Selection"],
+                allowOverlap: ["continueSelection"],
+            },
             pauseVideo: {
                 label: "Pause Video",
                 type: "shortcut",
@@ -249,4 +265,11 @@ export const APP_SETTINGS: AppSettings = {
             },
         },
     },
+} as const satisfies {
+    [key: string]: {
+        label: string;
+        settings: {
+            [key: string]: Setting | { customRender: boolean };
+        };
+    };
 };

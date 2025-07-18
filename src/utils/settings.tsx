@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/context-menu";
 import { RotateCcw } from "lucide-react";
 import { APP_SETTINGS } from "@/config";
+import { ShortcutOptions, useShortcut } from "@/hooks/use-shortcut";
 
 type AppSettingsCategories = typeof APP_SETTINGS;
 type CategoryKeys = keyof AppSettingsCategories;
@@ -41,10 +42,35 @@ type SettingDefaultType<T extends SettingKeys> = T extends keyof AllSettings
         ? D
         : never
     : never;
-
 export type SettingsInterface = {
     [K in SettingKeys]: SettingDefaultType<K>;
 };
+
+type AllSettingsFlat = {
+    [C in keyof typeof APP_SETTINGS]: (typeof APP_SETTINGS)[C]["settings"];
+}[keyof typeof APP_SETTINGS];
+type UnionToIntersection<U> = (
+    U extends unknown ? (k: U) => void : never
+) extends (k: infer I) => void
+    ? I
+    : never;
+type AllSettingsMerged = UnionToIntersection<AllSettingsFlat>;
+type KeysOfType<T, U> = {
+    [K in keyof T]: T[K] extends { type: U } ? K : never;
+}[keyof T];
+
+export type CheckboxSettingKeys = KeysOfType<AllSettingsMerged, "checkbox">;
+export type TextSettingKeys = KeysOfType<AllSettingsMerged, "text">;
+export type PasswordSettingKeys = KeysOfType<AllSettingsMerged, "password">;
+export type EmailSettingKeys = KeysOfType<AllSettingsMerged, "email">;
+export type NumberSettingKeys = KeysOfType<AllSettingsMerged, "number">;
+export type TextareaSettingKeys = KeysOfType<AllSettingsMerged, "textarea">;
+export type SelectSettingKeys = KeysOfType<AllSettingsMerged, "select">;
+export type RadioSettingKeys = KeysOfType<AllSettingsMerged, "radio">;
+export type ShortcutSettingKeys = KeysOfType<AllSettingsMerged, "shortcut">;
+export type ButtonSettingKeys = KeysOfType<AllSettingsMerged, "button">;
+export type SliderSettingKeys = KeysOfType<AllSettingsMerged, "slider">;
+export type ColorSettingKeys = KeysOfType<AllSettingsMerged, "color">;
 
 // Track settings version for React hooks
 let settingsVersion = 0;
@@ -208,6 +234,21 @@ export function getSettings<K extends keyof SettingsInterface>(keys: K[]) {
         acc[key] = settings[key] ?? defaultSettings[key];
         return acc;
     }, {});
+}
+
+/**
+ * React hook to bind a callback to a shortcut defined in settings.
+ * @param key - The key of the shortcut setting (type-safe)
+ * @param callback - The function to call when the shortcut is triggered
+ * @param options - Optional shortcut options
+ */
+export function useShortcutSetting(
+    key: ShortcutSettingKeys,
+    callback: () => void,
+    options: ShortcutOptions = {},
+) {
+    const shortcut = useSetting(key);
+    useShortcut(shortcut, callback, options);
 }
 
 /**
@@ -396,6 +437,7 @@ interface ShortcutSetting extends BaseSetting {
     type: "shortcut";
     value?: string;
     default: string;
+    allowOverlap?: string[];
 }
 
 interface SliderSetting extends BaseSetting {
@@ -446,20 +488,84 @@ function getSettingValue(setting: Setting): SettingValue {
 function findDuplicateShortcuts(
     settingsMap: Record<string, Setting>,
 ): Set<string> {
-    const shortcuts = new Set<string>();
+    const shortcuts = new Map<string, string[]>();
     const duplicates = new Set<string>();
 
-    Object.values(settingsMap).forEach((setting) => {
+    Object.entries(settingsMap).forEach(([key, setting]) => {
         if (setting.type === "shortcut") {
             const value = getSettingValue(setting) as string;
-            if (shortcuts.has(value)) {
-                duplicates.add(value);
+            if (!shortcuts.has(value)) {
+                shortcuts.set(value, []);
             }
-            shortcuts.add(value);
+            shortcuts.get(value)!.push(key);
+        }
+    });
+
+    // Check for duplicates
+    shortcuts.forEach((settingKeys, shortcutValue) => {
+        if (settingKeys.length > 1) {
+            const hasUnallowedOverlap = settingKeys.some((currentKey) => {
+                const currentSetting = settingsMap[
+                    currentKey
+                ] as ShortcutSetting;
+                const otherKeys = settingKeys.filter((k) => k !== currentKey);
+
+                // If this setting doesn't have allowOverlap, it doesn't allow any overlaps
+                if (
+                    !currentSetting.allowOverlap ||
+                    currentSetting.allowOverlap.length === 0
+                ) {
+                    return true;
+                }
+
+                return otherKeys.some(
+                    (otherKey) =>
+                        !currentSetting.allowOverlap!.includes(
+                            otherKey as ShortcutSettingKeys,
+                        ),
+                );
+            });
+
+            if (hasUnallowedOverlap) {
+                duplicates.add(shortcutValue);
+            }
         }
     });
 
     return duplicates;
+}
+
+/**
+ * Normalizes a KeyboardEvent or string to a canonical shortcut key name.
+ * Examples: "Control" => "Ctrl", " " => "Space", "a" => "A"
+ */
+export function normalizeKeyInput(key: string | KeyboardEvent): string {
+    const k = typeof key === "string" ? key : key.key;
+
+    switch (k) {
+        case "Control":
+        case "Ctrl":
+            return "Ctrl";
+        case "Shift":
+            return "Shift";
+        case "Alt":
+            return "Alt";
+        case " ":
+        case "Spacebar":
+        case "Space":
+            return "Space";
+        case "Meta":
+        case "Command":
+        case "Cmd":
+            return "Meta";
+        default:
+            // For single characters, return uppercase
+            if (k.length === 1) return k.toUpperCase();
+            // For function keys, keep as is (e.g., F1, F2)
+            if (/^F\d+$/.test(k)) return k.toUpperCase();
+            // Otherwise, return as-is
+            return k;
+    }
 }
 
 export function renderInput(

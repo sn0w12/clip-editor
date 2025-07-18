@@ -9,8 +9,8 @@ export function TopRight() {
     }
 
     return (
-        <div className="pointer-events-none fixed top-0 right-0 z-40 h-16 w-40">
-            <div className="group pointer-events-none absolute top-8 z-40 -mb-8 h-24 w-full origin-top">
+        <div className="pointer-events-none fixed top-0 right-0 z-1001 h-16 w-40">
+            <div className="group pointer-events-none absolute top-8 z-1001 -mb-8 h-24 w-full origin-top">
                 <svg
                     className="absolute -right-8 h-7 origin-top-left skew-x-[30deg] overflow-visible"
                     version="1.1"

@@ -19,9 +19,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Disc3, Folder, Gamepad2, SettingsIcon } from "lucide-react";
 import { useNavigate, useRouter, useRouterState } from "@tanstack/react-router";
-import { SelectionProvider, useSelection } from "@/contexts/selection-context";
-// @ts-expect-error - Ignoring ESM/CommonJS module warning
-import { useSelectionContainer, Box } from "@air/react-drag-to-select";
+import { SelectionProvider } from "@/contexts/selection-context";
+import { SelectionOverlay } from "@/components/selection/selection-overlay";
 import { Toaster } from "@/components/ui/sonner";
 import { ConfirmProvider } from "@/contexts/confirm-context";
 import { DevContextMenu } from "@/components/dev/dev-context-menu";
@@ -48,15 +47,6 @@ export function useMainElement() {
     return context;
 }
 
-function removeTextSelection() {
-    if (window.getSelection) {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-            selection.removeAllRanges();
-        }
-    }
-}
-
 function BaseLayoutContent({
     children,
     mainRef,
@@ -64,48 +54,6 @@ function BaseLayoutContent({
     children: React.ReactNode;
     mainRef: React.RefObject<HTMLElement | null>;
 }) {
-    const { getState, setIsSelecting } = useSelection();
-
-    const { DragSelection } = useSelectionContainer({
-        eventsElement: document.body,
-        onSelectionChange: (box: Box) => {
-            const state = getState();
-            if (state.onSelectionChange) {
-                state.onSelectionChange(box || null);
-            }
-        },
-        shouldStartSelecting: (target: EventTarget) => {
-            const state = getState();
-            if (!state.enabled) return false;
-            const shouldStart = state.shouldStartSelecting
-                ? state.shouldStartSelecting(target)
-                : false;
-            if (shouldStart) {
-                removeTextSelection();
-            }
-            return shouldStart;
-        },
-        selectionProps: {
-            style: {
-                border: "2px dashed var(--primary)",
-                backgroundColor:
-                    "color-mix(in srgb, var(--primary) 10%, transparent)",
-                borderRadius: "0.5rem",
-                position: "fixed",
-                pointerEvents: "none",
-                zIndex: 50,
-            },
-        },
-        onSelectionStart: () => {
-            setIsSelecting(true);
-        },
-        onSelectionEnd: () => {
-            setTimeout(() => {
-                setIsSelecting(false);
-            }, 0);
-        },
-    });
-
     const router = useRouter();
     const navigate = useNavigate();
     const routerState = useRouterState();
@@ -149,7 +97,6 @@ function BaseLayoutContent({
 
     return (
         <div className="flex h-screen flex-col">
-            <DragSelection />
             <DragWindowRegion title="App Template">
                 <div
                     className={`flex h-full w-full items-center justify-between pr-2 transition-all ${isSidebarCollapsed ? "pl-2" : "pl-1"}`}
@@ -299,6 +246,7 @@ export default function BaseLayout({
                     <SelectionProvider>
                         <ConfirmProvider>
                             <BadgeProvider>
+                                <SelectionOverlay containerRef={mainRef} />
                                 {isWeb ? (
                                     <BaseLayoutContent mainRef={mainRef}>
                                         {children}

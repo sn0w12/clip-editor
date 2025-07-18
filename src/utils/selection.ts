@@ -1,7 +1,7 @@
-import { useShortcut } from "@/hooks/use-shortcut";
-import { VideoFile } from "@/types/video";
-import { useSetting } from "@/utils/settings";
+import { ShortcutOptions } from "@/hooks/use-shortcut";
+import { useShortcutSetting } from "@/utils/settings";
 import { Dispatch, SetStateAction } from "react";
+import { SelectionBox } from "@/hooks/use-drag-selection";
 
 export function isInteractive(target: HTMLElement): boolean {
     if (!target) return false;
@@ -10,19 +10,15 @@ export function isInteractive(target: HTMLElement): boolean {
     );
 }
 
-type SelectionShortcutOptions = {
-    preventDefault?: boolean;
-};
-
 export function useSelectionShortcuts<T>(
     items: T[],
     selectedItems: T[],
     setSelectedItems: Dispatch<SetStateAction<T[]>>,
-    options: SelectionShortcutOptions = { preventDefault: true },
+    options: ShortcutOptions = { preventDefault: true },
 ) {
     // Select all items
-    useShortcut(
-        useSetting("selectAll"),
+    useShortcutSetting(
+        "selectAll",
         () => {
             setSelectedItems([...items]);
         },
@@ -30,8 +26,8 @@ export function useSelectionShortcuts<T>(
     );
 
     // Clear selection
-    useShortcut(
-        useSetting("selectNone"),
+    useShortcutSetting(
+        "selectNone",
         () => {
             setSelectedItems([]);
         },
@@ -39,8 +35,8 @@ export function useSelectionShortcuts<T>(
     );
 
     // Invert selection
-    useShortcut(
-        useSetting("selectInvert"),
+    useShortcutSetting(
+        "selectInvert",
         () => {
             const newSelectedItems = items.filter(
                 (item) => !selectedItems.includes(item),
@@ -51,30 +47,49 @@ export function useSelectionShortcuts<T>(
     );
 }
 
-/**
- * Updates the positions of selectable items in the DOM
- * and returns a mapping of video paths to their positions
- */
-export function getItemPositions(filteredVideos: VideoFile[]): DOMRect[] {
-    // Create a map of video paths to their indices for accurate tracking
-    const pathToIndexMap = new Map(
-        filteredVideos.map((video, index) => [video.path, index]),
+export function boxesIntersect(
+    box1: SelectionBox,
+    box2: (DOMRect | null) | SelectionBox,
+): boolean {
+    if (!box2) return false;
+
+    return !(
+        box1.right < box2.left ||
+        box1.left > box2.right ||
+        box1.bottom < box2.top ||
+        box1.top > box2.bottom
     );
+}
 
-    // Get all items with the selectable-item class
-    const items = document.querySelectorAll(".selectable-item");
+export function getElementBox(
+    element: Element,
+    containerRef: React.RefObject<HTMLElement>,
+): SelectionBox {
+    const rect = element.getBoundingClientRect();
+    const container = containerRef.current;
 
-    // Create an array of the same length as filteredVideos
-    const positions: DOMRect[] = new Array(filteredVideos.length);
+    let box: SelectionBox;
 
-    // For each DOM element, get its rect and store it at the correct index
-    Array.from(items).forEach((item) => {
-        const rect = item.getBoundingClientRect();
-        const path = item.getAttribute("data-video-path");
-        if (path && pathToIndexMap.has(path)) {
-            positions[pathToIndexMap.get(path)!] = rect;
-        }
-    });
+    if (!container) {
+        box = {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+        };
+    } else {
+        const containerRect = container.getBoundingClientRect();
+        box = {
+            left: rect.left - containerRect.left + container.scrollLeft,
+            top: rect.top - containerRect.top + container.scrollTop,
+            right: rect.right - containerRect.left + container.scrollLeft,
+            bottom: rect.bottom - containerRect.top + container.scrollTop,
+            width: rect.width,
+            height: rect.height,
+        };
+    }
 
-    return positions;
+    return box;
 }

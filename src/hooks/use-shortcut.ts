@@ -1,7 +1,7 @@
 import { platform } from "@/platform";
 import { useEffect, useCallback } from "react";
 
-type ShortcutOptions = {
+export type ShortcutOptions = {
     preventDefault?: boolean;
 };
 
@@ -20,11 +20,7 @@ export function useShortcut(
             if (event.ctrlKey) pressedKeys.push("ctrl");
             if (event.shiftKey) pressedKeys.push("shift");
             if (event.altKey) pressedKeys.push("alt");
-            if (event.key === " ") {
-                pressedKeys.push("space");
-            } else {
-                pressedKeys.push(event.key.toLowerCase());
-            }
+            pressedKeys.push(event.key.toLowerCase());
 
             return JSON.stringify(pressedKeys) === JSON.stringify(keys);
         },

@@ -1,12 +1,13 @@
+import { SelectionBox } from "@/hooks/use-drag-selection";
 import React, { createContext, useContext, useRef } from "react";
-// @ts-expect-error - Ignoring ESM/CommonJS module warning
-import { Box } from "@air/react-drag-to-select";
 
 type SelectionState = {
     enabled: boolean;
     isSelecting: boolean;
-    onSelectionChange?: (box: Box | null) => void;
+    onSelectionChange?: (box: SelectionBox | null) => void;
     shouldStartSelecting?: (target: EventTarget) => boolean;
+    onSelectionStart?: () => void;
+    onSelectionEnd?: () => void;
 };
 
 type SelectionContextType = {
@@ -49,11 +50,30 @@ export function useSelection() {
         setIsSelecting: (isSelecting: boolean) =>
             context.setState({ isSelecting }),
         setOnSelectionChange: (
-            callback: ((box: Box | null) => void) | undefined,
+            callback: ((box: SelectionBox | null) => void) | undefined,
         ) => context.setState({ onSelectionChange: callback }),
         setShouldStartSelecting: (
             callback: ((target: EventTarget) => boolean) | undefined,
         ) => context.setState({ shouldStartSelecting: callback }),
+        setOnSelectionStart: (callback: (() => void) | undefined) => {
+            const wrappedCallback = callback
+                ? () => {
+                      context.setState({ isSelecting: true });
+                      callback();
+                  }
+                : undefined;
+            context.setState({ onSelectionStart: wrappedCallback });
+        },
+        setOnSelectionEnd: (callback: (() => void) | undefined) => {
+            const wrappedCallback = callback
+                ? () => {
+                      context.setState({ isSelecting: false });
+                      callback();
+                  }
+                : undefined;
+            context.setState({ onSelectionEnd: wrappedCallback });
+        },
         getState: context.getState,
+        isSelecting: () => context.getState().isSelecting,
     };
 }

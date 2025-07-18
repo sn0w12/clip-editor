@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
-import { useSetting } from "@/utils/settings";
+import { useSetting, useShortcutSetting } from "@/utils/settings";
 
 function ClipHeaderLocal() {
     const [width, setWidth] = useState<number | undefined>(undefined);
@@ -157,6 +157,9 @@ function ClipHeaderLocal() {
             handleNavigateToVideo(nextVideo);
         }
     };
+
+    useShortcutSetting("goToNextVideo", handleNext);
+    useShortcutSetting("goToPreviousVideo", handlePrevious);
 
     if (surroundingVideos.videos.length === 0) {
         return null;

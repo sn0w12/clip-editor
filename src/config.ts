@@ -183,6 +183,20 @@ export const APP_SETTINGS = {
                 description: "Shortcut to toggle the sidebar.",
                 groups: ["UI Control"],
             },
+            goToNextVideo: {
+                label: "Go to Next Video",
+                type: "shortcut",
+                default: "Ctrl+Shift+ARROWRIGHT",
+                description: "Shortcut to navigate to the next video.",
+                groups: ["UI Control", "Navigation"],
+            },
+            goToPreviousVideo: {
+                label: "Go to Previous Video",
+                type: "shortcut",
+                default: "Ctrl+Shift+ARROWLEFT",
+                description: "Shortcut to navigate to the previous video.",
+                groups: ["UI Control", "Navigation"],
+            },
             selectAll: {
                 label: "Select All",
                 type: "shortcut",
@@ -209,7 +223,7 @@ export const APP_SETTINGS = {
                 type: "shortcut",
                 default: "Shift",
                 description: "Shortcut to continue selection.",
-                groups: ["Selection"],
+                groups: ["Selection", "Drag"],
                 allowOverlap: ["selectBetween"],
             },
             selectBetween: {
@@ -217,7 +231,7 @@ export const APP_SETTINGS = {
                 type: "shortcut",
                 default: "Shift",
                 description: "Shortcut to select between two items.",
-                groups: ["Selection"],
+                groups: ["Selection", "Click"],
                 allowOverlap: ["continueSelection"],
             },
             pauseVideo: {

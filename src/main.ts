@@ -399,38 +399,27 @@ app.whenReady().then(async () => {
     protocol.handle(videoProtocolName, async (request) => {
         try {
             const url = new URL(request.url);
-            const encodedPath = url.pathname.substring(1); // Remove leading slash
-            const filePath = decodeURIComponent(encodedPath); // Decode URL-encoded characters
+            const encodedPath = url.pathname.substring(1);
+            const filePath = decodeURIComponent(encodedPath);
 
-            // Verify file exists before reading
-            if (!fs.existsSync(filePath)) {
-                console.error(`Video not found: ${filePath}`);
-                return new Response("Video file not found", {
-                    status: 404,
-                    headers: { "content-type": "text/plain" },
-                });
+            // Use async stat and access
+            try {
+                await fs.promises.access(filePath, fs.constants.R_OK);
+            } catch {
+                return new Response("Video file not found", { status: 404 });
             }
 
-            const stats = fs.statSync(filePath);
+            const stats = await fs.promises.stat(filePath);
             const fileExt = path.extname(filePath).toLowerCase();
 
-            // Verify this is actually a video file
             if (!isVideoFile(fileExt)) {
-                console.error(`Not a video file: ${filePath} (${fileExt})`);
-                return new Response("Not a video file", {
-                    status: 400,
-                    headers: { "content-type": "text/plain" },
-                });
+                return new Response("Not a video file", { status: 400 });
             }
 
-            // Use our dedicated video handler
+            // Use a smaller initial chunk for preview
             return await handleVideoRequest(filePath, request, stats);
-        } catch (error) {
-            console.error("Video protocol handler error:", error);
-            return new Response("Video processing failed", {
-                status: 500,
-                headers: { "content-type": "text/plain" },
-            });
+        } catch {
+            return new Response("Video processing failed", { status: 500 });
         }
     });
 

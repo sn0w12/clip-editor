@@ -97,9 +97,14 @@ export function addGoogleEventListeners() {
             GOOGLE_CLIENT_SECRET,
             GOOGLE_REDIRECT_URI,
         );
-        const { tokens } = await oAuth2Client.getToken(code);
-        saveTokens(tokens);
-        return tokens;
+        try {
+            const { tokens } = await oAuth2Client.getToken(code);
+            saveTokens(tokens);
+            return tokens;
+        } catch (err) {
+            console.error("Google token exchange error:", err);
+            throw err;
+        }
     });
 
     ipcMain.handle(

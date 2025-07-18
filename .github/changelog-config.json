@@ -10,19 +10,14 @@
         },
         {
             "title": "## Maintenance",
-            "labels": ["chore", "documentation"]
+            "labels": ["chore", "documentation", "dependencies"]
         }
     ],
+    "ignore_labels": ["ignore"],
     "template": "#{{CHANGELOG}}#{{UNCATEGORIZED}}\n[View all changes](https://github.com/sn0w12/clip-editor/compare/#{{FROM_TAG}}...#{{TO_TAG}})",
-    "pr_template": "- #{{TITLE}} ([#{{NUMBER}}]({{URL}}))",
+    "pr_template": "- #{{TITLE}} - by #{{AUTHOR}} (#{{URL}})",
     "empty_template": "- No changes in this release",
     "uncategorized_template": "\n<details>\n<summary>Uncategorized</summary>\n\n#{{UNCATEGORIZED}}\n</details>",
-    "transformers": [
-        {
-            "pattern": "[\\s\\S]*?\\[Dependabot\\][\\s\\S]*?",
-            "target": "- Dependency updates"
-        }
-    ],
     "max_pull_requests": 1000,
     "max_back_track_time_days": 1000
 }

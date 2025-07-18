@@ -48,6 +48,24 @@ npm install
 npm run dev
 ```
 
+> [!IMPORTANT]
+> If you are building locally, you must set the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` environment variables in your shell before running build or dev commands.
+> Setting these in a `.env` file will **not** work.
+>
+> **Example (Linux/macOS/Windows Command Prompt):**
+> ```bash
+> export GOOGLE_CLIENT_ID=your-google-client-id
+> export GOOGLE_CLIENT_SECRET=your-google-client-secret
+> npm run dev
+> ```
+>
+> **Example (Windows PowerShell):**
+> ```powershell
+> $env:GOOGLE_CLIENT_ID="your-google-client-id"
+> $env:GOOGLE_CLIENT_SECRET="your-google-client-secret"
+> npm run dev
+> ```
+
 ## Usage
 
 ### Note

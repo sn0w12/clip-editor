@@ -16,7 +16,7 @@ import {
     Maximize,
     Minimize,
 } from "lucide-react";
-import { getSetting, useSetting } from "@/utils/settings";
+import { getSetting, useSetting, useShortcutSetting } from "@/utils/settings";
 import { Cut, TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
 import {
@@ -415,6 +415,12 @@ export function ClipVideoPlayer({
             video.muted = false;
         }
     };
+    useShortcutSetting("volumeUp", () => {
+        handleVolumeChange([Math.min(volume + 0.05, 1)]);
+    });
+    useShortcutSetting("volumeDown", () => {
+        handleVolumeChange([Math.max(volume - 0.05, 0)]);
+    });
 
     const toggleMute = () => {
         const video = videoRef.current;
@@ -424,6 +430,9 @@ export function ClipVideoPlayer({
         setIsMuted(newMutedState);
         video.muted = newMutedState;
     };
+    useShortcutSetting("muteSound", toggleMute, {
+        preventDefault: true,
+    });
 
     const togglePlaySelectedOnly = () => {
         setPlaySelectedOnly((prev: boolean) => !prev);

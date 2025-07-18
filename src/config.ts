@@ -241,6 +241,27 @@ export const APP_SETTINGS = {
                 description: "Shortcut to pause the video.",
                 groups: ["Playback"],
             },
+            muteSound: {
+                label: "Mute Sound",
+                type: "shortcut",
+                default: "Ctrl+M",
+                description: "Shortcut to toggle sound mute.",
+                groups: ["Playback", "Audio"],
+            },
+            volumeUp: {
+                label: "Volume Up",
+                type: "shortcut",
+                default: "ARROWUP",
+                description: "Shortcut to increase volume.",
+                groups: ["Playback", "Audio"],
+            },
+            volumeDown: {
+                label: "Volume Down",
+                type: "shortcut",
+                default: "ARROWDOWN",
+                description: "Shortcut to decrease volume.",
+                groups: ["Playback", "Audio"],
+            },
             skipForward: {
                 label: "Skip Forward",
                 type: "shortcut",

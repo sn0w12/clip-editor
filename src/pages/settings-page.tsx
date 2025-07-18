@@ -301,7 +301,7 @@ export default function SettingsPage() {
                 <Tabs defaultValue="General" className="w-full">
                     <TabsList
                         ref={stickyRef}
-                        className={`bg-background sticky top-0 z-40 py-4 ${isSticky ? "border-b" : ""}`}
+                        className={`bg-background sticky top-0 z-40 py-4 ${isSticky ? "settings-tabs-sticky border-b" : ""}`}
                     >
                         {Object.keys(settingsMaps).map((groupName) => (
                             <TabsTrigger key={groupName} value={groupName}>
@@ -313,12 +313,12 @@ export default function SettingsPage() {
                     {Object.entries(settingsMaps).map(
                         ([groupName, settingsMap]) => (
                             <TabsContent key={groupName} value={groupName}>
-                                <Card className={`gap-0 pt-3`}>
+                                <Card className={`gap-0 pt-0`}>
                                     {groupName.toLowerCase() !== "about" ? (
                                         // Sticky category header
-                                        <CardHeader className="bg-background sticky top-16 z-30 py-3">
+                                        <CardHeader className="bg-background sticky top-16 z-30 rounded-xl py-3">
                                             <CardTitle>
-                                                <h2 className="border-b pb-2 text-2xl font-medium">
+                                                <h2 className="border-b pt-3 pb-2 text-2xl font-medium">
                                                     {groupName} Settings
                                                 </h2>
                                             </CardTitle>
@@ -522,7 +522,7 @@ export default function SettingsPage() {
                                                                 className="space-y-4"
                                                             >
                                                                 {/* Sticky main group header */}
-                                                                <h3 className="bg-background sticky top-33 z-20 border-b pb-2 text-lg font-medium">
+                                                                <h3 className="bg-background sticky top-36 z-20 border-b pb-2 text-lg font-medium">
                                                                     {groupName}
                                                                 </h3>
 
@@ -549,7 +549,7 @@ export default function SettingsPage() {
                                                                             className="border-muted mt-6 space-y-4 border-l-2 pt-1 pl-4"
                                                                         >
                                                                             {/* Sticky subgroup header */}
-                                                                            <h4 className="text-md bg-background sticky top-42 z-10 flex items-center pt-1 font-medium">
+                                                                            <h4 className="text-md bg-background sticky top-45 z-10 flex items-center pt-1 font-medium">
                                                                                 {
                                                                                     subgroupName
                                                                                 }

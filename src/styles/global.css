@@ -298,6 +298,34 @@ li {
     list-style: none;
 }
 
+.settings-tabs-sticky:before {
+    content: "";
+    position: absolute;
+    top: 68px;
+    left: 0;
+    height: calc(var(--radius-xl) * 2);
+    width: calc(var(--radius-xl) * 2);
+    border-bottom-left-radius: 50%;
+    box-shadow: calc(var(--radius-xl) * -1) 0 0 0 var(--background);
+    rotate: 90deg;
+    border-left: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.settings-tabs-sticky:after {
+    content: "";
+    position: absolute;
+    top: 68px;
+    right: 0;
+    height: calc(var(--radius-xl) * 2);
+    width: calc(var(--radius-xl) * 2);
+    border-bottom-right-radius: 50%;
+    box-shadow: calc(var(--radius-xl)) 0 0 0 var(--background);
+    rotate: -90deg;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
     width: calc(var(--spacing) * 2.5);

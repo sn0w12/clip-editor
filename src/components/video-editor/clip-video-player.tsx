@@ -954,7 +954,11 @@ export function ClipVideoPlayer({
                                         <ChevronFirst className="h-4 w-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent side="bottom">
+                                <TooltipContent
+                                    side="bottom"
+                                    keys={useSetting("skipToStart")}
+                                    shortcutPosition="left"
+                                >
                                     Jump to clip start
                                 </TooltipContent>
                             </Tooltip>
@@ -977,7 +981,11 @@ export function ClipVideoPlayer({
                                             <SkipBack className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipBackward")}
+                                        shortcutPosition="left"
+                                    >
                                         Skip back {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
@@ -996,7 +1004,10 @@ export function ClipVideoPlayer({
                                             )}
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("pauseVideo")}
+                                    >
                                         {isPlaying ? "Pause" : "Play"}
                                     </TooltipContent>
                                 </Tooltip>
@@ -1011,7 +1022,10 @@ export function ClipVideoPlayer({
                                             <SkipForward className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipForward")}
+                                    >
                                         Skip forward {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
@@ -1118,7 +1132,10 @@ export function ClipVideoPlayer({
                                                 )}
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent side="bottom">
+                                        <TooltipContent
+                                            side="bottom"
+                                            keys={useSetting("muteSound")}
+                                        >
                                             {isMuted ? "Unmute" : "Mute"}
                                         </TooltipContent>
                                     </Tooltip>
@@ -1202,7 +1219,10 @@ export function ClipVideoPlayer({
                                             <ChevronLast className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipToEnd")}
+                                    >
                                         Jump to clip end
                                     </TooltipContent>
                                 </Tooltip>

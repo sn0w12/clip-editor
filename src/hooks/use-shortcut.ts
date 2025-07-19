@@ -1,4 +1,3 @@
-import { platform } from "@/platform";
 import { useEffect, useCallback } from "react";
 
 export type ShortcutOptions = {
@@ -11,7 +10,10 @@ export function useShortcut(
     options: ShortcutOptions = {},
 ) {
     const parseShortcut = useCallback((shortcut: string): string[] => {
-        return shortcut.toLowerCase().split("+");
+        return shortcut
+            .toLowerCase()
+            .split("+")
+            .map((key) => (key === "space" ? " " : key));
     }, []);
 
     const matchesShortcut = useCallback(
@@ -29,11 +31,10 @@ export function useShortcut(
 
     useEffect(() => {
         const keys = parseShortcut(shortcutKey);
-        // Default preventDefault to true on web platform if not explicitly set
         const shouldPreventDefault =
             options.preventDefault !== undefined
                 ? options.preventDefault
-                : platform.isWeb();
+                : true;
 
         const handler = (event: KeyboardEvent) => {
             const activeElement = document.activeElement;

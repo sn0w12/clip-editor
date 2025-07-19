@@ -290,6 +290,20 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip to the start of the video.",
                 groups: ["Playback", "Navigation"],
             },
+            setStartMarker: {
+                label: "Set Start Marker",
+                type: "shortcut",
+                default: "Ctrl+J",
+                description: "Shortcut to set the start marker in the video.",
+                groups: ["Editing"],
+            },
+            setEndMarker: {
+                label: "Set End Marker",
+                type: "shortcut",
+                default: "Ctrl+L",
+                description: "Shortcut to set the end marker in the video.",
+                groups: ["Editing"],
+            },
             addCut: {
                 label: "Cut Here",
                 type: "shortcut",

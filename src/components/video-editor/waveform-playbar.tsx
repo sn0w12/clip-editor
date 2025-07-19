@@ -283,6 +283,18 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         onCutsChange(updated);
     });
 
+    useShortcutSetting("setStartMarker", () => {
+        if (currentTime >= timeRange.end - 0.1 || currentTime < 0) return;
+        const newStart = Math.min(currentTime, timeRange.end - 0.1);
+        onTimeRangeChange({ ...timeRange, start: Math.max(0, newStart) });
+    });
+    useShortcutSetting("setEndMarker", () => {
+        if (currentTime <= timeRange.start + 0.1 || currentTime > duration)
+            return;
+        const newEnd = Math.max(currentTime, timeRange.start + 0.1);
+        onTimeRangeChange({ ...timeRange, end: Math.min(duration, newEnd) });
+    });
+
     // Remove a cut by index
     const handleRemoveCut = (idx: number) => {
         if (!onCutsChange) return;
@@ -582,20 +594,22 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
-                <ContextMenuItem
+                <ContextMenuShortcutItem
                     onClick={setStartMarkerFromContextMenu}
                     disabled={isSetStartMarkerDisabled}
+                    keys={useSetting("setStartMarker")}
                 >
                     <SkipBack className="h-4 w-4" />
                     Set start marker
-                </ContextMenuItem>
-                <ContextMenuItem
+                </ContextMenuShortcutItem>
+                <ContextMenuShortcutItem
                     onClick={setEndMarkerFromContextMenu}
                     disabled={isSetEndMarkerDisabled}
+                    keys={useSetting("setEndMarker")}
                 >
                     <SkipForward className="h-4 w-4" />
                     Set end marker
-                </ContextMenuItem>
+                </ContextMenuShortcutItem>
                 <ContextMenuShortcutItem
                     onClick={handleAddCut}
                     disabled={

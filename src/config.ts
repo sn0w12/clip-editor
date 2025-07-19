@@ -244,7 +244,7 @@ export const APP_SETTINGS = {
             muteSound: {
                 label: "Mute Sound",
                 type: "shortcut",
-                default: "Ctrl+M",
+                default: "M",
                 description: "Shortcut to toggle sound mute.",
                 groups: ["Playback", "Audio"],
             },

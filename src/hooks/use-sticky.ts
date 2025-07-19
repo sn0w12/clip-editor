@@ -9,7 +9,6 @@ export function useSticky(
 ): [React.RefObject<HTMLDivElement | null>, boolean] {
     const ref = useRef<HTMLDivElement>(null);
     const [isSticky, setIsSticky] = useState(false);
-    const inDevelopment = process.env.NODE_ENV === "development";
 
     useEffect(() => {
         const element = ref.current;
@@ -42,11 +41,6 @@ export function useSticky(
         sentinel.style.width = "100%";
         sentinel.style.height = "1px";
         sentinel.style.top = `${top}px`;
-        if (inDevelopment) {
-            sentinel.style.backgroundColor = "blue";
-            sentinel.style.opacity = "0.5";
-            sentinel.style.zIndex = "10000";
-        }
 
         if (grandParent) {
             grandParent.insertBefore(sentinel, parent);

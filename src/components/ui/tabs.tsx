@@ -29,8 +29,11 @@ function Tabs({
 function TabsList({
     className,
     children,
+    size = "default",
     ...props
-}: React.ComponentProps<typeof TabsPrimitive.List>) {
+}: React.ComponentProps<typeof TabsPrimitive.List> & {
+    size?: "default" | "small";
+}) {
     const [isHovering, setIsHovering] = React.useState(false);
     const hoverIndexRef = React.useRef<number | null>(null);
     const isHoveringRef = React.useRef<boolean>(false);
@@ -108,14 +111,21 @@ function TabsList({
             >
                 <TabsPrimitive.List
                     data-slot="tabs-list"
-                    className={
-                        "bg-muted text-muted-foreground relative inline-flex h-9 w-full items-center justify-center gap-1 rounded-lg p-[3px]"
-                    }
+                    className={cn(
+                        "bg-muted text-muted-foreground relative inline-flex items-center justify-center gap-1 rounded-lg p-[3px]",
+                        size === "small" ? "h-7" : "h-9",
+                        "w-full",
+                    )}
                     {...props}
                 >
                     <div
                         ref={indicatorRef}
-                        className="bg-background/60 pointer-events-none absolute top-[4px] bottom-[4px] z-0 rounded-md"
+                        className={cn(
+                            "bg-background/60 pointer-events-none absolute top-[4px] bottom-[4px] z-0 rounded-md",
+                            size === "small"
+                                ? "top-[2px] bottom-[2px]"
+                                : "top-[4px] bottom-[4px]",
+                        )}
                         style={{
                             width: "0px",
                             left: "0px",
@@ -126,7 +136,17 @@ function TabsList({
                                 : "opacity 200ms cubic-bezier(0.16, 1, 0.3, 1)",
                         }}
                     />
-                    {children}
+                    {React.Children.map(children, (child) =>
+                        React.isValidElement(child) &&
+                        child.type === TabsTrigger
+                            ? React.cloneElement(
+                                  child as React.ReactElement<{
+                                      size?: "default" | "small";
+                                  }>,
+                                  { size },
+                              )
+                            : child,
+                    )}
                 </TabsPrimitive.List>
             </div>
         </TabsContext.Provider>
@@ -136,8 +156,11 @@ function TabsList({
 function TabsTrigger({
     className,
     children,
+    size = "default",
     ...props
-}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
+}: React.ComponentProps<typeof TabsPrimitive.Trigger> & {
+    size?: "default" | "small";
+}) {
     const tabsContext = React.useContext(TabsContext);
     const ref = React.useRef<HTMLButtonElement>(null);
     const indexRef = React.useRef<number | null>(null);
@@ -163,9 +186,12 @@ function TabsTrigger({
             ref={ref}
             data-slot="tabs-trigger"
             className={cn(
-                "text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring relative z-10 inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+                "text-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring relative z-10 inline-flex flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent font-medium whitespace-nowrap transition-[color,box-shadow] focus-visible:ring-[3px] focus-visible:outline-1 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
                 "hover:bg-transparent",
                 "data-[state=active]:bg-background",
+                size === "small"
+                    ? "h-[calc(1.5rem)] px-1 py-0.5 text-xs"
+                    : "h-[calc(100%-1px)] px-2 py-1 text-sm",
                 className,
             )}
             onMouseEnter={handleMouseEnter}

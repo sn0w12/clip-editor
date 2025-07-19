@@ -11,6 +11,7 @@ import { Setting } from "./utils/settings";
 export const APP_CONFIG = {
     name: "Clip Editor",
     protocolName: "clip-editor",
+    repo: "sn0w12/clip-editor",
     useLoadingWindow: true,
     selectionOverlay: {
         border: {

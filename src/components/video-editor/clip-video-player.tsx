@@ -29,7 +29,6 @@ import { WaveformPlaybar } from "./waveform-playbar";
 import { AudioTrackSelector } from "./audio-track-selector";
 import { AudioVisualizer } from "./audio-visualizer";
 import { Separator } from "../ui/separator";
-import { useShortcut } from "@/hooks/use-shortcut";
 import { formatTime } from "@/utils/format";
 
 // Define constants for localStorage keys
@@ -629,11 +628,11 @@ export function ClipVideoPlayer({
         };
     }, [handleMouseUp]);
 
-    useShortcut(useSetting("pauseVideo"), togglePlayPause);
-    useShortcut(useSetting("skipForward"), skipForward);
-    useShortcut(useSetting("skipBackward"), skipBackward);
-    useShortcut(useSetting("skipToEnd"), jumpToEnd);
-    useShortcut(useSetting("skipToStart"), jumpToStart);
+    useShortcutSetting("pauseVideo", togglePlayPause);
+    useShortcutSetting("skipForward", skipForward);
+    useShortcutSetting("skipBackward", skipBackward);
+    useShortcutSetting("skipToEnd", jumpToEnd);
+    useShortcutSetting("skipToStart", jumpToStart);
 
     return (
         <>

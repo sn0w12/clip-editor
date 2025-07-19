@@ -241,6 +241,13 @@ export const APP_SETTINGS = {
                 description: "Shortcut to pause the video.",
                 groups: ["Playback"],
             },
+            toggleFullscreen: {
+                label: "Toggle Fullscreen",
+                type: "shortcut",
+                default: "F",
+                description: "Shortcut to toggle fullscreen mode.",
+                groups: ["Playback"],
+            },
             muteSound: {
                 label: "Mute Sound",
                 type: "shortcut",

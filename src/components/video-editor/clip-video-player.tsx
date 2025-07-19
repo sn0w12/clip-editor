@@ -236,6 +236,7 @@ export function ClipVideoPlayer({
             }
         }
     }, []);
+    useShortcutSetting("toggleFullscreen", toggleFullScreen);
 
     useEffect(() => {
         return () => {
@@ -1202,7 +1203,10 @@ export function ClipVideoPlayer({
                                             )}
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("toggleFullscreen")}
+                                    >
                                         {isFullScreen
                                             ? "Exit fullscreen"
                                             : "Enter fullscreen"}

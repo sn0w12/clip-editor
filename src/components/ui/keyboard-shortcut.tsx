@@ -16,12 +16,11 @@ const KEY_VISUALS: Record<string, string> = {
     space: "␣",
     tab: "⇥",
     backspace: "⌫",
-    delete: "⌦",
-    shift: "⇧",
-    control: "Ctrl",
-    alt: "Alt",
+    delete: "del",
+    control: "ctrl",
+    alt: "alt",
     meta: "⌘",
-    capslock: "⇪",
+    capslock: "caps",
 };
 
 function ParseShortcutKeys(keys: string[] | string): string[] {

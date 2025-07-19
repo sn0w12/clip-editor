@@ -3,7 +3,14 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/hooks/use-settings";
-import { createAllSettingsMaps, renderInput, Setting } from "@/utils/settings";
+import {
+    createAllSettingsMaps,
+    defaultSettings,
+    renderInput,
+    resetAllSettingsToDefault,
+    Setting,
+    useSetting,
+} from "@/utils/settings";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +18,7 @@ import pkg from "../../package.json";
 import { assetSrc } from "@/utils/assets";
 import { useSticky } from "@/hooks/use-sticky";
 import { Tree, TreeItem } from "@/components/ui/tree";
+import { useConfirm } from "@/contexts/confirm-context";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -19,6 +27,7 @@ interface HierarchicalGroup {
 
 export default function SettingsPage() {
     const { settings, setSettings } = useSettings();
+    const { confirm } = useConfirm();
     const [stickyRef, isSticky] = useSticky();
     const settingsMaps = createAllSettingsMaps(settings, setSettings);
     const appVersion = pkg.version;
@@ -27,6 +36,7 @@ export default function SettingsPage() {
     const [activeSection, setActiveSection] = React.useState<string | null>(
         null,
     );
+    const windowIconsStyle = useSetting("windowIconsStyle");
 
     const groupedSearchResults = React.useMemo(() => {
         const allSettingsForSearch: Array<{
@@ -510,7 +520,28 @@ export default function SettingsPage() {
         <div className="flex flex-col gap-3 p-4 px-6 pr-4">
             {/* Sticky header and tabs */}
             <div className="bg-background pb-2">
-                <h1 className="pt-2 text-3xl font-bold">Settings</h1>
+                <div className="flex items-center justify-between">
+                    <h1 className="text-3xl font-bold">Settings</h1>
+                    <Button
+                        variant="destructive"
+                        size="sm"
+                        className={`relative ${windowIconsStyle === "traditional" ? "" : "right-32"}`}
+                        onClick={async () => {
+                            await confirm({
+                                title: "Reset to Default",
+                                description:
+                                    "Are you sure you want to reset all settings to their default values? This action cannot be undone.",
+                                confirmText: "Reset",
+                                cancelText: "Cancel",
+                                variant: "destructive",
+                            });
+                            resetAllSettingsToDefault();
+                            setSettings(defaultSettings);
+                        }}
+                    >
+                        Reset to Default
+                    </Button>
+                </div>
                 <Tabs
                     defaultValue="General"
                     value={activeTab}

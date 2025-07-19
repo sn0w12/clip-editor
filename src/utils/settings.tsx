@@ -366,6 +366,21 @@ export const getDefaultSettingsMaps = (): Record<
     return staticSettingsMap;
 };
 
+/**
+ * Resets all settings to their default values.
+ * Overwrites localStorage and dispatches change events for each setting.
+ */
+export function resetAllSettingsToDefault() {
+    Object.keys(defaultSettings).forEach((key) => {
+        dispatchSettingsChange(
+            key as keyof SettingsInterface,
+            defaultSettings[key as keyof SettingsInterface],
+            getSetting(key as SettingKeys),
+        );
+    });
+    localStorage.setItem("settings", JSON.stringify(defaultSettings));
+}
+
 export type SettingValue = string | boolean | string[];
 export type SettingType =
     | "checkbox"

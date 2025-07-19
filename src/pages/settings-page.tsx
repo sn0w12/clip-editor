@@ -19,6 +19,12 @@ import { assetSrc } from "@/utils/assets";
 import { useSticky } from "@/hooks/use-sticky";
 import { Tree, TreeItem } from "@/components/ui/tree";
 import { useConfirm } from "@/contexts/confirm-context";
+import {
+    Popover,
+    PopoverTrigger,
+    PopoverContent,
+} from "@/components/ui/popover";
+import { TableOfContents } from "lucide-react";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -569,12 +575,36 @@ export default function SettingsPage() {
                                     <Card className="gap-0 pt-0">
                                         {groupName.toLowerCase() !== "about" ? (
                                             // Sticky category header
-                                            <CardHeader className="bg-background sticky top-16 z-30 rounded-xl py-3">
-                                                <CardTitle>
-                                                    <h2 className="border-b pt-3 pb-2 text-2xl font-medium">
+                                            <CardHeader className="bg-background sticky top-16 z-30 flex flex-row items-center justify-between rounded-xl py-3">
+                                                <CardTitle className="w-full">
+                                                    <h2 className="w-full border-b pt-3 pb-2 text-2xl font-medium">
                                                         {groupName} Settings
                                                     </h2>
                                                 </CardTitle>
+                                                {/* ToC Popover Button */}
+                                                <Popover>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="absolute top-4 right-6 h-8 w-8 p-0"
+                                                            aria-label="Open Table of Contents"
+                                                        >
+                                                            <TableOfContents className="h-4 w-4" />
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent
+                                                        className="w-64 p-0"
+                                                        align="end"
+                                                        side="bottom"
+                                                    >
+                                                        <div className="p-2">
+                                                            <Tree>
+                                                                {tocTree}
+                                                            </Tree>
+                                                        </div>
+                                                    </PopoverContent>
+                                                </Popover>
                                             </CardHeader>
                                         ) : null}
                                         <CardContent>
@@ -638,7 +668,7 @@ export default function SettingsPage() {
                                                 }
                                                 // Otherwise, render grid and aside as before
                                                 return (
-                                                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_200px]">
+                                                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr]">
                                                         {/* Settings content (left) */}
                                                         <div>
                                                             {(() => {
@@ -941,13 +971,6 @@ export default function SettingsPage() {
                                                             })()}
                                                         </div>
                                                         {/* Table of Contents (right, inside card) */}
-                                                        <aside className="sticky top-38 hidden h-fit lg:block">
-                                                            <div className="bg-background rounded-xl border p-2">
-                                                                <Tree>
-                                                                    {tocTree}
-                                                                </Tree>
-                                                            </div>
-                                                        </aside>
                                                     </div>
                                                 );
                                             })()}

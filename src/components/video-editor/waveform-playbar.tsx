@@ -7,6 +7,7 @@ import {
     ContextMenuContent,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcutItem,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -21,7 +22,7 @@ import {
     Scissors,
     X,
 } from "lucide-react";
-import { useShortcutSetting } from "@/utils/settings";
+import { useSetting, useShortcutSetting } from "@/utils/settings";
 
 interface WaveformPlaybarProps {
     videoPath: string;
@@ -555,7 +556,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     })}
                 </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className="w-48">
+            <ContextMenuContent className="w-auto">
                 <ContextMenuSub>
                     <ContextMenuSubTrigger>
                         <ChevronRight className="mr-2 h-4 w-4" />
@@ -595,7 +596,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     <SkipForward className="h-4 w-4" />
                     Set end marker
                 </ContextMenuItem>
-                <ContextMenuItem
+                <ContextMenuShortcutItem
                     onClick={handleAddCut}
                     disabled={
                         !onCutsChange ||
@@ -603,10 +604,11 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                         contextMenuPoint <= timeRange.start + 0.05 ||
                         contextMenuPoint >= timeRange.end - 0.05
                     }
+                    keys={useSetting("addCut")}
                 >
                     <Scissors className="h-4 w-4 text-red-500" />
                     Add cut here
-                </ContextMenuItem>
+                </ContextMenuShortcutItem>
             </ContextMenuContent>
         </ContextMenu>
     );

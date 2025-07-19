@@ -290,6 +290,22 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip to the start of the video.",
                 groups: ["Playback", "Navigation"],
             },
+            addCut: {
+                label: "Cut Here",
+                type: "shortcut",
+                default: "Ctrl+K",
+                description:
+                    "Shortcut to start cutting the video at the current position.",
+                groups: ["Editing"],
+            },
+            setEndCut: {
+                label: "Set End Cut",
+                type: "shortcut",
+                default: "Ctrl+Shift+K",
+                description:
+                    "Shortcut to set the end of the cut at the current position.",
+                groups: ["Editing"],
+            },
         },
     },
     search: {

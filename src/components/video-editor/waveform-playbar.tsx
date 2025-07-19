@@ -21,6 +21,7 @@ import {
     Scissors,
     X,
 } from "lucide-react";
+import { useShortcutSetting } from "@/utils/settings";
 
 interface WaveformPlaybarProps {
     videoPath: string;
@@ -247,6 +248,39 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         }
         onCutsChange([...cuts, { start: cutStart, end: cutEnd }]);
     };
+    useShortcutSetting("addCut", () => {
+        const cutWidth = 0.5;
+        const cutEnd = Math.min(timeRange.end, currentTime + cutWidth);
+        onCutsChange([...cuts, { start: currentTime, end: cutEnd }]);
+    });
+    useShortcutSetting("setEndCut", () => {
+        if (!onCutsChange || cuts.length === 0) return;
+
+        let bestIdx = -1;
+        let bestStart = -Infinity;
+        for (let i = 0; i < cuts.length; i++) {
+            const cut = cuts[i];
+            if (cut.start <= currentTime && cut.start > bestStart) {
+                bestStart = cut.start;
+                bestIdx = i;
+            }
+        }
+        if (bestIdx === -1) return;
+
+        const newEnd = Math.max(
+            Math.min(currentTime, timeRange.end),
+            cuts[bestIdx].start + 0.05,
+        );
+        // Prevent overlap with next cut
+        if (bestIdx < cuts.length - 1 && newEnd > cuts[bestIdx + 1].start) {
+            return;
+        }
+
+        const updated = cuts.map((c, i) =>
+            i === bestIdx ? { ...c, end: newEnd } : c,
+        );
+        onCutsChange(updated);
+    });
 
     // Remove a cut by index
     const handleRemoveCut = (idx: number) => {

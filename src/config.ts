@@ -48,6 +48,20 @@ export const APP_SETTINGS = {
                 description: "Choose the theme for the application",
                 groups: ["Appearance"],
             },
+            purgeWaveformCache: {
+                label: "Purge Waveform Cache",
+                type: "button",
+                default: "Purge",
+                confirmation:
+                    "Are you sure you want to clear the waveform cache?",
+                confirmPositive: false,
+                onClick: () => {
+                    window.audioWaveform.clearWaveformCache();
+                },
+                description:
+                    "Clear the waveform cache to free up disk space and regenerate waveforms.",
+                groups: ["Cache"],
+            },
             windowIconsStyle: {
                 label: "Window Controls Style",
                 type: "select",

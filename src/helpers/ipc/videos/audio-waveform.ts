@@ -260,6 +260,19 @@ export function addAudioWaveformListeners() {
             }
         },
     );
+
+    ipcMain.handle("audio:clear-waveform-cache", async () => {
+        try {
+            const files = await fs.promises.readdir(WAVEFORM_DIR);
+            await Promise.all(
+                files.map((file) =>
+                    fs.promises.unlink(path.join(WAVEFORM_DIR, file)),
+                ),
+            );
+        } catch (error) {
+            console.error("Error clearing waveform cache:", error);
+        }
+    });
 }
 
 /**

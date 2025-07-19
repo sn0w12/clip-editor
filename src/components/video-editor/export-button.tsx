@@ -20,6 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/contexts/confirm-context";
+import { useShortcutSetting } from "@/utils/settings";
 
 interface ExportButtonProps {
     onExport: (options: Partial<ExportOptions>) => void;
@@ -94,6 +95,7 @@ export function ExportButton({
     const handleDirectExport = () => {
         onExport(baseOptions);
     };
+    useShortcutSetting("exportClip", handleDirectExport);
 
     const loadCustomPresets = () => {
         try {

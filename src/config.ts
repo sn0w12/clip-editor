@@ -306,6 +306,13 @@ export const APP_SETTINGS = {
                     "Shortcut to set the end of the cut at the current position.",
                 groups: ["Editing"],
             },
+            exportClip: {
+                label: "Export Clip",
+                type: "shortcut",
+                default: "Ctrl+E",
+                description: "Shortcut to export the current clip.",
+                groups: ["Editing"],
+            },
         },
     },
     search: {

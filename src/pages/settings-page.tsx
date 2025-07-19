@@ -914,7 +914,7 @@ export default function SettingsPage() {
                                                                                     }} // adjust for sticky header
                                                                                 >
                                                                                     {/* Sticky main group header */}
-                                                                                    <h3 className="bg-background sticky top-36 z-20 border-b pb-2 text-lg font-medium">
+                                                                                    <h3 className="bg-background sticky top-34 z-20 border-b pb-2 text-lg font-medium">
                                                                                         {
                                                                                             groupName
                                                                                         }
@@ -946,11 +946,11 @@ export default function SettingsPage() {
                                                                                                 id={`settings-subsection-${groupName}__${subgroupPath}`}
                                                                                                 style={{
                                                                                                     scrollMarginTop:
-                                                                                                        "200px",
+                                                                                                        "170px",
                                                                                                 }}
                                                                                             >
                                                                                                 {/* Sticky subgroup header */}
-                                                                                                <h4 className="text-md bg-background sticky top-45 z-10 flex items-center pt-1 font-medium">
+                                                                                                <h4 className="text-md bg-background sticky top-43 z-10 flex items-center pt-1 font-medium">
                                                                                                     {
                                                                                                         subgroupPath
                                                                                                     }

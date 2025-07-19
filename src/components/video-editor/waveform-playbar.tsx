@@ -5,7 +5,6 @@ import { cn } from "@/utils/tailwind";
 import {
     ContextMenu,
     ContextMenuContent,
-    ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuShortcutItem,
     ContextMenuSub,
@@ -121,6 +120,9 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     const goToEnd = () => onTimeChange(duration);
     const goToStartMarker = () => onTimeChange(timeRange.start);
     const goToEndMarker = () => onTimeChange(timeRange.end);
+
+    useShortcutSetting("skipToStartMarker", goToStartMarker);
+    useShortcutSetting("skipToEndMarker", goToEndMarker);
 
     // Same functions for context menu point
     const setStartMarkerFromContextMenu = () => {
@@ -575,22 +577,34 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                         Go to
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent>
-                        <ContextMenuItem onClick={goToStart}>
+                        <ContextMenuShortcutItem
+                            onClick={goToStart}
+                            keys={useSetting("skipToStart")}
+                        >
                             <ChevronFirst className="h-4 w-4" />
                             Start
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToStartMarker}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToStartMarker}
+                            keys={useSetting("skipToStartMarker")}
+                        >
                             <SkipBack className="h-4 w-4" />
                             Start marker
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToEndMarker}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToEndMarker}
+                            keys={useSetting("skipToEndMarker")}
+                        >
                             <SkipForward className="h-4 w-4" />
                             End marker
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToEnd}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToEnd}
+                            keys={useSetting("skipToEnd")}
+                        >
                             <ChevronLast className="h-4 w-4" />
                             End
-                        </ContextMenuItem>
+                        </ContextMenuShortcutItem>
                     </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />

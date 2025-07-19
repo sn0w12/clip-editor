@@ -283,6 +283,13 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip backward in the video.",
                 groups: ["Playback", "Navigation"],
             },
+            skipToStart: {
+                label: "Skip to Start",
+                type: "shortcut",
+                default: "Ctrl+ARROWLEFT",
+                description: "Shortcut to skip to the start of the video.",
+                groups: ["Playback", "Navigation"],
+            },
             skipToEnd: {
                 label: "Skip to End",
                 type: "shortcut",
@@ -290,11 +297,19 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip to the end of the video.",
                 groups: ["Playback", "Navigation"],
             },
-            skipToStart: {
-                label: "Skip to Start",
+            skipToStartMarker: {
+                label: "Skip to Start Marker",
                 type: "shortcut",
-                default: "Ctrl+ARROWLEFT",
-                description: "Shortcut to skip to the start of the video.",
+                default: "Shift+ARROWLEFT",
+                description:
+                    "Shortcut to skip to the start marker of the video.",
+                groups: ["Playback", "Navigation"],
+            },
+            skipToEndMarker: {
+                label: "Skip to End Marker",
+                type: "shortcut",
+                default: "Shift+ARROWRIGHT",
+                description: "Shortcut to skip to the end marker of the video.",
                 groups: ["Playback", "Navigation"],
             },
             setStartMarker: {

@@ -582,29 +582,32 @@ export default function SettingsPage() {
                                                     </h2>
                                                 </CardTitle>
                                                 {/* ToC Popover Button */}
-                                                <Popover>
-                                                    <PopoverTrigger asChild>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="absolute top-4 right-6 h-8 w-8 p-0"
-                                                            aria-label="Open Table of Contents"
+                                                {tocTree &&
+                                                tocTree.length > 0 ? (
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="absolute top-4 right-6 h-8 w-8 p-0"
+                                                                aria-label="Open Table of Contents"
+                                                            >
+                                                                <TableOfContents className="h-4 w-4" />
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent
+                                                            className="w-64 p-0"
+                                                            align="end"
+                                                            side="bottom"
                                                         >
-                                                            <TableOfContents className="h-4 w-4" />
-                                                        </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent
-                                                        className="w-64 p-0"
-                                                        align="end"
-                                                        side="bottom"
-                                                    >
-                                                        <div className="p-2">
-                                                            <Tree>
-                                                                {tocTree}
-                                                            </Tree>
-                                                        </div>
-                                                    </PopoverContent>
-                                                </Popover>
+                                                            <div className="p-2">
+                                                                <Tree>
+                                                                    {tocTree}
+                                                                </Tree>
+                                                            </div>
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                ) : null}
                                             </CardHeader>
                                         ) : null}
                                         <CardContent>

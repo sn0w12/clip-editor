@@ -5,8 +5,8 @@ import { cn } from "@/utils/tailwind";
 import {
     ContextMenu,
     ContextMenuContent,
-    ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcutItem,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -21,6 +21,7 @@ import {
     Scissors,
     X,
 } from "lucide-react";
+import { useSetting, useShortcutSetting } from "@/utils/settings";
 
 interface WaveformPlaybarProps {
     videoPath: string;
@@ -119,6 +120,9 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     const goToEnd = () => onTimeChange(duration);
     const goToStartMarker = () => onTimeChange(timeRange.start);
     const goToEndMarker = () => onTimeChange(timeRange.end);
+
+    useShortcutSetting("skipToStartMarker", goToStartMarker);
+    useShortcutSetting("skipToEndMarker", goToEndMarker);
 
     // Same functions for context menu point
     const setStartMarkerFromContextMenu = () => {
@@ -247,6 +251,51 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         }
         onCutsChange([...cuts, { start: cutStart, end: cutEnd }]);
     };
+    useShortcutSetting("addCut", () => {
+        const cutWidth = 0.5;
+        const cutEnd = Math.min(timeRange.end, currentTime + cutWidth);
+        onCutsChange([...cuts, { start: currentTime, end: cutEnd }]);
+    });
+    useShortcutSetting("setEndCut", () => {
+        if (!onCutsChange || cuts.length === 0) return;
+
+        let bestIdx = -1;
+        let bestStart = -Infinity;
+        for (let i = 0; i < cuts.length; i++) {
+            const cut = cuts[i];
+            if (cut.start <= currentTime && cut.start > bestStart) {
+                bestStart = cut.start;
+                bestIdx = i;
+            }
+        }
+        if (bestIdx === -1) return;
+
+        const newEnd = Math.max(
+            Math.min(currentTime, timeRange.end),
+            cuts[bestIdx].start + 0.05,
+        );
+        // Prevent overlap with next cut
+        if (bestIdx < cuts.length - 1 && newEnd > cuts[bestIdx + 1].start) {
+            return;
+        }
+
+        const updated = cuts.map((c, i) =>
+            i === bestIdx ? { ...c, end: newEnd } : c,
+        );
+        onCutsChange(updated);
+    });
+
+    useShortcutSetting("setStartMarker", () => {
+        if (currentTime >= timeRange.end - 0.1 || currentTime < 0) return;
+        const newStart = Math.min(currentTime, timeRange.end - 0.1);
+        onTimeRangeChange({ ...timeRange, start: Math.max(0, newStart) });
+    });
+    useShortcutSetting("setEndMarker", () => {
+        if (currentTime <= timeRange.start + 0.1 || currentTime > duration)
+            return;
+        const newEnd = Math.max(currentTime, timeRange.start + 0.1);
+        onTimeRangeChange({ ...timeRange, end: Math.min(duration, newEnd) });
+    });
 
     // Remove a cut by index
     const handleRemoveCut = (idx: number) => {
@@ -521,47 +570,61 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     })}
                 </div>
             </ContextMenuTrigger>
-            <ContextMenuContent className="w-48">
+            <ContextMenuContent className="w-auto">
                 <ContextMenuSub>
                     <ContextMenuSubTrigger>
                         <ChevronRight className="mr-2 h-4 w-4" />
                         Go to
                     </ContextMenuSubTrigger>
                     <ContextMenuSubContent>
-                        <ContextMenuItem onClick={goToStart}>
+                        <ContextMenuShortcutItem
+                            onClick={goToStart}
+                            keys={useSetting("skipToStart")}
+                        >
                             <ChevronFirst className="h-4 w-4" />
                             Start
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToStartMarker}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToStartMarker}
+                            keys={useSetting("skipToStartMarker")}
+                        >
                             <SkipBack className="h-4 w-4" />
                             Start marker
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToEndMarker}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToEndMarker}
+                            keys={useSetting("skipToEndMarker")}
+                        >
                             <SkipForward className="h-4 w-4" />
                             End marker
-                        </ContextMenuItem>
-                        <ContextMenuItem onClick={goToEnd}>
+                        </ContextMenuShortcutItem>
+                        <ContextMenuShortcutItem
+                            onClick={goToEnd}
+                            keys={useSetting("skipToEnd")}
+                        >
                             <ChevronLast className="h-4 w-4" />
                             End
-                        </ContextMenuItem>
+                        </ContextMenuShortcutItem>
                     </ContextMenuSubContent>
                 </ContextMenuSub>
                 <ContextMenuSeparator />
-                <ContextMenuItem
+                <ContextMenuShortcutItem
                     onClick={setStartMarkerFromContextMenu}
                     disabled={isSetStartMarkerDisabled}
+                    keys={useSetting("setStartMarker")}
                 >
                     <SkipBack className="h-4 w-4" />
                     Set start marker
-                </ContextMenuItem>
-                <ContextMenuItem
+                </ContextMenuShortcutItem>
+                <ContextMenuShortcutItem
                     onClick={setEndMarkerFromContextMenu}
                     disabled={isSetEndMarkerDisabled}
+                    keys={useSetting("setEndMarker")}
                 >
                     <SkipForward className="h-4 w-4" />
                     Set end marker
-                </ContextMenuItem>
-                <ContextMenuItem
+                </ContextMenuShortcutItem>
+                <ContextMenuShortcutItem
                     onClick={handleAddCut}
                     disabled={
                         !onCutsChange ||
@@ -569,10 +632,11 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                         contextMenuPoint <= timeRange.start + 0.05 ||
                         contextMenuPoint >= timeRange.end - 0.05
                     }
+                    keys={useSetting("addCut")}
                 >
                     <Scissors className="h-4 w-4 text-red-500" />
                     Add cut here
-                </ContextMenuItem>
+                </ContextMenuShortcutItem>
             </ContextMenuContent>
         </ContextMenu>
     );

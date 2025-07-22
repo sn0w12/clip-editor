@@ -11,6 +11,7 @@ import { Setting } from "./utils/settings";
 export const APP_CONFIG = {
     name: "Clip Editor",
     protocolName: "clip-editor",
+    repo: "sn0w12/clip-editor",
     useLoadingWindow: true,
     selectionOverlay: {
         border: {
@@ -47,6 +48,20 @@ export const APP_SETTINGS = {
                 },
                 description: "Choose the theme for the application",
                 groups: ["Appearance"],
+            },
+            purgeWaveformCache: {
+                label: "Purge Waveform Cache",
+                type: "button",
+                default: "Purge",
+                confirmation:
+                    "Are you sure you want to clear the waveform cache?",
+                confirmPositive: false,
+                onClick: () => {
+                    window.audioWaveform.clearWaveformCache();
+                },
+                description:
+                    "Clear the waveform cache to free up disk space and regenerate waveforms.",
+                groups: ["Cache"],
             },
             windowIconsStyle: {
                 label: "Window Controls Style",
@@ -183,6 +198,20 @@ export const APP_SETTINGS = {
                 description: "Shortcut to toggle the sidebar.",
                 groups: ["UI Control"],
             },
+            goToNextVideo: {
+                label: "Go to Next Video",
+                type: "shortcut",
+                default: "Ctrl+Shift+ARROWRIGHT",
+                description: "Shortcut to navigate to the next video.",
+                groups: ["UI Control", "Navigation"],
+            },
+            goToPreviousVideo: {
+                label: "Go to Previous Video",
+                type: "shortcut",
+                default: "Ctrl+Shift+ARROWLEFT",
+                description: "Shortcut to navigate to the previous video.",
+                groups: ["UI Control", "Navigation"],
+            },
             selectAll: {
                 label: "Select All",
                 type: "shortcut",
@@ -209,7 +238,7 @@ export const APP_SETTINGS = {
                 type: "shortcut",
                 default: "Shift",
                 description: "Shortcut to continue selection.",
-                groups: ["Selection"],
+                groups: ["Selection", "Drag"],
                 allowOverlap: ["selectBetween"],
             },
             selectBetween: {
@@ -217,7 +246,7 @@ export const APP_SETTINGS = {
                 type: "shortcut",
                 default: "Shift",
                 description: "Shortcut to select between two items.",
-                groups: ["Selection"],
+                groups: ["Selection", "Click"],
                 allowOverlap: ["continueSelection"],
             },
             pauseVideo: {
@@ -226,6 +255,34 @@ export const APP_SETTINGS = {
                 default: "Space",
                 description: "Shortcut to pause the video.",
                 groups: ["Playback"],
+            },
+            toggleFullscreen: {
+                label: "Toggle Fullscreen",
+                type: "shortcut",
+                default: "F",
+                description: "Shortcut to toggle fullscreen mode.",
+                groups: ["Playback"],
+            },
+            muteSound: {
+                label: "Mute Sound",
+                type: "shortcut",
+                default: "M",
+                description: "Shortcut to toggle sound mute.",
+                groups: ["Playback", "Audio"],
+            },
+            volumeUp: {
+                label: "Volume Up",
+                type: "shortcut",
+                default: "ARROWUP",
+                description: "Shortcut to increase volume.",
+                groups: ["Playback", "Audio"],
+            },
+            volumeDown: {
+                label: "Volume Down",
+                type: "shortcut",
+                default: "ARROWDOWN",
+                description: "Shortcut to decrease volume.",
+                groups: ["Playback", "Audio"],
             },
             skipForward: {
                 label: "Skip Forward",
@@ -241,6 +298,13 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip backward in the video.",
                 groups: ["Playback", "Navigation"],
             },
+            skipToStart: {
+                label: "Skip to Start",
+                type: "shortcut",
+                default: "Ctrl+ARROWLEFT",
+                description: "Shortcut to skip to the start of the video.",
+                groups: ["Playback", "Navigation"],
+            },
             skipToEnd: {
                 label: "Skip to End",
                 type: "shortcut",
@@ -248,12 +312,65 @@ export const APP_SETTINGS = {
                 description: "Shortcut to skip to the end of the video.",
                 groups: ["Playback", "Navigation"],
             },
-            skipToStart: {
-                label: "Skip to Start",
+            skipToStartMarker: {
+                label: "Skip to Start Marker",
                 type: "shortcut",
-                default: "Ctrl+ARROWLEFT",
-                description: "Shortcut to skip to the start of the video.",
+                default: "Shift+ARROWLEFT",
+                description:
+                    "Shortcut to skip to the start marker of the video.",
                 groups: ["Playback", "Navigation"],
+            },
+            skipToEndMarker: {
+                label: "Skip to End Marker",
+                type: "shortcut",
+                default: "Shift+ARROWRIGHT",
+                description: "Shortcut to skip to the end marker of the video.",
+                groups: ["Playback", "Navigation"],
+            },
+            setStartMarker: {
+                label: "Set Start Marker",
+                type: "shortcut",
+                default: "Ctrl+J",
+                description: "Shortcut to set the start marker in the video.",
+                groups: ["Editing"],
+            },
+            setEndMarker: {
+                label: "Set End Marker",
+                type: "shortcut",
+                default: "Ctrl+L",
+                description: "Shortcut to set the end marker in the video.",
+                groups: ["Editing"],
+            },
+            addCut: {
+                label: "Cut Here",
+                type: "shortcut",
+                default: "Ctrl+K",
+                description:
+                    "Shortcut to start cutting the video at the current position.",
+                groups: ["Editing"],
+            },
+            setEndCut: {
+                label: "Set End Cut",
+                type: "shortcut",
+                default: "Ctrl+Shift+K",
+                description:
+                    "Shortcut to set the end of the cut at the current position.",
+                groups: ["Editing"],
+            },
+            exportClip: {
+                label: "Export Clip",
+                type: "shortcut",
+                default: "Ctrl+E",
+                description: "Shortcut to export the current clip.",
+                groups: ["Editing"],
+            },
+        },
+    },
+    search: {
+        label: "Search",
+        settings: {
+            settingsSearch: {
+                customRender: true,
             },
         },
     },

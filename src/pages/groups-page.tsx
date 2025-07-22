@@ -206,7 +206,7 @@ export default function GroupsPage() {
     };
 
     return (
-        <div className="flex flex-col p-4 px-6">
+        <div className="flex flex-col p-4 px-6 pr-4">
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold">Groups</h1>

@@ -366,6 +366,21 @@ export const getDefaultSettingsMaps = (): Record<
     return staticSettingsMap;
 };
 
+/**
+ * Resets all settings to their default values.
+ * Overwrites localStorage and dispatches change events for each setting.
+ */
+export function resetAllSettingsToDefault() {
+    Object.keys(defaultSettings).forEach((key) => {
+        dispatchSettingsChange(
+            key as keyof SettingsInterface,
+            defaultSettings[key as keyof SettingsInterface],
+            getSetting(key as SettingKeys),
+        );
+    });
+    localStorage.setItem("settings", JSON.stringify(defaultSettings));
+}
+
 export type SettingValue = string | boolean | string[];
 export type SettingType =
     | "checkbox"
@@ -626,9 +641,46 @@ export function renderInput(
                             setting.onChange?.(value);
                         }}
                     >
-                        <SelectTrigger className="w-48">
-                            <SelectValue placeholder="Select an option" />
-                        </SelectTrigger>
+                        <ContextMenu>
+                            <ContextMenuTrigger asChild>
+                                <SelectTrigger className="w-48">
+                                    <SelectValue placeholder="Select an option" />
+                                </SelectTrigger>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                                <ContextMenuItem
+                                    onClick={() =>
+                                        setting.onChange?.(setting.default)
+                                    }
+                                    className="flex gap-2"
+                                    variant="destructive"
+                                >
+                                    <RotateCcw className="size-4" />
+                                    <span>Reset to Default</span>
+                                </ContextMenuItem>
+                                {setting.contextMenuItems &&
+                                    setting.contextMenuItems.length > 0 && (
+                                        <>
+                                            <ContextMenuSeparator />
+                                            {setting.contextMenuItems.map(
+                                                (item, index) => (
+                                                    <ContextMenuItem
+                                                        key={index}
+                                                        onClick={item.onClick}
+                                                        variant={item.variant}
+                                                        className="flex gap-2"
+                                                    >
+                                                        {item.icon && item.icon}
+                                                        <span>
+                                                            {item.label}
+                                                        </span>
+                                                    </ContextMenuItem>
+                                                ),
+                                            )}
+                                        </>
+                                    )}
+                            </ContextMenuContent>
+                        </ContextMenu>
                         <SelectContent>
                             {setting.options.map((option) => (
                                 <SelectItem
@@ -812,7 +864,7 @@ export function renderInput(
     };
 
     // Skip context menu for button settings
-    if (setting.type === "button") {
+    if (setting.type === "button" || setting.type === "select") {
         return renderSettingInput();
     }
 

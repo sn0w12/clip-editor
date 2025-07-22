@@ -192,7 +192,7 @@ export default function EditPage() {
     return (
         <div className="h-full pt-2">
             <ClipHeader />
-            <div className="h-[96%] p-4 pt-2">
+            <div className="h-[96%] p-4 pt-2 pr-2">
                 {error ? (
                     <div className="rounded-md border border-red-300 bg-red-50 p-6 text-center dark:bg-red-950/30">
                         <p className="mb-4 text-red-600 dark:text-red-400">

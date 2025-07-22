@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
-import { useSetting } from "@/utils/settings";
+import { useSetting, useShortcutSetting } from "@/utils/settings";
 
 function ClipHeaderLocal() {
     const [width, setWidth] = useState<number | undefined>(undefined);
@@ -158,12 +158,15 @@ function ClipHeaderLocal() {
         }
     };
 
+    useShortcutSetting("goToNextVideo", handleNext);
+    useShortcutSetting("goToPreviousVideo", handlePrevious);
+
     if (surroundingVideos.videos.length === 0) {
         return null;
     }
 
     return (
-        <div className="w-full px-4">
+        <div className="w-full pr-2 pl-4">
             <div className="flex items-center gap-2">
                 <div className="flex-1 overflow-auto">
                     <div className="flex justify-end gap-2">

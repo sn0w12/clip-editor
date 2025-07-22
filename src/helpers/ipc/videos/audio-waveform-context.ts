@@ -24,5 +24,8 @@ export function exposeAudioWaveformContext() {
                 audioTrack,
             );
         },
+        clearWaveformCache: async (): Promise<void> => {
+            return ipcRenderer.invoke("audio:clear-waveform-cache");
+        },
     });
 }

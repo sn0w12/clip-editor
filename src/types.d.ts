@@ -78,6 +78,7 @@ interface AudioWaveformAPI {
         sampleCount?: number,
         audioTrack?: number,
     ) => Promise<Float32Array | null>;
+    clearWaveformCache: () => Promise<void>;
 }
 
 interface DirectoryWatcherAPI {

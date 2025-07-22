@@ -222,6 +222,7 @@ function BaseLayoutContent({
                 <main
                     ref={mainRef}
                     className="bg-background flex-1 overflow-auto overflow-x-hidden border-t md:rounded-tl-xl md:border-l"
+                    style={{ scrollbarGutter: "stable" }}
                 >
                     <div className="h-full p-0">{children}</div>
                     <Toaster />

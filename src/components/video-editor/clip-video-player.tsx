@@ -16,7 +16,7 @@ import {
     Maximize,
     Minimize,
 } from "lucide-react";
-import { getSetting, useSetting } from "@/utils/settings";
+import { getSetting, useSetting, useShortcutSetting } from "@/utils/settings";
 import { Cut, TimeRange } from "@/types/video-editor";
 import { cn } from "@/utils/tailwind";
 import {
@@ -29,7 +29,6 @@ import { WaveformPlaybar } from "./waveform-playbar";
 import { AudioTrackSelector } from "./audio-track-selector";
 import { AudioVisualizer } from "./audio-visualizer";
 import { Separator } from "../ui/separator";
-import { useShortcut } from "@/hooks/use-shortcut";
 import { formatTime } from "@/utils/format";
 
 // Define constants for localStorage keys
@@ -237,6 +236,7 @@ export function ClipVideoPlayer({
             }
         }
     }, []);
+    useShortcutSetting("toggleFullscreen", toggleFullScreen);
 
     useEffect(() => {
         return () => {
@@ -415,6 +415,12 @@ export function ClipVideoPlayer({
             video.muted = false;
         }
     };
+    useShortcutSetting("volumeUp", () => {
+        handleVolumeChange([Math.min(volume + 0.05, 1)]);
+    });
+    useShortcutSetting("volumeDown", () => {
+        handleVolumeChange([Math.max(volume - 0.05, 0)]);
+    });
 
     const toggleMute = () => {
         const video = videoRef.current;
@@ -424,6 +430,9 @@ export function ClipVideoPlayer({
         setIsMuted(newMutedState);
         video.muted = newMutedState;
     };
+    useShortcutSetting("muteSound", toggleMute, {
+        preventDefault: true,
+    });
 
     const togglePlaySelectedOnly = () => {
         setPlaySelectedOnly((prev: boolean) => !prev);
@@ -620,11 +629,11 @@ export function ClipVideoPlayer({
         };
     }, [handleMouseUp]);
 
-    useShortcut(useSetting("pauseVideo"), togglePlayPause);
-    useShortcut(useSetting("skipForward"), skipForward);
-    useShortcut(useSetting("skipBackward"), skipBackward);
-    useShortcut(useSetting("skipToEnd"), jumpToEnd);
-    useShortcut(useSetting("skipToStart"), jumpToStart);
+    useShortcutSetting("pauseVideo", togglePlayPause);
+    useShortcutSetting("skipForward", skipForward);
+    useShortcutSetting("skipBackward", skipBackward);
+    useShortcutSetting("skipToEnd", jumpToEnd);
+    useShortcutSetting("skipToStart", jumpToStart);
 
     return (
         <>
@@ -946,7 +955,11 @@ export function ClipVideoPlayer({
                                         <ChevronFirst className="h-4 w-4" />
                                     </Button>
                                 </TooltipTrigger>
-                                <TooltipContent side="bottom">
+                                <TooltipContent
+                                    side="bottom"
+                                    keys={useSetting("skipToStart")}
+                                    shortcutPosition="left"
+                                >
                                     Jump to clip start
                                 </TooltipContent>
                             </Tooltip>
@@ -969,7 +982,11 @@ export function ClipVideoPlayer({
                                             <SkipBack className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipBackward")}
+                                        shortcutPosition="left"
+                                    >
                                         Skip back {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
@@ -988,7 +1005,10 @@ export function ClipVideoPlayer({
                                             )}
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("pauseVideo")}
+                                    >
                                         {isPlaying ? "Pause" : "Play"}
                                     </TooltipContent>
                                 </Tooltip>
@@ -1003,7 +1023,10 @@ export function ClipVideoPlayer({
                                             <SkipForward className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipForward")}
+                                    >
                                         Skip forward {seekIncrement} seconds
                                     </TooltipContent>
                                 </Tooltip>
@@ -1110,7 +1133,10 @@ export function ClipVideoPlayer({
                                                 )}
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent side="bottom">
+                                        <TooltipContent
+                                            side="bottom"
+                                            keys={useSetting("muteSound")}
+                                        >
                                             {isMuted ? "Unmute" : "Mute"}
                                         </TooltipContent>
                                     </Tooltip>
@@ -1177,7 +1203,10 @@ export function ClipVideoPlayer({
                                             )}
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("toggleFullscreen")}
+                                    >
                                         {isFullScreen
                                             ? "Exit fullscreen"
                                             : "Enter fullscreen"}
@@ -1194,7 +1223,10 @@ export function ClipVideoPlayer({
                                             <ChevronLast className="h-4 w-4" />
                                         </Button>
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">
+                                    <TooltipContent
+                                        side="bottom"
+                                        keys={useSetting("skipToEnd")}
+                                    >
                                         Jump to clip end
                                     </TooltipContent>
                                 </Tooltip>

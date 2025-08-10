@@ -5,6 +5,9 @@ import { VideoFile, VideoGroup } from "@/types/video";
 import React, { useMemo } from "react";
 import { Separator } from "@/components/ui/separator";
 import { useSteam } from "@/contexts/steam-context";
+import { ViewMode } from "@/pages/home-page";
+import { VideoList } from "./video-list";
+import { cn } from "@/utils/tailwind";
 
 interface VideoGridProps {
     isLoading: boolean;
@@ -13,6 +16,7 @@ interface VideoGridProps {
     thumbnails: Record<string, string>;
     groups: VideoGroup[];
     videoGroupMap: Record<string, string[]>;
+    viewMode: ViewMode;
     onSelectDirectory: () => Promise<void>;
     onAddToGroup: (videoIds: string[], groupId: string) => void;
     onShowCreateGroup: () => void;
@@ -29,6 +33,7 @@ function VideoGridBase({
     thumbnails,
     groups,
     videoGroupMap,
+    viewMode,
     onSelectDirectory,
     onAddToGroup,
     onShowCreateGroup,
@@ -140,7 +145,12 @@ function VideoGridBase({
                         </h3>
                         <Separator className="from-border bg-gradient-to-r to-transparent" />
                     </div>
-                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <div
+                        className={cn("grid grid-cols-1", {
+                            "gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4":
+                                viewMode === "grid",
+                        })}
+                    >
                         {dateGroup.videos.map((video) => (
                             <VideoContextMenu
                                 key={video.path}
@@ -159,15 +169,26 @@ function VideoGridBase({
                                 onRemoveFromGroup={onRemoveFromGroup}
                                 sortedGames={sortedGames}
                             >
-                                <VideoCard
-                                    video={video}
-                                    thumbnailUrl={thumbnails[video.path]}
-                                    isSelected={selectedVideos.includes(
-                                        video.path,
-                                    )}
-                                    videoGroupMap={videoGroupMap}
-                                    groups={groups}
-                                />
+                                {viewMode === "grid" ? (
+                                    <VideoCard
+                                        video={video}
+                                        thumbnailUrl={thumbnails[video.path]}
+                                        isSelected={selectedVideos.includes(
+                                            video.path,
+                                        )}
+                                        videoGroupMap={videoGroupMap}
+                                        groups={groups}
+                                    />
+                                ) : (
+                                    <VideoList
+                                        video={video}
+                                        isSelected={selectedVideos.includes(
+                                            video.path,
+                                        )}
+                                        videoGroupMap={videoGroupMap}
+                                        groups={groups}
+                                    />
+                                )}
                             </VideoContextMenu>
                         ))}
                     </div>

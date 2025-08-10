@@ -1,10 +1,13 @@
 import { useVideoStore } from "@/contexts/video-store-context";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { CreateGroupDialog } from "@/components/home/create-group-dialog";
 import { DirectorySelector } from "@/components/home/directory-selector";
 import { FilterHeader } from "@/components/home/filter-header";
 import { VideoGrid } from "@/components/home/video-grid";
 import { usePageSelection } from "@/hooks/use-page-selection";
+
+export type ViewMode = "list" | "grid";
+const viewModeKey = "view-mode";
 
 export default function HomePage() {
     const {
@@ -33,6 +36,18 @@ export default function HomePage() {
         handleRemoveFromGroup,
         clearAllFilters,
     } = useVideoStore();
+    const [viewMode, setViewMode] = useState<ViewMode>(() => {
+        const saved = localStorage.getItem(viewModeKey);
+        return saved === "list" ? "list" : "grid";
+    });
+
+    useEffect(() => {
+        localStorage.setItem(viewModeKey, viewMode);
+    }, [viewMode]);
+
+    const handleSetViewMode = (mode: ViewMode) => {
+        setViewMode(mode);
+    };
 
     const sortedVideos = useMemo(() => {
         const groupedVideos: Record<string, typeof filteredVideos> = {};
@@ -77,6 +92,7 @@ export default function HomePage() {
             setSelectedVideos(selected.map((v) => v.path));
         },
         enableShortcuts: true,
+        cacheDeps: [viewMode],
     });
 
     // If no directory is selected, show the directory selector
@@ -104,6 +120,7 @@ export default function HomePage() {
                 games={uniqueGames}
                 selectedGames={selectedGames}
                 clipCountByDate={clipCountByDate}
+                viewMode={viewMode}
                 onSelectGroup={setSelectedGroupIds}
                 onGameSelect={setSelectedGames}
                 onDateRangeChange={(from, to) => {
@@ -112,6 +129,7 @@ export default function HomePage() {
                 }}
                 onClearFilters={clearAllFilters}
                 onChangeDirectory={handleSelectDirectory}
+                onSetViewMode={handleSetViewMode}
             />
             <VideoGrid
                 isLoading={isLoading}
@@ -120,6 +138,7 @@ export default function HomePage() {
                 thumbnails={thumbnails}
                 groups={groups}
                 videoGroupMap={videoGroupMap}
+                viewMode={viewMode}
                 onSelectDirectory={handleSelectDirectory}
                 onAddToGroup={handleAddToGroup}
                 onShowCreateGroup={() => setIsCreateGroupDialogOpen(true)}

@@ -1,12 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MemoizedUnifiedFilterPanel } from "@/components/home/unified-filter-panel";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, Grid, List } from "lucide-react";
 import React, { useMemo } from "react";
 import { VideoGroup } from "@/types/video";
 import { useSteam } from "@/contexts/steam-context";
 import { getGameId, imgSrc } from "@/utils/games";
 import { formatFileSize } from "@/utils/format";
+import { ViewMode } from "@/pages/home-page";
+import { Separator } from "../ui/separator";
+import { useSetting } from "@/utils/settings";
+import { cn } from "@/utils/tailwind";
 
 interface FilterHeaderProps {
     directoryPath: string;
@@ -20,11 +24,13 @@ interface FilterHeaderProps {
     games: string[];
     selectedGames: string[];
     clipCountByDate: Record<string, number>;
+    viewMode: ViewMode;
     onSelectGroup: (groupIds: string[]) => void;
     onGameSelect: (games: string[]) => void;
     onDateRangeChange: (from: Date | undefined, to: Date | undefined) => void;
     onClearFilters: () => void;
     onChangeDirectory: () => Promise<void>;
+    onSetViewMode: (mode: ViewMode) => void;
 }
 
 /**
@@ -50,13 +56,16 @@ export function FilterHeader({
     games,
     selectedGames,
     clipCountByDate = {},
+    viewMode,
     onSelectGroup,
     onGameSelect,
     onDateRangeChange,
     onClearFilters,
     onChangeDirectory,
+    onSetViewMode,
 }: FilterHeaderProps) {
     const { games: steamGames, gameImages, loading } = useSteam();
+    const isCustomWindow = useSetting("windowIconsStyle") === "custom";
 
     const gameOptions = useMemo(() => {
         return games.map((game) => {
@@ -82,7 +91,7 @@ export function FilterHeader({
     const formattedTotalSize = formatSize(totalSize);
 
     return (
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
             <div>
                 <h1 className="text-3xl font-bold">Clips</h1>
                 <div className="mt-1 flex items-center gap-2">
@@ -103,7 +112,24 @@ export function FilterHeader({
                 </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div
+                className={cn("flex items-center gap-2", {
+                    "pr-32": isCustomWindow,
+                })}
+            >
+                <Button
+                    variant={viewMode === "list" ? "default" : "secondary"}
+                    onClick={() => onSetViewMode("list")}
+                >
+                    <List className="h-4 w-4" />
+                </Button>
+                <Button
+                    variant={viewMode === "grid" ? "default" : "secondary"}
+                    onClick={() => onSetViewMode("grid")}
+                >
+                    <Grid className="h-4 w-4" />
+                </Button>
+                <Separator orientation="vertical" className="h-9!" />
                 <MemoizedUnifiedFilterPanel
                     startDate={startDate}
                     endDate={endDate}

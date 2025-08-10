@@ -44,6 +44,7 @@ interface VideoStoreContextType {
     setSelectedGames: React.Dispatch<React.SetStateAction<string[]>>;
     setSelectedGroupIds: React.Dispatch<React.SetStateAction<string[]>>;
     setIsCreateGroupDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setVideoGame: (video: VideoFile, game: string) => void;
     handleSelectDirectory: () => Promise<void>;
     handleCreateGroup: (name: string, color?: string) => string;
     handleDeleteGroup: (groupId: string) => void;
@@ -74,6 +75,7 @@ export function VideoStoreProvider({
 }: {
     children: React.ReactNode;
 }) {
+    const { gameAliases } = useSteam();
     const [directoryPath, setDirectoryPath] = useState<string | null>(() => {
         return localStorage.getItem(SAVED_DIRECTORY_KEY);
     });
@@ -96,7 +98,6 @@ export function VideoStoreProvider({
     const [endDate, setEndDate] = useState<Date | undefined>(undefined);
     const [selectedGames, setSelectedGames] = useState<string[]>([]);
     const initialMountRef = useRef(true);
-    const { addCustomGame } = useSteam();
 
     const [groups, setGroups] = useState<VideoGroup[]>(() => {
         try {
@@ -281,29 +282,27 @@ export function VideoStoreProvider({
         try {
             const videoFiles =
                 await window.videos.getVideosFromDirectory(dirPath);
-            setVideos(videoFiles);
+
+            const aliasedVideos = videoFiles.map((video) => {
+                const aliasGameName = gameAliases[video.game];
+                if (aliasGameName) {
+                    return {
+                        ...video,
+                        game: aliasGameName || video.game,
+                    };
+                }
+                return video;
+            });
+
+            setVideos(aliasedVideos);
             setSelectedVideos([]);
             localStorage.setItem(SAVED_DIRECTORY_KEY, dirPath);
 
-            // Only add games once, outside the loop
-            if (videoFiles.length > 0) {
-                // Collect unique games from videos
-                const uniqueVideoGames = new Set<string>();
-                videoFiles.forEach((video) => {
-                    if (video.game && video.game !== "Unknown") {
-                        uniqueVideoGames.add(video.game);
-                    }
-                });
-
-                // Add games as a batch to avoid multiple calls
-                Array.from(uniqueVideoGames).forEach((gameName) => {
-                    addCustomGame(gameName);
-                });
-
+            if (aliasedVideos.length > 0) {
                 const newLoadingThumbnails = new Set<string>();
                 const newLoadingMetadata = new Set<string>();
 
-                videoFiles.forEach((video) => {
+                aliasedVideos.forEach((video) => {
                     newLoadingThumbnails.add(video.path);
                     newLoadingMetadata.add(video.path);
                 });
@@ -311,8 +310,8 @@ export function VideoStoreProvider({
                 setLoadingThumbnails(newLoadingThumbnails);
                 setLoadingMetadata(newLoadingMetadata);
 
-                loadThumbnails(videoFiles);
-                loadVideoMetadata(videoFiles);
+                loadThumbnails(aliasedVideos);
+                loadVideoMetadata(aliasedVideos);
             }
         } catch (error) {
             console.error("Error loading videos:", error);
@@ -329,21 +328,23 @@ export function VideoStoreProvider({
 
             const cleanup = window.directoryWatcher.onNewVideoFound(
                 (videoFile) => {
+                    const aliasGameName = gameAliases[videoFile.game];
+                    const aliasedVideo = aliasGameName
+                        ? { ...videoFile, game: aliasGameName }
+                        : videoFile;
+
                     setVideos((prevVideos) => {
-                        if (prevVideos.some((v) => v.path === videoFile.path)) {
+                        if (
+                            prevVideos.some((v) => v.path === aliasedVideo.path)
+                        ) {
                             return prevVideos;
                         }
 
-                        return [...prevVideos, videoFile];
+                        return [...prevVideos, aliasedVideo];
                     });
 
-                    // Only add a game if it's valid and we're actually adding a new video
-                    if (videoFile.game && videoFile.game !== "Unknown") {
-                        addCustomGame(videoFile.game);
-                    }
-
-                    loadThumbnails([videoFile]);
-                    loadVideoMetadata([videoFile]);
+                    loadThumbnails([aliasedVideo]);
+                    loadVideoMetadata([aliasedVideo]);
                 },
             );
 
@@ -564,6 +565,12 @@ export function VideoStoreProvider({
         );
     };
 
+    function setVideoGame(video: VideoFile, game: string) {
+        setVideos((prev) =>
+            prev.map((v) => (v.path === video.path ? { ...v, game } : v)),
+        );
+    }
+
     useEffect(() => {
         if (initialMountRef.current && directoryPath) {
             loadVideosFromDirectory(directoryPath);
@@ -629,6 +636,7 @@ export function VideoStoreProvider({
         setSelectedGames,
         setSelectedGroupIds,
         setIsCreateGroupDialogOpen,
+        setVideoGame,
 
         handleSelectDirectory,
         handleCreateGroup,

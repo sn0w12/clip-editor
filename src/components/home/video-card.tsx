@@ -149,17 +149,16 @@ export function VideoCard({
 
     // Handle video playback after the video is shown
     useEffect(() => {
-        if (showVideo && videoRef.current) {
+        if (showVideo && videoLoaded && videoRef.current) {
             videoRef.current.play().catch((error) => {
                 console.log("Video autoplay prevented:", error);
             });
 
-            // Start updating progress if not already running
             if (!progressAnimationRef.current) {
                 progressAnimationRef.current =
                     requestAnimationFrame(updateProgressBar);
             }
-        } else if (!showVideo && videoRef.current) {
+        } else if ((!showVideo || !videoLoaded) && videoRef.current) {
             videoRef.current.pause();
 
             // Cancel progress animation

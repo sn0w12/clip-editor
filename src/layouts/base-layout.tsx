@@ -30,6 +30,7 @@ import { SteamProvider } from "@/contexts/steam-context";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { BadgeProvider, useBadge } from "@/contexts/badge-context";
+import { GitHubDataProvider } from "@/contexts/github-context";
 import { useSetting } from "@/utils/settings";
 
 const inDevelopment = process.env.NODE_ENV === "development";
@@ -247,18 +248,22 @@ export default function BaseLayout({
                     <SelectionProvider>
                         <ConfirmProvider>
                             <BadgeProvider>
-                                <SelectionOverlay containerRef={mainRef} />
-                                {isWeb ? (
-                                    <BaseLayoutContent mainRef={mainRef}>
-                                        {children}
-                                    </BaseLayoutContent>
-                                ) : (
-                                    <DevContextMenu>
+                                <GitHubDataProvider>
+                                    <SelectionOverlay containerRef={mainRef} />
+                                    {isWeb ? (
                                         <BaseLayoutContent mainRef={mainRef}>
                                             {children}
                                         </BaseLayoutContent>
-                                    </DevContextMenu>
-                                )}
+                                    ) : (
+                                        <DevContextMenu>
+                                            <BaseLayoutContent
+                                                mainRef={mainRef}
+                                            >
+                                                {children}
+                                            </BaseLayoutContent>
+                                        </DevContextMenu>
+                                    )}
+                                </GitHubDataProvider>
                             </BadgeProvider>
                         </ConfirmProvider>
                     </SelectionProvider>

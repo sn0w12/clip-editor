@@ -9,62 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Star, GitFork, Bug } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { useGitHubRepoData } from "@/contexts/github-context";
 import { APP_CONFIG } from "@/config";
 
-interface RepoStats {
-    stargazers_count: number;
-    forks_count: number;
-    open_issues_count: number;
-    description: string;
-    license?: { name: string; spdx_id: string };
-    updated_at: string;
-    html_url: string;
-}
-
-interface IssueInfo {
-    title: string;
-    html_url: string;
-    state: string;
-    number: number;
-    user: {
-        login: string;
-        avatar_url: string;
-        html_url: string;
-    };
-    labels: Array<{ name: string; color: string }>;
-    created_at: string;
-    closed_at?: string;
-    body?: string;
-    pull_request?: unknown;
-}
-
-interface ReleaseInfo {
-    name: string;
-    tag_name: string;
-    published_at: string;
-    html_url: string;
-    body: string;
-    assets: Array<{ name: string; browser_download_url: string }>;
-}
-
-const REPO = APP_CONFIG.repo;
-const REPO_URL = `https://github.com/${REPO}`;
+const REPO_URL = `https://github.com/${APP_CONFIG.repo}`;
 
 export const GitHubRepoLink: React.FC = () => {
-    const [stats, setStats] = React.useState<RepoStats | null>(null);
+    const { stats, openIssues } = useGitHubRepoData();
     const [open, setOpen] = React.useState(false);
     const closeTimeout = React.useRef<NodeJS.Timeout | null>(null);
-
-    React.useEffect(() => {
-        (async () => {
-            const res = await fetch(`https://api.github.com/repos/${REPO}`);
-            const data = await res.json();
-            setStats(data);
-        })();
-        return () => {
-            if (closeTimeout.current) clearTimeout(closeTimeout.current);
-        };
-    }, []);
 
     const handleMouseEnter = () => {
         if (closeTimeout.current) {
@@ -145,7 +98,7 @@ export const GitHubRepoLink: React.FC = () => {
                             </Badge>
                             <Badge variant="outline">
                                 <Bug className="mr-1 inline-block h-3 w-3" />
-                                {stats.open_issues_count} Issues
+                                {openIssues} Issues
                             </Badge>
                         </div>
                     </>
@@ -158,67 +111,9 @@ export const GitHubRepoLink: React.FC = () => {
 };
 
 export const GitHubIssuesLink: React.FC = () => {
-    const [openIssues, setOpenIssues] = React.useState<number | null>(null);
-    const [closedIssues, setClosedIssues] = React.useState<number | null>(null);
-    const [issues, setIssues] = React.useState<IssueInfo[]>([]);
+    const { openIssues, closedIssues, issues } = useGitHubRepoData();
     const [open, setOpen] = React.useState(false);
     const closeTimeout = React.useRef<NodeJS.Timeout | null>(null);
-
-    React.useEffect(() => {
-        (async () => {
-            const [repoData, searchData, recentData] = await Promise.all([
-                fetch(`https://api.github.com/repos/${REPO}`).then((res) =>
-                    res.json(),
-                ),
-                fetch(
-                    `https://api.github.com/search/issues?q=repo:${REPO}+type:issue+state:closed`,
-                ).then((res) => res.json()),
-                fetch(
-                    `https://api.github.com/repos/${REPO}/issues?state=all&per_page=10&sort=created&direction=desc`,
-                ).then((res) => res.json()),
-            ]);
-
-            setOpenIssues(repoData.open_issues_count);
-            setClosedIssues(
-                typeof searchData.total_count === "number"
-                    ? searchData.total_count
-                    : null,
-            );
-
-            if (Array.isArray(recentData)) {
-                setIssues(
-                    recentData
-                        .filter((issue: IssueInfo) => !issue.pull_request)
-                        .slice(0, 5)
-                        .map((issue: IssueInfo) => ({
-                            title: issue.title,
-                            html_url: issue.html_url,
-                            state: issue.state,
-                            number: issue.number,
-                            user: {
-                                login: issue.user.login,
-                                avatar_url: issue.user.avatar_url,
-                                html_url: issue.user.html_url,
-                            },
-                            labels: Array.isArray(issue.labels)
-                                ? issue.labels.map(
-                                      (l: { name: string; color: string }) => ({
-                                          name: l.name,
-                                          color: l.color,
-                                      }),
-                                  )
-                                : [],
-                            created_at: issue.created_at,
-                            closed_at: issue.closed_at,
-                            body: issue.body,
-                        })),
-                );
-            }
-        })();
-        return () => {
-            if (closeTimeout.current) clearTimeout(closeTimeout.current);
-        };
-    }, []);
 
     const handleMouseEnter = () => {
         if (closeTimeout.current) {
@@ -417,7 +312,7 @@ function parseMarkdown(md: string): React.ReactNode[] {
             parts.push(
                 <a
                     key={`issue-${match[1]}-${match.index}`}
-                    href={`https://github.com/${REPO}/issues/${match[1]}`}
+                    href={`${REPO_URL}/issues/${match[1]}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="underline"
@@ -495,33 +390,10 @@ function parseMarkdown(md: string): React.ReactNode[] {
 }
 
 export const GitHubReleasesLink: React.FC = () => {
-    const [release, setRelease] = React.useState<ReleaseInfo | null>(null);
+    const { release } = useGitHubRepoData();
     const [open, setOpen] = React.useState(false);
     const [tab, setTab] = React.useState("notes");
     const closeTimeout = React.useRef<NodeJS.Timeout | null>(null);
-
-    React.useEffect(() => {
-        (async () => {
-            const res = await fetch(
-                `https://api.github.com/repos/${REPO}/releases/latest`,
-            );
-            const data = await res.json();
-            setRelease({
-                ...data,
-                assets: Array.isArray(data.assets)
-                    ? data.assets.map(
-                          (a: {
-                              name: string;
-                              browser_download_url: string;
-                          }) => ({
-                              name: a.name,
-                              browser_download_url: a.browser_download_url,
-                          }),
-                      )
-                    : [],
-            });
-        })();
-    }, []);
 
     const handleMouseEnter = () => {
         if (closeTimeout.current) {

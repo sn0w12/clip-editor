@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, protocol, ipcMain } from "electron";
+import { app, BrowserWindow, protocol, ipcMain } from "electron";
 import registerListeners from "./helpers/ipc/listeners-register";
 // "electron-squirrel-startup" seems broken when packaging with vite
 //import started from "electron-squirrel-startup";

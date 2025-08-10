@@ -20,12 +20,19 @@ interface GameImage {
     icon?: string;
 }
 
+export interface SteamGame {
+    id: string;
+    name: string;
+    slug: string;
+}
+
 interface SteamContextType {
     games: Record<string, { appid: string; displayName: string }>;
     libraryFolders: string[];
     gameImages: Record<string, GameImage>;
     loading: boolean;
     error: string | null;
+    gameAliases: Record<string, string>;
     refreshSteamData: () => Promise<void>;
     addCustomGame: (gameName: string) => void;
     removeCustomGame: (appId: string) => void;
@@ -34,6 +41,8 @@ interface SteamContextType {
         imageUrl: string,
         imageType: keyof GameImage,
     ) => void;
+    setGameAlias: (alias: string, canonicalAppId: string) => void;
+    removeGameAlias: (alias: string) => void;
 }
 
 const SteamContext = createContext<SteamContextType>({
@@ -42,13 +51,17 @@ const SteamContext = createContext<SteamContextType>({
     gameImages: {},
     loading: true,
     error: null,
+    gameAliases: {},
     refreshSteamData: async () => {},
     addCustomGame: () => {},
     removeCustomGame: () => {},
     setCustomGameImage: () => {},
+    setGameAlias: () => {},
+    removeGameAlias: () => {},
 });
 
 const CUSTOM_GAMES_KEY = "clip-editor-custom-games";
+export const GAME_ALIASES_KEY = "clip-editor-game-aliases";
 
 interface SteamProviderProps {
     children: ReactNode;
@@ -58,6 +71,12 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
     const [games, setGames] = useState<
         Record<string, { appid: string; displayName: string }>
     >({});
+    const [gameAliases, setGameAliases] = useState<Record<string, string>>(
+        () => {
+            const stored = localStorage.getItem(GAME_ALIASES_KEY);
+            return stored ? JSON.parse(stored) : {};
+        },
+    );
     const [libraryFolders, setLibraryFolders] = useState<string[]>([]);
     const [gameImages, setGameImages] = useState<Record<string, GameImage>>({});
     const [loading, setLoading] = useState(true);
@@ -79,6 +98,17 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
             );
         }
         return {};
+    }, []);
+
+    useEffect(() => {
+        try {
+            const storedAliases = localStorage.getItem(GAME_ALIASES_KEY);
+            if (storedAliases) {
+                setGameAliases(JSON.parse(storedAliases));
+            }
+        } catch (err) {
+            console.error("Failed to load game aliases:", err);
+        }
     }, []);
 
     const addCustomGame = (gameName: string) => {
@@ -126,6 +156,23 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
         } catch (err) {
             console.error("Failed to save custom game to localStorage:", err);
         }
+    };
+
+    const setGameAlias = (alias: string, gameName: string) => {
+        setGameAliases((prev) => {
+            const updated = { ...prev, [alias]: gameName };
+            localStorage.setItem(GAME_ALIASES_KEY, JSON.stringify(updated));
+            return updated;
+        });
+    };
+
+    const removeGameAlias = (alias: string) => {
+        setGameAliases((prev) => {
+            const updated = { ...prev };
+            delete updated[alias];
+            localStorage.setItem(GAME_ALIASES_KEY, JSON.stringify(updated));
+            return updated;
+        });
     };
 
     useEffect(() => {
@@ -312,6 +359,7 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
         <SteamContext.Provider
             value={{
                 games,
+                gameAliases,
                 libraryFolders,
                 gameImages,
                 loading,
@@ -320,6 +368,8 @@ export const SteamProvider: React.FC<SteamProviderProps> = ({ children }) => {
                 addCustomGame,
                 removeCustomGame,
                 setCustomGameImage,
+                setGameAlias,
+                removeGameAlias,
             }}
         >
             {children}

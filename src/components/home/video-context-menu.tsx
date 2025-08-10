@@ -21,7 +21,7 @@ import {
 import { VideoFile, VideoGroup } from "@/types/video";
 import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate } from "@tanstack/react-router";
-import { useSteam } from "@/contexts/steam-context";
+import { SteamGame, useSteam } from "@/contexts/steam-context";
 import {
     Dialog,
     DialogContent,
@@ -58,8 +58,9 @@ function VideoContextMenuBase({
     sortedGames,
 }: VideoContextMenuProps) {
     const navigate = useNavigate();
-    const { handleDeleteVideos, handleUpdateVideoGames } = useVideoStore();
-    const { addCustomGame } = useSteam();
+    const { handleDeleteVideos, handleUpdateVideoGames, setVideoGame } =
+        useVideoStore();
+    const { addCustomGame, setGameAlias } = useSteam();
     const [isCustomGameDialogOpen, setIsCustomGameDialogOpen] = useState(false);
     const [customGameName, setCustomGameName] = useState("");
     const [gameSearchTerm, setGameSearchTerm] = useState("");
@@ -97,6 +98,14 @@ function VideoContextMenuBase({
             setIsCustomGameDialogOpen(false);
         }
     }, [addCustomGame, customGameName, handleUpdateVideoGames, videoIds]);
+
+    const handleCreateGameAlias = useCallback(
+        (game: SteamGame) => {
+            setGameAlias(video.game, game.name);
+            setVideoGame(video, game.name);
+        },
+        [video, videoIds],
+    );
 
     // Only allow showing in folder when a single video is selected
     const canShowInFolder = videoIds.length === 1;
@@ -202,6 +211,61 @@ function VideoContextMenuBase({
                             )}
                         </ContextMenuSubContent>
                     </ContextMenuSub>
+
+                    {videoIds.length === 1 ? (
+                        <ContextMenuSub>
+                            <ContextMenuSubTrigger className="flex items-center gap-2">
+                                <Gamepad2 size={16} />
+                                Set Game Alias
+                            </ContextMenuSubTrigger>
+                            <ContextMenuSubContent className="max-h-80 w-56 overflow-y-auto">
+                                <Input
+                                    ref={searchInputRef}
+                                    placeholder="Search game..."
+                                    value={gameSearchTerm}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        setGameSearchTerm(e.target.value);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        e.stopPropagation();
+                                    }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                    }}
+                                    className="h-8"
+                                />
+
+                                {filteredGames.length > 0 && (
+                                    <ContextMenuSeparator />
+                                )}
+
+                                {filteredGames.map((game) => (
+                                    <ContextMenuItem
+                                        key={game.slug}
+                                        className="flex items-center justify-between"
+                                        onClick={() =>
+                                            handleCreateGameAlias(game)
+                                        }
+                                    >
+                                        <span className="truncate">
+                                            {game.name}
+                                        </span>
+                                        {game.name === currentGame && (
+                                            <Check size={16} />
+                                        )}
+                                    </ContextMenuItem>
+                                ))}
+
+                                {filteredGames.length === 0 &&
+                                    gameSearchTerm && (
+                                        <div className="text-muted-foreground px-2 py-1.5 text-center text-sm">
+                                            No games found
+                                        </div>
+                                    )}
+                            </ContextMenuSubContent>
+                        </ContextMenuSub>
+                    ) : null}
 
                     <ContextMenuSub>
                         <ContextMenuSubTrigger className="flex items-center gap-2">

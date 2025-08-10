@@ -12,6 +12,7 @@ import { VideoMetadata } from "@/types/video-editor";
 import { APP_CONFIG } from "@/config";
 import { v4 as uuidv4 } from "uuid";
 import { videoMetadataIpc } from "@/helpers/ipc/video-metadata";
+import { useSteam } from "./steam-context";
 
 const SAVED_DIRECTORY_KEY = "saved-video-directory";
 const SAVED_GROUPS_KEY = "video-groups";
@@ -43,6 +44,7 @@ interface VideoStoreContextType {
     setSelectedGames: React.Dispatch<React.SetStateAction<string[]>>;
     setSelectedGroupIds: React.Dispatch<React.SetStateAction<string[]>>;
     setIsCreateGroupDialogOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    setVideoGame: (video: VideoFile, game: string) => void;
     handleSelectDirectory: () => Promise<void>;
     handleCreateGroup: (name: string, color?: string) => string;
     handleDeleteGroup: (groupId: string) => void;
@@ -73,6 +75,7 @@ export function VideoStoreProvider({
 }: {
     children: React.ReactNode;
 }) {
+    const { gameAliases } = useSteam();
     const [directoryPath, setDirectoryPath] = useState<string | null>(() => {
         return localStorage.getItem(SAVED_DIRECTORY_KEY);
     });
@@ -279,16 +282,27 @@ export function VideoStoreProvider({
         try {
             const videoFiles =
                 await window.videos.getVideosFromDirectory(dirPath);
-            setVideos(videoFiles);
+
+            const aliasedVideos = videoFiles.map((video) => {
+                const aliasGameName = gameAliases[video.game];
+                if (aliasGameName) {
+                    return {
+                        ...video,
+                        game: aliasGameName || video.game,
+                    };
+                }
+                return video;
+            });
+
+            setVideos(aliasedVideos);
             setSelectedVideos([]);
             localStorage.setItem(SAVED_DIRECTORY_KEY, dirPath);
 
-            // Only add games once, outside the loop
-            if (videoFiles.length > 0) {
+            if (aliasedVideos.length > 0) {
                 const newLoadingThumbnails = new Set<string>();
                 const newLoadingMetadata = new Set<string>();
 
-                videoFiles.forEach((video) => {
+                aliasedVideos.forEach((video) => {
                     newLoadingThumbnails.add(video.path);
                     newLoadingMetadata.add(video.path);
                 });
@@ -296,8 +310,8 @@ export function VideoStoreProvider({
                 setLoadingThumbnails(newLoadingThumbnails);
                 setLoadingMetadata(newLoadingMetadata);
 
-                loadThumbnails(videoFiles);
-                loadVideoMetadata(videoFiles);
+                loadThumbnails(aliasedVideos);
+                loadVideoMetadata(aliasedVideos);
             }
         } catch (error) {
             console.error("Error loading videos:", error);
@@ -544,6 +558,12 @@ export function VideoStoreProvider({
         );
     };
 
+    function setVideoGame(video: VideoFile, game: string) {
+        setVideos((prev) =>
+            prev.map((v) => (v.path === video.path ? { ...v, game } : v)),
+        );
+    }
+
     useEffect(() => {
         if (initialMountRef.current && directoryPath) {
             loadVideosFromDirectory(directoryPath);
@@ -609,6 +629,7 @@ export function VideoStoreProvider({
         setSelectedGames,
         setSelectedGroupIds,
         setIsCreateGroupDialogOpen,
+        setVideoGame,
 
         handleSelectDirectory,
         handleCreateGroup,

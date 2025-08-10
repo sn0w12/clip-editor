@@ -328,16 +328,23 @@ export function VideoStoreProvider({
 
             const cleanup = window.directoryWatcher.onNewVideoFound(
                 (videoFile) => {
+                    const aliasGameName = gameAliases[videoFile.game];
+                    const aliasedVideo = aliasGameName
+                        ? { ...videoFile, game: aliasGameName }
+                        : videoFile;
+
                     setVideos((prevVideos) => {
-                        if (prevVideos.some((v) => v.path === videoFile.path)) {
+                        if (
+                            prevVideos.some((v) => v.path === aliasedVideo.path)
+                        ) {
                             return prevVideos;
                         }
 
-                        return [...prevVideos, videoFile];
+                        return [...prevVideos, aliasedVideo];
                     });
 
-                    loadThumbnails([videoFile]);
-                    loadVideoMetadata([videoFile]);
+                    loadThumbnails([aliasedVideo]);
+                    loadVideoMetadata([aliasedVideo]);
                 },
             );
 

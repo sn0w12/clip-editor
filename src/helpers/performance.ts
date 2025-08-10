@@ -168,6 +168,28 @@ function getPerformanceLogsPath(): string {
     return path.join(app.getPath("userData"), "performance-logs");
 }
 
+/**
+ * Appends an error message to ERROR.txt in the userData directory
+ */
+function appendErrorLog(message: string) {
+    try {
+        const errorFilePath = path.join(app.getPath("userData"), "ERROR.txt");
+        const timestamp = new Date().toISOString();
+        const errorLog = `[${timestamp}] ${message}\n`;
+
+        if (!fs.existsSync(errorFilePath)) {
+            fs.writeFileSync(errorFilePath, errorLog, { encoding: "utf8" });
+            return;
+        }
+
+        fs.appendFileSync(errorFilePath, errorLog, {
+            encoding: "utf8",
+        });
+    } catch {
+        // If logging fails, just ignore to avoid recursive errors
+    }
+}
+
 async function writePerformanceLog(functionName: string, content: string) {
     try {
         const logsDir = getPerformanceLogsPath();
@@ -413,7 +435,22 @@ export function createPerformanceLogger(
                 console.log(logOutputLines.join("\n"));
             }
 
-            return resultToReturn; // Return the clean object, suitable for programmatic use
+            if (
+                typeof additionalInfo === "object" &&
+                additionalInfo !== null &&
+                "success" in additionalInfo &&
+                additionalInfo.success === false
+            ) {
+                const errorMsg =
+                    typeof additionalInfo.error === "string"
+                        ? additionalInfo.error
+                        : JSON.stringify(additionalInfo.error);
+                appendErrorLog(
+                    `[${this.functionName}] ${errorMsg || "Unknown error"}`,
+                );
+            }
+
+            return resultToReturn;
         },
     };
 

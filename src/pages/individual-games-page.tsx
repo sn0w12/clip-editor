@@ -129,7 +129,7 @@ export default function GameDetailPage() {
     return (
         <div className="flex flex-col">
             {/* Hero banner */}
-            <div className="relative h-[350px] w-full overflow-hidden">
+            <div className="relative h-[350px] w-full">
                 {heroImage ? (
                     <img
                         src={heroImage}
@@ -139,7 +139,7 @@ export default function GameDetailPage() {
                 ) : (
                     <div className="bg-muted h-full w-full" />
                 )}
-                <div className="from-background via-background/30 absolute inset-0 bg-gradient-to-t to-transparent" />
+                <div className="from-background via-background/30 pointer-events-none absolute inset-0 h-[352px] w-full bg-gradient-to-t to-transparent" />
 
                 <Button
                     variant="ghost"

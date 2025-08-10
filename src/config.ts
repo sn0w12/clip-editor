@@ -86,6 +86,11 @@ export const APP_SETTINGS = {
                 default: "C:\\Program Files (x86)\\Steam",
                 description: "Path to your Steam installation directory",
             },
+            seeSteamGames: {
+                label: "See Steam Games",
+                customRender: true,
+                description: "See all the steam games automatically detected.",
+            },
             positiveAccentColor: {
                 label: "Positive Accent Color",
                 type: "color",

@@ -7,6 +7,7 @@ export default defineConfig({
         rollupOptions: {
             external: [
                 "ffmpeg-static",
+                "ffprobe-static",
                 "update-electron-app",
                 "electron-squirrel-startup",
             ],

@@ -30,6 +30,8 @@ import {
     GitHubReleasesLink,
     GitHubRepoLink,
 } from "@/components/about/github-links";
+import { useSteam } from "@/contexts/steam-context";
+import { imgSrc } from "@/utils/games";
 
 interface HierarchicalGroup {
     settings: Record<string, Setting>;
@@ -38,6 +40,7 @@ interface HierarchicalGroup {
 
 export default function SettingsPage() {
     const { settings, setSettings } = useSettings();
+    const { games, gameImages } = useSteam();
     const { confirm } = useConfirm();
     const [stickyRef, isSticky] = useSticky();
     const settingsMaps = createAllSettingsMaps(settings, setSettings);
@@ -355,6 +358,45 @@ export default function SettingsPage() {
                     </div>
                 </div>
             </div>
+        ),
+        seeSteamGames: (
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button>See Steam Games</Button>
+                </PopoverTrigger>
+                <PopoverContent
+                    className="max-h-140 w-120 overflow-y-auto"
+                    data-scrollbar-custom
+                >
+                    <div className="grid grid-cols-2 gap-2">
+                        {Object.values(games).map((game, idx, arr) => {
+                            const imageObj = gameImages[game.appid];
+                            const iconPath = imageObj?.icon;
+                            const isLastRow = idx >= arr.length - 2;
+
+                            return (
+                                <div
+                                    key={game.appid}
+                                    className={`flex flex-row gap-1 border-b p-2 ${isLastRow ? "border-b-0" : ""}`}
+                                >
+                                    {iconPath ? (
+                                        <img
+                                            src={imgSrc(iconPath)}
+                                            alt={game.displayName}
+                                            className="h-8 w-auto rounded-md"
+                                        />
+                                    ) : (
+                                        <div className="bg-muted h-8 w-8 rounded-md" />
+                                    )}
+                                    <h5 className="font-medium">
+                                        {game.displayName}
+                                    </h5>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </PopoverContent>
+            </Popover>
         ),
     };
 
@@ -756,7 +798,6 @@ export default function SettingsPage() {
                                                                                     ]) => {
                                                                                         // For certain settings that should span the full width
                                                                                         const isFullWidth =
-                                                                                            setting.customRender ||
                                                                                             setting.type ===
                                                                                                 "textarea" ||
                                                                                             groupName.toLowerCase() ===

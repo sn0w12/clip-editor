@@ -101,6 +101,60 @@ const config: ForgeConfig = {
                 // Clean up temp directory
                 fs.rmSync(tempDir, { recursive: true, force: true });
             }
+
+            // Clean up ffprobe-static binaries for unused platforms/architectures
+            const ffprobeBinDir = path.join(
+                build_path,
+                "node_modules",
+                "ffprobe-static",
+                "bin",
+            );
+
+            const platformMap: Record<string, string> = {
+                win32: "win32",
+                linux: "linux",
+                darwin: "darwin",
+            };
+            const archMap: Record<string, string> = {
+                x64: "x64",
+                ia32: "ia32",
+                arm64: "arm64",
+            };
+
+            const currentPlatform = platformMap[process.platform];
+            const currentArch = archMap[process.arch];
+
+            // Determine the binary name
+            const binaryName =
+                currentPlatform === "win32" ? "ffprobe.exe" : "ffprobe";
+            const keep = [path.join(currentPlatform, currentArch, binaryName)];
+
+            if (fs.existsSync(ffprobeBinDir)) {
+                for (const platform of fs.readdirSync(ffprobeBinDir)) {
+                    const platformDir = path.join(ffprobeBinDir, platform);
+                    if (!fs.statSync(platformDir).isDirectory()) continue;
+                    for (const arch of fs.readdirSync(platformDir)) {
+                        const archDir = path.join(platformDir, arch);
+                        if (!fs.statSync(archDir).isDirectory()) continue;
+                        for (const file of fs.readdirSync(archDir)) {
+                            const relPath = path.join(platform, arch, file);
+                            if (!keep.includes(relPath)) {
+                                fs.rmSync(path.join(ffprobeBinDir, relPath), {
+                                    force: true,
+                                });
+                            }
+                        }
+                        // Remove empty arch dirs
+                        if (fs.readdirSync(archDir).length === 0) {
+                            fs.rmdirSync(archDir);
+                        }
+                    }
+                    // Remove empty platform dirs
+                    if (fs.readdirSync(platformDir).length === 0) {
+                        fs.rmdirSync(platformDir);
+                    }
+                }
+            }
         },
     },
     rebuildConfig: {},

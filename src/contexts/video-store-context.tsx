@@ -12,7 +12,6 @@ import { VideoMetadata } from "@/types/video-editor";
 import { APP_CONFIG } from "@/config";
 import { v4 as uuidv4 } from "uuid";
 import { videoMetadataIpc } from "@/helpers/ipc/video-metadata";
-import { useSteam } from "./steam-context";
 
 const SAVED_DIRECTORY_KEY = "saved-video-directory";
 const SAVED_GROUPS_KEY = "video-groups";
@@ -96,7 +95,6 @@ export function VideoStoreProvider({
     const [endDate, setEndDate] = useState<Date | undefined>(undefined);
     const [selectedGames, setSelectedGames] = useState<string[]>([]);
     const initialMountRef = useRef(true);
-    const { addCustomGame } = useSteam();
 
     const [groups, setGroups] = useState<VideoGroup[]>(() => {
         try {
@@ -287,19 +285,6 @@ export function VideoStoreProvider({
 
             // Only add games once, outside the loop
             if (videoFiles.length > 0) {
-                // Collect unique games from videos
-                const uniqueVideoGames = new Set<string>();
-                videoFiles.forEach((video) => {
-                    if (video.game && video.game !== "Unknown") {
-                        uniqueVideoGames.add(video.game);
-                    }
-                });
-
-                // Add games as a batch to avoid multiple calls
-                Array.from(uniqueVideoGames).forEach((gameName) => {
-                    addCustomGame(gameName);
-                });
-
                 const newLoadingThumbnails = new Set<string>();
                 const newLoadingMetadata = new Set<string>();
 
@@ -336,11 +321,6 @@ export function VideoStoreProvider({
 
                         return [...prevVideos, videoFile];
                     });
-
-                    // Only add a game if it's valid and we're actually adding a new video
-                    if (videoFile.game && videoFile.game !== "Unknown") {
-                        addCustomGame(videoFile.game);
-                    }
 
                     loadThumbnails([videoFile]);
                     loadVideoMetadata([videoFile]);

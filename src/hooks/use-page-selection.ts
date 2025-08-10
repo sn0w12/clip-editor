@@ -18,6 +18,7 @@ interface UsePageSelectionOptions<T> {
     getItemId?: (item: T, index: number) => string;
     onSelectionChange?: (selectedItems: T[]) => void;
     enableShortcuts?: boolean;
+    cacheDeps?: unknown[];
 }
 
 export function usePageSelection<T>({
@@ -26,6 +27,7 @@ export function usePageSelection<T>({
     getItemId = (item, index) => String(index),
     onSelectionChange,
     enableShortcuts = true,
+    cacheDeps = [],
 }: UsePageSelectionOptions<T>) {
     const {
         enableSelection,
@@ -63,7 +65,12 @@ export function usePageSelection<T>({
         boxesCacheRef.current = Array.from(gridItems).map((item) =>
             getElementBox(item, mainElementRef as React.RefObject<HTMLElement>),
         );
-    }, [mainElementRef, items.length, itemSelector]);
+    }, [mainElementRef, items.length, itemSelector, ...cacheDeps]);
+
+    useEffect(() => {
+        updateBoxesCache();
+    }, [mainElementRef, items.length, itemSelector, ...cacheDeps]);
+
     const debouncedUpdateBoxesCache = useRef(
         debounce(() => {
             updateBoxesCache();

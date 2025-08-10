@@ -12,6 +12,8 @@ import { shell } from "electron";
 import { APP_CONFIG } from "./config";
 import { updateElectronApp } from "update-electron-app";
 import dotenv from "dotenv";
+import { isImageFile, isVideoFile, nodeAssetSrc } from "./utils/assets";
+import { WorkerPool } from "./utils/worker-pool";
 
 dotenv.config();
 
@@ -170,167 +172,6 @@ async function installExtensions() {
     }
 }
 
-// Define helper functions for protocol handling
-function getMimeType(fileExt: string): string {
-    // Video formats
-    if (fileExt === ".mp4") return "video/mp4";
-    else if (fileExt === ".webm") return "video/webm";
-    else if (fileExt === ".mov") return "video/quicktime";
-    else if (fileExt === ".avi") return "video/x-msvideo";
-    else if (fileExt === ".mkv") return "video/x-matroska";
-    // Image formats
-    else if (fileExt === ".png") return "image/png";
-    else if (fileExt === ".jpg" || fileExt === ".jpeg") return "image/jpeg";
-    else if (fileExt === ".gif") return "image/gif";
-    else if (fileExt === ".webp") return "image/webp";
-    // Default
-    return "application/octet-stream";
-}
-
-function isVideoFile(fileExt: string): boolean {
-    return [".mp4", ".webm", ".mov", ".avi", ".mkv"].includes(fileExt);
-}
-
-function isImageFile(fileExt: string): boolean {
-    return [".png", ".jpg", ".jpeg", ".gif", ".webp"].includes(fileExt);
-}
-
-async function handleVideoRequest(
-    filePath: string,
-    request: Request,
-    stats: fs.Stats,
-): Promise<Response> {
-    const fileExt = path.extname(filePath).toLowerCase();
-    const contentType = getMimeType(fileExt);
-
-    try {
-        // Verify the file can be accessed
-        await fs.promises.access(filePath, fs.constants.R_OK);
-
-        // Handle range requests for video streaming
-        const rangeHeader = request.headers.get("Range");
-
-        if (rangeHeader) {
-            try {
-                // Parse the range header
-                const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
-
-                if (match) {
-                    const start = parseInt(match[1], 10);
-                    const end = match[2]
-                        ? parseInt(match[2], 10)
-                        : stats.size - 1;
-                    const chunkSize = end - start + 1;
-
-                    // Check if range is valid
-                    if (start >= stats.size || end >= stats.size) {
-                        console.error(
-                            `Invalid range request: start=${start}, end=${end}, size=${stats.size}`,
-                        );
-                        return new Response("Invalid range", {
-                            status: 416,
-                            headers: {
-                                "Content-Range": `bytes */${stats.size}`,
-                                "Accept-Ranges": "bytes",
-                                "Content-Type": "text/plain",
-                            },
-                        });
-                    }
-
-                    // Use file stream instead of synchronous operations
-                    const stream = fs.createReadStream(filePath, {
-                        start,
-                        end,
-                    });
-
-                    return new Response(stream as unknown as ReadableStream, {
-                        status: 206,
-                        headers: {
-                            "Content-Type": contentType,
-                            "Content-Length": String(chunkSize),
-                            "Content-Range": `bytes ${start}-${end}/${stats.size}`,
-                            "Accept-Ranges": "bytes",
-                            "Cache-Control": "no-cache",
-                        },
-                    });
-                }
-            } catch (error) {
-                console.error("Error processing video range request:", error);
-                // Continue to serve the whole file if range request fails
-            }
-        }
-
-        // Send initial part of the file
-        const initialChunkSize = Math.min(1024 * 1024, stats.size); // 1MB or file size
-        const stream = fs.createReadStream(filePath, {
-            start: 0,
-            end: initialChunkSize - 1,
-        });
-
-        return new Response(stream as unknown as ReadableStream, {
-            status: 206,
-            headers: {
-                "Content-Type": contentType,
-                "Accept-Ranges": "bytes",
-                "Content-Length": String(initialChunkSize),
-                "Content-Range": `bytes 0-${initialChunkSize - 1}/${stats.size}`,
-                "Cache-Control": "no-cache",
-            },
-        });
-    } catch (error) {
-        console.error(`Error accessing video stream: ${error}`);
-        throw error;
-    }
-}
-
-async function handleImageRequest(
-    filePath: string,
-    url: URL,
-    stats: fs.Stats,
-): Promise<Response> {
-    const fileExt = path.extname(filePath).toLowerCase();
-    const contentType = getMimeType(fileExt);
-    const fullImage = url.searchParams.get("full") === "true";
-
-    if (fullImage) {
-        // Return the full image
-        const stream = fs.createReadStream(filePath);
-        return new Response(stream as unknown as ReadableStream, {
-            headers: {
-                "Content-Type": contentType,
-                "Content-Length": String(stats.size),
-                "Cache-Control": "max-age=3600",
-            },
-        });
-    } else {
-        // Generate a thumbnail
-        let width = parseInt(url.searchParams.get("w") || "0", 10);
-        let height = parseInt(url.searchParams.get("h") || "0", 10);
-        const size = parseInt(url.searchParams.get("s") || "200", 10);
-
-        if (width === 0 && height === 0) {
-            width = size;
-            height = size;
-        } else if (width === 0) {
-            width = Math.round((height / size) * size);
-        } else if (height === 0) {
-            height = Math.round((width / size) * size);
-        }
-
-        const image = await nativeImage.createThumbnailFromPath(filePath, {
-            width,
-            height,
-        });
-
-        return new Response(image.toJPEG(70), {
-            headers: {
-                "Content-Type": "image/jpeg",
-                "Cache-Control": "max-age=3600",
-            },
-        });
-    }
-}
-
 app.commandLine.appendSwitch("enable-experimental-web-platform-features");
 app.whenReady().then(async () => {
     // Register IPC handler for loading completion
@@ -339,16 +180,18 @@ app.whenReady().then(async () => {
         tryShowMainWindow();
     });
 
-    // Handle the existing protocol (primarily for images)
+    const fileWorkerPath = path.join(
+        __dirname,
+        nodeAssetSrc("/assets/scripts/media-worker.mjs"),
+    );
+    const fileWorkerPool = new WorkerPool(fileWorkerPath);
     protocol.handle(imageProtocolName, async (request) => {
         try {
             const url = new URL(request.url);
-            const encodedPath = url.pathname.substring(1); // Remove leading slash
-            const filePath = decodeURIComponent(encodedPath); // Decode URL-encoded characters
+            const encodedPath = url.pathname.substring(1);
+            const filePath = decodeURIComponent(encodedPath);
 
-            // Verify file exists before reading
             if (!fs.existsSync(filePath)) {
-                console.error(`File not found: ${filePath}`);
                 return new Response("File not found", {
                     status: 404,
                     headers: { "content-type": "text/plain" },
@@ -358,36 +201,48 @@ app.whenReady().then(async () => {
             const stats = fs.statSync(filePath);
             const fileExt = path.extname(filePath).toLowerCase();
 
-            // Special handling to ensure the file is actually accessible
             try {
-                // Test file access before attempting to serve it
                 await fs.promises.access(filePath, fs.constants.R_OK);
-            } catch (accessError) {
-                console.error(`File access error: ${accessError}`);
+            } catch {
                 return new Response("File access denied", {
                     status: 403,
                     headers: { "content-type": "text/plain" },
                 });
             }
 
-            if (isVideoFile(fileExt)) {
-                return await handleVideoRequest(filePath, request, stats);
-            } else if (isImageFile(fileExt)) {
-                return await handleImageRequest(filePath, url, stats);
-            } else {
+            let type: "image" | "video" | "unsupported" = "unsupported";
+            if (isVideoFile(fileExt)) type = "video";
+            else if (isImageFile(fileExt)) type = "image";
+
+            if (type === "unsupported") {
                 return new Response("Unsupported file type", {
                     status: 400,
                     headers: { "content-type": "text/plain" },
                 });
             }
-        } catch (error) {
-            const errorPath =
-                error && typeof error === "object" && "path" in error
-                    ? error.path
-                    : "unknown path";
-            console.error("Failed to process file:", error, {
-                path: errorPath,
+
+            const result = (await fileWorkerPool.executeTask(type, {
+                filePath,
+                requestUrl: request.url,
+                requestHeaders: (() => {
+                    const headersObj: Record<string, string> = {};
+                    request.headers.forEach((value, key) => {
+                        headersObj[key] = value;
+                    });
+                    return headersObj;
+                })(),
+                stats,
+            })) as {
+                status: number;
+                headers: Record<string, string>;
+                body: Buffer;
+            };
+
+            return new Response(new Uint8Array(result.body), {
+                status: result.status,
+                headers: result.headers,
             });
+        } catch {
             return new Response("File processing failed", {
                 status: 500,
                 headers: { "content-type": "text/plain" },
@@ -395,31 +250,77 @@ app.whenReady().then(async () => {
         }
     });
 
-    // Register a dedicated video protocol handler optimized for video streaming
+    // NOTE: for videos to play, they must have crossOrigin="anonymous"
     protocol.handle(videoProtocolName, async (request) => {
         try {
             const url = new URL(request.url);
             const encodedPath = url.pathname.substring(1);
             const filePath = decodeURIComponent(encodedPath);
 
-            // Use async stat and access
-            try {
-                await fs.promises.access(filePath, fs.constants.R_OK);
-            } catch {
-                return new Response("Video file not found", { status: 404 });
+            if (!fs.existsSync(filePath)) {
+                return new Response("Video file not found", {
+                    status: 404,
+                    headers: { "content-type": "text/plain" },
+                });
             }
 
-            const stats = await fs.promises.stat(filePath);
+            const stats = fs.statSync(filePath);
             const fileExt = path.extname(filePath).toLowerCase();
 
             if (!isVideoFile(fileExt)) {
-                return new Response("Not a video file", { status: 400 });
+                return new Response("Not a video file", {
+                    status: 400,
+                    headers: { "content-type": "text/plain" },
+                });
             }
 
-            // Use a smaller initial chunk for preview
-            return await handleVideoRequest(filePath, request, stats);
+            const result = (await fileWorkerPool.executeTask("video", {
+                filePath,
+                requestUrl: request.url,
+                requestHeaders: (() => {
+                    const headersObj: Record<string, string> = {};
+                    request.headers.forEach((value, key) => {
+                        headersObj[key] = value;
+                    });
+                    return headersObj;
+                })(),
+                stats,
+            })) as
+                | {
+                      status: number;
+                      headers: Record<string, string>;
+                      range: { start: number; end: number } | null;
+                  }
+                | {
+                      status: number;
+                      headers: Record<string, string>;
+                      body: Buffer | null;
+                  };
+
+            if ("range" in result && result.range) {
+                const { start, end } = result.range;
+                const stream = fs.createReadStream(filePath, { start, end });
+
+                return new Response(stream as unknown as ReadableStream, {
+                    status: result.status,
+                    headers: result.headers,
+                });
+            } else if ("body" in result && result.body) {
+                return new Response(new Uint8Array(result.body), {
+                    status: result.status,
+                    headers: result.headers,
+                });
+            } else {
+                return new Response("Invalid video processing result", {
+                    status: 500,
+                    headers: { "content-type": "text/plain" },
+                });
+            }
         } catch {
-            return new Response("Video processing failed", { status: 500 });
+            return new Response("Video processing failed", {
+                status: 500,
+                headers: { "content-type": "text/plain" },
+            });
         }
     });
 

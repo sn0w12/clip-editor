@@ -28,6 +28,11 @@ export const APP_CONFIG = {
 };
 
 /**
+ * Determines if the application is running in development mode.
+ */
+export const inDevelopment = process.env.NODE_ENV === "development";
+
+/**
  * Application settings configuration with categorized groups
  */
 export const APP_SETTINGS = {

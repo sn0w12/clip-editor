@@ -2,6 +2,7 @@ import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import path from "path";
 import crypto from "crypto";
 import fs from "fs";
+import si from "systeminformation";
 import * as fsP from "fs/promises";
 import ffmpeg from "@/helpers/ffmpeg";
 import { promisify } from "util";
@@ -12,6 +13,29 @@ import {
     screenshot,
     THUMBNAIL_DIR,
 } from "./videos-listeners";
+
+let detectedGpuVendor: "nvidia" | "amd" | "intel" | "unknown" = "unknown";
+
+/**
+ * Detects the primary GPU vendor and caches the result.
+ */
+async function detectGpuVendor(): Promise<
+    "nvidia" | "amd" | "intel" | "unknown"
+> {
+    if (detectedGpuVendor !== "unknown") return detectedGpuVendor;
+    try {
+        const graphics = await si.graphics();
+        const vendor = (graphics.controllers[0]?.vendor || "").toLowerCase();
+        if (vendor.includes("nvidia")) detectedGpuVendor = "nvidia";
+        else if (vendor.includes("amd") || vendor.includes("advanced micro"))
+            detectedGpuVendor = "amd";
+        else if (vendor.includes("intel")) detectedGpuVendor = "intel";
+        else detectedGpuVendor = "unknown";
+    } catch {
+        detectedGpuVendor = "unknown";
+    }
+    return detectedGpuVendor;
+}
 
 /**
  * Safely calculates FPS from a frame rate string (typically in the format "numerator/denominator")
@@ -34,6 +58,131 @@ function calculateFps(frameRateStr: string): number {
     } catch {
         return 0;
     }
+}
+
+/**
+ * Get the best available hardware acceleration and codec options for the detected GPU.
+ */
+async function getHardwareAcceleration(outputFormat: string) {
+    const vendor = await detectGpuVendor();
+    const hwAccelOptions = {
+        nvidia: {
+            hwaccel: "cuda",
+            encoder:
+                outputFormat === "mp4"
+                    ? "h264_nvenc"
+                    : outputFormat === "webm"
+                      ? "av1_nvenc"
+                      : "h264_nvenc",
+            fallbackEncoder:
+                outputFormat === "mp4"
+                    ? "libx264"
+                    : outputFormat === "webm"
+                      ? "libvpx-vp9"
+                      : "libx264",
+        },
+        amd: {
+            hwaccel: "d3d11va",
+            encoder:
+                outputFormat === "mp4"
+                    ? "h264_amf"
+                    : outputFormat === "webm"
+                      ? "av1_amf"
+                      : "h264_amf",
+            fallbackEncoder:
+                outputFormat === "mp4"
+                    ? "libx264"
+                    : outputFormat === "webm"
+                      ? "libvpx-vp9"
+                      : "libx264",
+        },
+        intel: {
+            hwaccel: "qsv",
+            encoder:
+                outputFormat === "mp4"
+                    ? "h264_qsv"
+                    : outputFormat === "webm"
+                      ? "av1_qsv"
+                      : "h264_qsv",
+            fallbackEncoder:
+                outputFormat === "mp4"
+                    ? "libx264"
+                    : outputFormat === "webm"
+                      ? "libvpx-vp9"
+                      : "libx264",
+        },
+        unknown: {
+            hwaccel: "auto",
+            encoder:
+                outputFormat === "mp4"
+                    ? "libx264"
+                    : outputFormat === "webm"
+                      ? "libvpx-vp9"
+                      : "libx264",
+            fallbackEncoder:
+                outputFormat === "mp4"
+                    ? "libx264"
+                    : outputFormat === "webm"
+                      ? "libvpx-vp9"
+                      : "libx264",
+        },
+    };
+    return hwAccelOptions[vendor];
+}
+
+/**
+ * Apply hardware-accelerated encoding options to FFmpeg command
+ */
+async function applyHardwareEncoding(
+    command: ffmpeg.FfmpegCommand,
+    outputFormat: string,
+    useHighQuality = false,
+) {
+    const hwOptions = await getHardwareAcceleration(outputFormat);
+
+    command = command.inputOptions(["-hwaccel", hwOptions.hwaccel]);
+
+    if (outputFormat === "mp4") {
+        command = command.outputOptions([
+            "-c:v",
+            hwOptions.encoder,
+            "-preset",
+            useHighQuality ? "slow" : "medium",
+            "-profile:v",
+            "main",
+        ]);
+    } else if (outputFormat === "webm") {
+        if (
+            hwOptions.encoder.includes("amf") ||
+            hwOptions.encoder.includes("nvenc") ||
+            hwOptions.encoder.includes("qsv")
+        ) {
+            command = command.outputOptions([
+                "-c:v",
+                hwOptions.encoder,
+                "-preset",
+                useHighQuality ? "slow" : "medium",
+            ]);
+        } else {
+            command = command.outputOptions([
+                "-c:v",
+                "libvpx-vp9",
+                "-deadline",
+                useHighQuality ? "best" : "good",
+                "-cpu-used",
+                useHighQuality ? "0" : "1",
+            ]);
+        }
+    } else {
+        command = command.outputOptions([
+            "-c:v",
+            hwOptions.encoder,
+            "-preset",
+            useHighQuality ? "slow" : "medium",
+        ]);
+    }
+
+    return command;
 }
 
 /**
@@ -291,133 +440,143 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
                     // Convert promise-based
                     const exportClip = () => {
                         return new Promise((resolve, reject) => {
-                            let command = ffmpeg(videoPath)
-                                .inputOptions(["-hwaccel", "auto"])
-                                .setStartTime(options.startTime)
-                                .setDuration(
-                                    options.endTime - options.startTime,
-                                )
-                                .videoBitrate(videoBitrate)
-                                .format(options.outputFormat);
+                            (async () => {
+                                let command = ffmpeg(videoPath)
+                                    .setStartTime(options.startTime)
+                                    .setDuration(
+                                        options.endTime - options.startTime,
+                                    )
+                                    .videoBitrate(videoBitrate)
+                                    .format(options.outputFormat);
 
-                            if (options.outputFormat === "mp4") {
-                                command = command.outputOptions([
-                                    "-c:v",
-                                    "h264_nvenc",
-                                ]);
-                            } else if (options.outputFormat === "webm") {
-                                command = command.outputOptions([
-                                    "-c:v",
-                                    "vp9_nvenc",
-                                ]);
-                            }
-
-                            // Apply optional settings if provided
-                            if (options.width && options.height) {
-                                command = command.size(
-                                    `${options.width}x${options.height}`,
+                                // Apply hardware acceleration and encoding
+                                command = await applyHardwareEncoding(
+                                    command,
+                                    options.outputFormat,
                                 );
-                            }
 
-                            if (options.fps) {
-                                command = command.fps(options.fps);
-                            }
+                                // Apply optional settings if provided
+                                if (options.width && options.height) {
+                                    command = command.size(
+                                        `${options.width}x${options.height}`,
+                                    );
+                                }
 
-                            // Handle audio options
-                            const hasAudio =
-                                options.audioTracks &&
-                                options.audioTracks.length > 0;
+                                if (options.fps) {
+                                    command = command.fps(options.fps);
+                                }
 
-                            if (!hasAudio) {
-                                command = command.noAudio();
-                            } else {
-                                // Set audio bitrate
-                                command = command.audioBitrate(audioBitrate);
-
-                                // Handle audio track selection
-                                // First, map the video stream
-                                command = command.outputOptions([`-map 0:v:0`]);
-
-                                // Create a consolidated audio filter chain for the selected tracks
-                                if (
+                                // Handle audio options
+                                const hasAudio =
                                     options.audioTracks &&
-                                    options.audioTracks.length === 1
-                                ) {
-                                    // If only one track, map it directly
+                                    options.audioTracks.length > 0;
+
+                                if (!hasAudio) {
+                                    command = command.noAudio();
+                                } else {
+                                    // Set audio bitrate and codec
+                                    command =
+                                        command.audioBitrate(audioBitrate);
+
+                                    // Use AAC for MP4, Opus for WebM
+                                    if (options.outputFormat === "webm") {
+                                        command = command.audioCodec("libopus");
+                                    } else {
+                                        command = command.audioCodec("aac");
+                                    }
+
+                                    // Handle audio track selection
+                                    // First, map the video stream
                                     command = command.outputOptions([
-                                        `-map 0:a:${options.audioTracks[0]}`,
+                                        `-map 0:v:0`,
                                     ]);
-                                } else if (options.audioTracks) {
-                                    const inputs = options.audioTracks
-                                        .map((track) => `[0:a:${track}]`)
-                                        .join("");
 
-                                    // Define the amerge filter with the correct number of inputs
-                                    const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
+                                    // Create a consolidated audio filter chain for the selected tracks
+                                    if (
+                                        options.audioTracks &&
+                                        options.audioTracks.length === 1
+                                    ) {
+                                        // If only one track, map it directly
+                                        command = command.outputOptions([
+                                            `-map 0:a:${options.audioTracks[0]}`,
+                                        ]);
+                                    } else if (options.audioTracks) {
+                                        const inputs = options.audioTracks
+                                            .map((track) => `[0:a:${track}]`)
+                                            .join("");
 
-                                    // Apply the filter complex and map the output
-                                    command = command
-                                        .complexFilter(filterComplex)
-                                        .outputOptions(["-map [aout]"]);
-                                }
-                            }
+                                        // Define the amerge filter with the correct number of inputs
+                                        const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
 
-                            command.on("progress", (progress) => {
-                                const timemarkToSeconds = (
-                                    timemark: string,
-                                ): number => {
-                                    const parts = timemark.split(":");
-                                    if (parts.length !== 3) return 0;
-
-                                    const hours = parseInt(parts[0], 10);
-                                    const minutes = parseInt(parts[1], 10);
-                                    const seconds = parseFloat(parts[2]);
-
-                                    return (
-                                        hours * 3600 + minutes * 60 + seconds
-                                    );
-                                };
-
-                                const currentTime = timemarkToSeconds(
-                                    progress.timemark,
-                                );
-
-                                // Calculate overall progress as a value between 0 and 1
-                                const progressValue = Math.min(
-                                    currentTime /
-                                        (options.endTime - options.startTime),
-                                    1,
-                                );
-
-                                if (mainWindow) {
-                                    mainWindow.setProgressBar(progressValue);
-                                    mainWindow.webContents.send(
-                                        "export-progress",
-                                        {
-                                            progress: progressValue,
-                                            currentTime,
-                                            totalDuration:
-                                                options.endTime -
-                                                options.startTime,
-                                        },
-                                    );
-                                }
-                            });
-
-                            command
-                                .on("end", () => {
-                                    if (mainWindow) {
-                                        mainWindow.setProgressBar(-1); // -1 removes the progress bar
+                                        // Apply the filter complex and map the output
+                                        command = command
+                                            .complexFilter(filterComplex)
+                                            .outputOptions(["-map [aout]"]);
                                     }
-                                    resolve({ success: true, outputPath });
-                                })
-                                .on("error", (err) => {
+                                }
+
+                                command.on("progress", (progress) => {
+                                    const timemarkToSeconds = (
+                                        timemark: string,
+                                    ): number => {
+                                        const parts = timemark.split(":");
+                                        if (parts.length !== 3) return 0;
+
+                                        const hours = parseInt(parts[0], 10);
+                                        const minutes = parseInt(parts[1], 10);
+                                        const seconds = parseFloat(parts[2]);
+
+                                        return (
+                                            hours * 3600 +
+                                            minutes * 60 +
+                                            seconds
+                                        );
+                                    };
+
+                                    const currentTime = timemarkToSeconds(
+                                        progress.timemark,
+                                    );
+
+                                    // Calculate overall progress as a value between 0 and 1
+                                    const progressValue = Math.min(
+                                        currentTime /
+                                            (options.endTime -
+                                                options.startTime),
+                                        1,
+                                    );
+
                                     if (mainWindow) {
-                                        mainWindow.setProgressBar(-1);
+                                        mainWindow.setProgressBar(
+                                            progressValue,
+                                        );
+                                        mainWindow.webContents.send(
+                                            "export-progress",
+                                            {
+                                                progress: progressValue,
+                                                currentTime,
+                                                totalDuration:
+                                                    options.endTime -
+                                                    options.startTime,
+                                            },
+                                        );
                                     }
-                                    reject(err);
-                                })
-                                .save(outputPath);
+                                });
+
+                                command
+                                    .on("end", () => {
+                                        if (mainWindow) {
+                                            mainWindow.setProgressBar(-1); // -1 removes the progress bar
+                                        }
+                                        resolve({ success: true, outputPath });
+                                    })
+                                    .on("error", (err) => {
+                                        if (mainWindow) {
+                                            mainWindow.setProgressBar(-1);
+                                        }
+                                        reject(err);
+                                    })
+                                    .save(outputPath);
+                            })().catch(reject);
                         });
                     };
 
@@ -448,63 +607,64 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
                             const seg = keepSegments[i];
                             const segPath = path.join(tempDir, `seg${i}.ts`);
                             await new Promise((resolve, reject) => {
-                                let cmd = ffmpeg(videoPath)
-                                    .inputOptions(["-hwaccel", "auto"])
-                                    .setStartTime(seg.start)
-                                    .setDuration(seg.end - seg.start)
-                                    .format("mpegts");
+                                (async () => {
+                                    let cmd = ffmpeg(videoPath)
+                                        .setStartTime(seg.start)
+                                        .setDuration(seg.end - seg.start)
+                                        .format("mpegts");
 
-                                // Use high quality settings for intermediate segments
-                                // Use h264 for compatibility regardless of final format
-                                cmd = cmd.outputOptions([
-                                    "-c:v",
-                                    "libx264",
-                                    "-crf",
-                                    "10",
-                                    "-preset",
-                                    "medium",
-                                ]);
-
-                                // Apply resolution and fps changes at segment level to avoid double processing
-                                if (options.width && options.height) {
-                                    cmd = cmd.size(
-                                        `${options.width}x${options.height}`,
+                                    // Apply hardware acceleration for intermediate segments
+                                    cmd = await applyHardwareEncoding(
+                                        cmd,
+                                        "mpegts",
+                                        true,
                                     );
-                                }
-                                if (options.fps) {
-                                    cmd = cmd.fps(options.fps);
-                                }
 
-                                const hasAudio =
-                                    options.audioTracks &&
-                                    options.audioTracks.length > 0;
-                                if (!hasAudio) {
-                                    cmd = cmd.noAudio();
-                                } else {
-                                    // Use high quality audio for intermediate segments
-                                    cmd = cmd.audioBitrate("320k");
-                                    cmd = cmd.outputOptions([`-map 0:v:0`]);
-                                    if (
-                                        options.audioTracks &&
-                                        options.audioTracks.length === 1
-                                    ) {
-                                        cmd = cmd.outputOptions([
-                                            `-map 0:a:${options.audioTracks[0]}`,
-                                        ]);
-                                    } else if (options.audioTracks) {
-                                        const inputs = options.audioTracks
-                                            .map((track) => `[0:a:${track}]`)
-                                            .join("");
-                                        const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
-                                        cmd = cmd
-                                            .complexFilter(filterComplex)
-                                            .outputOptions(["-map [aout]"]);
+                                    // Apply resolution and fps changes at segment level to avoid double processing
+                                    if (options.width && options.height) {
+                                        cmd = cmd.size(
+                                            `${options.width}x${options.height}`,
+                                        );
                                     }
-                                }
+                                    if (options.fps) {
+                                        cmd = cmd.fps(options.fps);
+                                    }
 
-                                cmd.on("end", resolve)
-                                    .on("error", reject)
-                                    .save(segPath);
+                                    const hasAudio =
+                                        options.audioTracks &&
+                                        options.audioTracks.length > 0;
+                                    if (!hasAudio) {
+                                        cmd = cmd.noAudio();
+                                    } else {
+                                        // Use high quality audio for intermediate segments
+                                        cmd = cmd
+                                            .audioBitrate("320k")
+                                            .audioCodec("aac");
+                                        cmd = cmd.outputOptions([`-map 0:v:0`]);
+                                        if (
+                                            options.audioTracks &&
+                                            options.audioTracks.length === 1
+                                        ) {
+                                            cmd = cmd.outputOptions([
+                                                `-map 0:a:${options.audioTracks[0]}`,
+                                            ]);
+                                        } else if (options.audioTracks) {
+                                            const inputs = options.audioTracks
+                                                .map(
+                                                    (track) => `[0:a:${track}]`,
+                                                )
+                                                .join("");
+                                            const filterComplex = `${inputs}amerge=inputs=${options.audioTracks.length}[aout]`;
+                                            cmd = cmd
+                                                .complexFilter(filterComplex)
+                                                .outputOptions(["-map [aout]"]);
+                                        }
+                                    }
+
+                                    cmd.on("end", resolve)
+                                        .on("error", reject)
+                                        .save(segPath);
+                                })().catch(reject);
                             });
                             segmentFiles.push(segPath);
                         }
@@ -522,51 +682,47 @@ export function addVideoEditorEventListeners(mainWindow: BrowserWindow) {
 
                         // Concat segments and apply final quality settings
                         await new Promise((resolve, reject) => {
-                            let concatCmd = ffmpeg()
-                                .input(concatListPath)
-                                .inputOptions(["-f", "concat", "-safe", "0"])
-                                .format(options.outputFormat)
-                                .videoBitrate(videoBitrate);
+                            (async () => {
+                                let concatCmd = ffmpeg()
+                                    .input(concatListPath)
+                                    .inputOptions([
+                                        "-f",
+                                        "concat",
+                                        "-safe",
+                                        "0",
+                                    ])
+                                    .format(options.outputFormat)
+                                    .videoBitrate(videoBitrate);
 
-                            // Apply final codec settings for the output format
-                            if (options.outputFormat === "mp4") {
-                                concatCmd = concatCmd.outputOptions([
-                                    "-c:v",
-                                    "h264_nvenc",
-                                    "-c:a",
-                                    "aac",
-                                ]);
-                            } else if (options.outputFormat === "webm") {
-                                concatCmd = concatCmd.outputOptions([
-                                    "-c:v",
-                                    "vp9_nvenc",
-                                    "-c:a",
-                                    "libopus",
-                                ]);
-                            } else {
-                                // For other formats, use software encoding
-                                concatCmd = concatCmd.outputOptions([
-                                    "-c:v",
-                                    "libx264",
-                                    "-c:a",
-                                    "aac",
-                                ]);
-                            }
+                                // Apply hardware acceleration for final concat
+                                concatCmd = await applyHardwareEncoding(
+                                    concatCmd,
+                                    options.outputFormat,
+                                );
 
-                            // Apply final audio bitrate if audio is present
-                            const hasAudio =
-                                options.audioTracks &&
-                                options.audioTracks.length > 0;
-                            if (hasAudio) {
-                                concatCmd =
-                                    concatCmd.audioBitrate(audioBitrate);
-                            }
+                                // Apply final audio bitrate if audio is present
+                                const hasAudio =
+                                    options.audioTracks &&
+                                    options.audioTracks.length > 0;
+                                if (hasAudio) {
+                                    concatCmd =
+                                        concatCmd.audioBitrate(audioBitrate);
 
-                            concatCmd
-                                .output(outputPath)
-                                .on("end", resolve)
-                                .on("error", reject)
-                                .run();
+                                    // Use appropriate audio codec for format
+                                    if (options.outputFormat === "webm") {
+                                        concatCmd =
+                                            concatCmd.audioCodec("libopus");
+                                    } else {
+                                        concatCmd = concatCmd.audioCodec("aac");
+                                    }
+                                }
+
+                                concatCmd
+                                    .output(outputPath)
+                                    .on("end", resolve)
+                                    .on("error", reject)
+                                    .run();
+                            })().catch(reject);
                         });
 
                         // Clean up temp files

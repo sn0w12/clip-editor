@@ -10,6 +10,7 @@ export default defineConfig({
                 "ffprobe-static",
                 "update-electron-app",
                 "electron-squirrel-startup",
+                "sharp",
             ],
         },
         chunkSizeWarningLimit: 1600,

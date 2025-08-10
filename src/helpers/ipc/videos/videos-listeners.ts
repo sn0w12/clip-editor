@@ -7,24 +7,39 @@ import { promisify } from "util";
 import crypto from "crypto";
 import { getWaveformCacheFiles } from "./audio-waveform";
 import { createPerformanceLogger } from "@/helpers/performance";
+import { ffprobe } from "fluent-ffmpeg";
 
 export const THUMBNAIL_DIR = path.join(app.getPath("userData"), "thumbnails");
 export const screenshot = promisify(
-    (
+    async (
         input: string,
         output: string,
         callback: (error: Error | null) => void,
     ) => {
-        ffmpeg(input)
-            .screenshots({
-                count: 1,
-                folder: path.dirname(output),
-                filename: path.basename(output),
-                timemarks: ["00:00:02"], // Take screenshot at 2 seconds
-                size: "720x?",
-            })
-            .on("end", () => callback(null))
-            .on("error", (err) => callback(err));
+        try {
+            ffprobe(input, (err, metadata) => {
+                if (err) return callback(err);
+
+                const duration = metadata.format?.duration ?? 2;
+                const screenshotTime = Math.max(0, Math.min(2, duration - 0.1));
+                const timemark = new Date(screenshotTime * 1000)
+                    .toISOString()
+                    .substr(11, 8);
+
+                ffmpeg(input)
+                    .screenshots({
+                        count: 1,
+                        folder: path.dirname(output),
+                        filename: path.basename(output),
+                        timemarks: [timemark],
+                        size: "720x?",
+                    })
+                    .on("end", () => callback(null))
+                    .on("error", (err) => callback(err));
+            });
+        } catch (error) {
+            callback(error as Error);
+        }
     },
 );
 

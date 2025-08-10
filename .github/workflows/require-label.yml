@@ -1,0 +1,17 @@
+name: Require Label
+
+on:
+    pull_request:
+        types: [opened, labeled, unlabeled, synchronize]
+
+jobs:
+    require-label:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: mheap/github-action-required-labels@v5
+              with:
+                  mode: minimum
+                  count: 1
+                  labels: |
+                      .*
+                  use_regex: true

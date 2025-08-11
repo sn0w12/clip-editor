@@ -192,7 +192,7 @@ function ClipHeaderLocal() {
                                 <TooltipTrigger asChild>
                                     <button
                                         className={cn(
-                                            "h-auto flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
+                                            "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
                                             index ===
                                                 surroundingVideos.currentIndex
                                                 ? "border-accent-positive opacity-100"

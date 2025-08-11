@@ -208,7 +208,7 @@ function ClipHeaderLocal() {
                                         }
                                     >
                                         <img
-                                            src={thumbnails[video.path]}
+                                            src={`${thumbnails[video.path]}?height=64`}
                                             alt={video.name}
                                             className="h-full w-full object-cover"
                                             onError={() => {

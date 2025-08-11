@@ -385,7 +385,7 @@ export function VideoStoreProvider({
                         const thumbnailPath =
                             await window.videos.getVideoThumbnail(video.path);
                         if (thumbnailPath) {
-                            const customProtocolPath = `${APP_CONFIG.protocolName}:///${thumbnailPath}?full=true`;
+                            const customProtocolPath = `${APP_CONFIG.protocolName}:///${thumbnailPath}`;
                             newThumbnails[video.path] = customProtocolPath;
 
                             setThumbnails((current) => ({

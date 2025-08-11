@@ -172,7 +172,7 @@ function VideoGridBase({
                                 {viewMode === "grid" ? (
                                     <VideoCard
                                         video={video}
-                                        thumbnailUrl={thumbnails[video.path]}
+                                        thumbnailUrl={`${thumbnails[video.path]}?full=true`}
                                         isSelected={selectedVideos.includes(
                                             video.path,
                                         )}

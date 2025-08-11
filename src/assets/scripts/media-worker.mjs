@@ -2,7 +2,28 @@ import { parentPort } from "worker_threads";
 import path from "path";
 import fs from "fs";
 import { Buffer } from "buffer";
-import sharp from "sharp";
+
+const processRef =
+    typeof globalThis.process !== "undefined" ? globalThis.process : undefined;
+
+let sharp;
+try {
+    sharp = (await import("sharp")).default;
+} catch {
+    try {
+        const sharpMain = path.join(
+            processRef.resourcesPath,
+            "app.asar.unpacked",
+            "node_modules",
+            "sharp",
+            "lib",
+            "index.js",
+        );
+        sharp = (await import(`file://${sharpMain}`)).default;
+    } catch (e2) {
+        console.error("Error loading sharp from unpacked path:", e2);
+    }
+}
 
 function getMimeType(fileExt) {
     if (fileExt === ".mp4") return "video/mp4";

@@ -1,5 +1,6 @@
 import { Worker } from "worker_threads";
 import os from "os";
+import path from "path";
 
 export class WorkerPool {
     private workers: Worker[] = [];
@@ -21,7 +22,17 @@ export class WorkerPool {
 
     private initializeWorkers() {
         for (let i = 0; i < this.maxWorkers; i++) {
-            const worker = new Worker(this.workerPath);
+            const worker = new Worker(this.workerPath, {
+                env: {
+                    ...process.env,
+                    NODE_PATH: path.join(
+                        process.resourcesPath,
+                        "app.asar.unpacked",
+                        "node_modules",
+                    ),
+                },
+                execArgv: ["--experimental-vm-modules"],
+            });
 
             worker.on("message", (message) => {
                 const { type, id, success, data, error } = message;

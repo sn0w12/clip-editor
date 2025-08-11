@@ -1,7 +1,7 @@
 {
     "name": "clip-editor",
     "productName": "Clip Editor",
-    "version": "0.2.5",
+    "version": "0.2.6",
     "description": "A simple and powerful video editor for everyone.",
     "main": ".vite/build/main.js",
     "private": true,
@@ -10,6 +10,7 @@
         "package": "electron-forge package",
         "make": "electron-forge make",
         "publish": "electron-forge publish",
+        "postinstall": "electron-rebuild -f -w sharp",
         "lint": "eslint .",
         "format": "prettier --check .",
         "format:write": "prettier --write ."
@@ -42,6 +43,7 @@
         "compression": "^1.8.1",
         "electron": "36.2.1",
         "electron-devtools-installer": "^4.0.0",
+        "electron-rebuild": "^3.2.9",
         "eslint": "^9.32.0",
         "eslint-config-prettier": "^10.1.8",
         "eslint-plugin-prettier": "^5.5.3",

@@ -21,6 +21,14 @@ try {
         );
         sharp = (await import(`file://${sharpMain}`)).default;
     } catch (e2) {
+        fs.writeFileSync(
+            path.join(
+                processRef.resourcesPath,
+                "app.asar.unpacked",
+                "sharp-error.log",
+            ),
+            `Error loading sharp from unpacked path: ${e2}`,
+        );
         console.error("Error loading sharp from unpacked path:", e2);
     }
 }

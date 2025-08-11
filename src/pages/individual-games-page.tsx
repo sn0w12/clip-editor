@@ -188,7 +188,7 @@ export default function GameDetailPage() {
                         <VideoCard
                             key={video.path}
                             video={video}
-                            thumbnailUrl={thumbnails[video.path]}
+                            thumbnailUrl={`${thumbnails[video.path]}?full=true`}
                             isSelected={false}
                             videoGroupMap={videoGroupMap}
                             groups={groups}

@@ -172,7 +172,7 @@ export function ExportButton({
     return (
         <div className="flex w-full">
             <Button
-                className="flex-1 justify-center rounded-r-none text-center"
+                className="h-11 flex-1 justify-center rounded-r-none text-center"
                 onClick={handleDirectExport}
                 disabled={isExporting}
                 size="lg"

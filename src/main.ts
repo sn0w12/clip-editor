@@ -93,7 +93,7 @@ function createMainWindow() {
         show: false,
         backgroundColor: "#0a0a0a",
         webPreferences: {
-            devTools: true,
+            devTools: inDevelopment,
             contextIsolation: true,
             nodeIntegration: true,
             nodeIntegrationInSubFrames: false,

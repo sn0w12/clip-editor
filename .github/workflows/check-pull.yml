@@ -20,6 +20,10 @@ jobs:
               with:
                   node-version: "22"
 
+            - name: Install libvips for sharp (Linux only)
+              if: runner.os == 'Linux'
+              run: sudo apt-get update && sudo apt-get install -y libvips-dev
+
             - name: Install dependencies
               run: npm install
 

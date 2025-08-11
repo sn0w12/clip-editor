@@ -14,10 +14,10 @@ import * as path from "path";
 const config: ForgeConfig = {
     packagerConfig: {
         asar: {
-            unpack: "**/{ffprobe-static,ffmpeg-static,sharp,detect-libc,color,semver,color-string,color-name,simple-swizzle,is-arrayish,color-convert}/**",
+            unpack: "**/{ffprobe-static,ffmpeg-static,sharp,detect-libc,color,semver,color-string,color-name,simple-swizzle,is-arrayish,color-convert,node-addon-api}/**",
         },
         ignore: [
-            /node_modules\/(?!(ms|github-url-to-object|is-url|debug|ffmpeg-static|ffprobe-static|update-electron-app|electron-squirrel-startup|sharp|detect-libc|color|semver|color-string|color-name|simple-swizzle|is-arrayish|color-convert)\/)/,
+            /node_modules\/(?!(ms|github-url-to-object|is-url|debug|ffmpeg-static|ffprobe-static|update-electron-app|electron-squirrel-startup|sharp|detect-libc|color|semver|color-string|color-name|simple-swizzle|is-arrayish|color-convert|node-addon-api)\/)/,
         ],
         icon: "./src/assets/icons/icon",
         extraResource: ["splash.html", "src/assets"],
@@ -39,7 +39,6 @@ const config: ForgeConfig = {
                 "ffprobe-static",
                 "bin",
             );
-            console.log(ffprobeBinDir);
 
             const platformMap: Record<string, string> = {
                 win32: "win32",

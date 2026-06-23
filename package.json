@@ -41,7 +41,7 @@
         "@types/react": "^19.1.8",
         "@types/react-dom": "^19.0.4",
         "compression": "^1.8.1",
-        "electron": "^36.2.1",
+        "electron": "^42.4.1",
         "electron-devtools-installer": "^4.0.0",
         "electron-rebuild": "^3.2.9",
         "eslint": "^9.32.0",
@@ -136,6 +136,7 @@
             "date-fns": "^4.1.0",
             "react": "^19.0.0",
             "react-dom": "^19.0.0"
-        }
+        },
+        "tar": "^7.5.16"
     }
 }

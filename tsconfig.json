@@ -3,6 +3,7 @@
         "jsx": "react",
         "target": "ESNext",
         "module": "node16",
+        "moduleResolution": "node16",
         "lib": ["dom", "ESNext"],
         "experimentalDecorators": true,
         "composite": true,
@@ -14,12 +15,11 @@
         "noImplicitAny": true,
         "sourceMap": true,
         "strict": true,
-        "baseUrl": ".",
+        "skipLibCheck": true,
         "paths": {
             "@/*": ["./src/*"]
         },
         "outDir": "dist",
-        "moduleResolution": "node16",
         "resolveJsonModule": true
     },
     "include": ["src/**/*", "package.json"]

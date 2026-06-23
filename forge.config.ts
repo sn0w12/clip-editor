@@ -17,8 +17,9 @@ const config: ForgeConfig = {
             unpack: "**/{ffprobe-static,ffmpeg-static,sharp,detect-libc,color,semver,color-string,color-name,simple-swizzle,is-arrayish,color-convert,node-addon-api}/**",
         },
         ignore: [
-            /node_modules\/(?!(ms|github-url-to-object|is-url|debug|ffmpeg-static|ffprobe-static|update-electron-app|electron-squirrel-startup|sharp|detect-libc|color|semver|color-string|color-name|simple-swizzle|is-arrayish|color-convert|node-addon-api)\/)/,
+            /\/node_modules(?:\/|$)/,
         ],
+        prune: false,
         icon: "./src/assets/icons/icon",
         extraResource: ["splash.html", "src/assets"],
         executableName: "clip-editor",
@@ -30,6 +31,61 @@ const config: ForgeConfig = {
         },
     },
     hooks: {
+        prePackage: async () => {
+            const unzipJs = path.join(
+                process.cwd(), "node_modules", "@electron", "packager", "dist", "unzip.js",
+            );
+            if (fs.existsSync(unzipJs)) {
+                const src = fs.readFileSync(unzipJs, "utf8");
+                if (src.includes("extract_zip_1")) {
+                    const isWin = process.platform === "win32";
+                    const shCmd = isWin
+                        ? 'powershell -NoProfile -NonInteractive -Command "Expand-Archive -LiteralPath \'${zipPath}\' -DestinationPath \'${targetDir}\' -Force"'
+                        : "unzip -qo '${zipPath}' -d '${targetDir}'";
+                    const extra = isWin ? ', windowsHide: true' : "";
+                    fs.writeFileSync(
+                        unzipJs,
+                        src
+                            .replace(
+                                'const extract_zip_1 = __importDefault(require("extract-zip"));',
+                                'const { execSync } = require("child_process");',
+                            )
+                            .replace(
+                                "    await (0, extract_zip_1.default)(zipPath, { dir: targetDir });",
+                                "    execSync(`" + shCmd + "`, { stdio: \"pipe\"" + extra + " });",
+                            ),
+                        "utf8",
+                    );
+                }
+            }
+            try {
+                const cu = require.resolve("@electron-forge/core-utils/dist/rebuild");
+                delete require.cache[cu];
+                const mod = require("@electron-forge/core-utils");
+                mod.listrCompatibleRebuildHook = async (...args) => {
+                    const task = args[5];
+                    if (task) task.title = "Preparing native dependencies (skipped)";
+                };
+            } catch { /* skip */ }
+        },
+        packageAfterCopy: async (_config, buildPath) => {
+            const srcNm = path.join(process.cwd(), "node_modules");
+            const destNm = path.join(buildPath, "node_modules");
+            const keep = [
+                "ffmpeg-static", "ffprobe-static", "sharp", "detect-libc",
+                "color", "semver", "color-string", "color-name",
+                "simple-swizzle", "is-arrayish", "color-convert", "node-addon-api",
+                "ms", "github-url-to-object", "is-url", "debug",
+                "update-electron-app", "electron-squirrel-startup",
+            ];
+            await Promise.all(keep.map(async (pkg) => {
+                const src = path.join(srcNm, pkg);
+                const dest = path.join(destNm, pkg);
+                if (fs.existsSync(src)) {
+                    await fs.promises.cp(src, dest, { recursive: true });
+                }
+            }));
+        },
         postPackage: async (config, options) => {
             const ffprobeBinDir = path.join(
                 options.outputPaths[0],

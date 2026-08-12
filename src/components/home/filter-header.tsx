@@ -194,7 +194,7 @@ function FilterPanel({
                     </Badge>
                 )}
             </PopoverTrigger>
-            <PopoverContent align="end">
+            <PopoverContent className="p-2" align="end">
                 <div className="mb-2 flex items-center justify-between">
                     <h4 className="font-medium">Filter Videos</h4>
                     {activeFilterCount > 0 && (

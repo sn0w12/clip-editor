@@ -1,8 +1,89 @@
-import React, { useCallback } from "react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+
+import { getWaveform } from "@/lib/tauri";
+import { cn } from "@/lib/utils";
+
+/**
+ * Loads normalized (0..1) waveform samples for a clip. Port of the legacy
+ * `useAudioWaveform` hook, backed by the Tauri `get_waveform` command.
+ */
+export function useAudioWaveform(
+    videoPath: string,
+    sampleCount: number,
+    audioTrack: number,
+): {
+    isLoading: boolean;
+    error: string | null;
+    waveformData: number[] | null;
+    waveformKey: string;
+} {
+    const [result, setResult] = useState<{
+        data: number[] | null;
+        error: string | null;
+        key: string;
+        audioTrack: number;
+    } | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!videoPath) {
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        getWaveform(videoPath, sampleCount, audioTrack)
+            .then((data) => {
+                if (cancelled) return;
+                if (!data) throw new Error("Failed to extract waveform data");
+                setResult({
+                    data,
+                    error: null,
+                    key: `waveform-${audioTrack}-${Date.now()}`,
+                    audioTrack,
+                });
+            })
+            .catch((err: unknown) => {
+                if (cancelled) return;
+                setResult({
+                    data: null,
+                    error: err instanceof Error ? err.message : String(err),
+                    key: `waveform-${audioTrack}-error`,
+                    audioTrack,
+                });
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [videoPath, sampleCount, audioTrack]);
+
+    // Derive the current view from the latest fetch result; while a fetch is in
+    // flight (or the inputs changed) fall back to the pending state.
+    const current = videoPath && result?.audioTrack === audioTrack ? result : null;
+    const isLoading = Boolean(videoPath) && !current;
+    const waveformData = current?.data ?? null;
+    const error = current?.error ?? null;
+    const waveformKey = current?.key ?? `waveform-${audioTrack}-pending`;
+
+    return { isLoading, error, waveformData, waveformKey };
+}
+
+function resolveCssVar(colorValue: string): string {
+    if (colorValue.startsWith("var(")) {
+        const cssVarName = colorValue.match(/var\((.*?)\)/)?.[1];
+        if (cssVarName) {
+            const computed = getComputedStyle(document.documentElement)
+                .getPropertyValue(cssVarName)
+                .trim();
+            if (computed) return computed;
+        }
+    }
+    return colorValue;
+}
 
 interface VideoWaveformProps {
-    waveformData: Float32Array | null;
+    waveformData: number[] | null;
     isLoading: boolean;
     error: string | null;
     height?: number;
@@ -11,52 +92,6 @@ interface VideoWaveformProps {
     backgroundColor?: string;
     className?: string;
     minBarHeight?: number;
-}
-
-export function useAudioWaveform(
-    videoPath: string,
-    sampleCount: number,
-    audioTrack: number,
-) {
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [waveformKey, setWaveformKey] = useState(`waveform-${audioTrack}`);
-    const [waveformData, setWaveformData] = useState<Float32Array | null>(null);
-
-    const fetchWaveformData = useCallback(async () => {
-        if (!videoPath) return;
-
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const data = await window.audioWaveform.extractWaveform(
-                videoPath,
-                sampleCount,
-                audioTrack,
-            );
-
-            if (!data) {
-                throw new Error("Failed to extract waveform data");
-            }
-
-            setWaveformData(data);
-            setWaveformKey(`waveform-${audioTrack}-${Date.now()}`);
-            setIsLoading(false);
-        } catch (err) {
-            console.error("Error generating waveform:", err);
-            setError(
-                err instanceof Error ? err.message : "Unknown error occurred",
-            );
-            setIsLoading(false);
-        }
-    }, [videoPath, sampleCount, audioTrack]);
-
-    useEffect(() => {
-        fetchWaveformData();
-    }, [fetchWaveformData]);
-
-    return { isLoading, error, waveformData, waveformKey };
 }
 
 const VideoWaveformComponent = ({
@@ -79,23 +114,8 @@ const VideoWaveformComponent = ({
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        const getComputedColor = (colorValue: string) => {
-            if (colorValue.startsWith("var(")) {
-                const cssVarName = colorValue.match(/var\((.*?)\)/)?.[1];
-                if (cssVarName) {
-                    const computedColor = getComputedStyle(
-                        document.documentElement,
-                    )
-                        .getPropertyValue(cssVarName)
-                        .trim();
-                    return computedColor || colorValue;
-                }
-            }
-            return colorValue;
-        };
-
-        const bgColor = getComputedColor(backgroundColor);
-        const waveColor = getComputedColor(color);
+        const bgColor = resolveCssVar(backgroundColor);
+        const waveColor = resolveCssVar(color);
 
         ctx.fillStyle = bgColor;
         ctx.fillRect(0, 0, width, height);
@@ -118,15 +138,16 @@ const VideoWaveformComponent = ({
     }, [waveformData, backgroundColor, color, width, height, minBarHeight]);
 
     if (isLoading) {
+        const varName = color.startsWith("var(")
+            ? (color.match(/var\((.*?)\)/)?.[1] ?? null)
+            : null;
         return (
-            <div className={`relative h-full w-full ${className}`}>
+            <div className={cn("relative h-full w-full", className)}>
                 <div
                     className="absolute top-1/2 w-full"
                     style={{
                         height: `${minBarHeight / 3}px`,
-                        backgroundColor: color.startsWith("var(")
-                            ? `var(${color.match(/var\((.*?)\)/)?.[1]})`
-                            : color,
+                        backgroundColor: varName ? `var(${varName})` : color,
                         transform: "translateY(-50%)",
                     }}
                 />
@@ -136,26 +157,21 @@ const VideoWaveformComponent = ({
 
     if (error) {
         return (
-            <p className={`text-destructive text-sm ${className}`}>
+            <p className={cn("text-destructive text-sm", className)}>
                 Failed to load waveform: {error}
             </p>
         );
     }
 
     if (!waveformData) {
-        return <div className={`relative h-full w-full ${className}`} />;
+        return <div className={cn("relative h-full w-full", className)} />;
     }
 
     return (
-        <div className={`relative h-full ${className}`}>
-            <canvas
-                ref={canvasRef}
-                width={width}
-                height={height}
-                className="h-full w-full"
-            />
+        <div className={cn("relative h-full", className)}>
+            <canvas ref={canvasRef} width={width} height={height} className="h-full w-full" />
         </div>
     );
 };
 
-export const VideoWaveform = React.memo(VideoWaveformComponent);
+export const VideoWaveform = memo(VideoWaveformComponent);

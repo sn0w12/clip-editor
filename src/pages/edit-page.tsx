@@ -1,241 +1,259 @@
-import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+
+import { GameIcon } from "@/components/game-icon";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { toastManager } from "@/components/ui/toast";
+import { ClipHeader } from "@/components/video-editor/clip-header";
 import { ClipVideoPlayer } from "@/components/video-editor/clip-video-player";
 import { ExportSettings } from "@/components/video-editor/export-settings";
-import { TimeRange, ExportOptions } from "@/types/video-editor";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { EditVideoRoute } from "@/routes/routes";
-import { useVideoStore } from "@/contexts/video-store-context";
-import { ClipHeader } from "@/components/video-editor/clip-header";
-import { useSteam } from "@/contexts/steam-context";
-import { getGameId, imgSrc } from "@/utils/games";
 import { useBadge } from "@/contexts/badge-context";
-import { getSetting, useSetting } from "@/utils/settings";
+import { useSetting } from "@/lib/settings";
+import { getClipMetadata, exportClip, copyFileToClipboard, videoSrc } from "@/lib/tauri";
+import { editVideoRoute } from "@/routes/router";
+import { lastLibrary } from "@/stores/clips-store";
+import { useGamesStore, gameImageFor, resolveGameName } from "@/stores/games-store";
+import type { Cut, ExportOptions, TimeRange, VideoMetadata } from "@/types";
 
-export default function EditPage() {
-    const { videoPath } = useSearch({ from: EditVideoRoute.id });
+function isTruthySetting(value: unknown): boolean {
+    return value === true || value === "true" || value === 1 || value === "1";
+}
+
+export function EditPage() {
+    const { videoPath } = useSearch({ from: editVideoRoute.id });
     const navigate = useNavigate();
-    const [selectedClipPath, setSelectedClipPath] = useState<string | null>(
+    const [selectedClipPath, setSelectedClipPath] = useState<string | null>(null);
+    const [selectedClipDuration, setSelectedClipDuration] = useState<number | null>(null);
+    const [timeRange, setTimeRange] = useState<TimeRange>({ start: 0, end: 0 });
+    const [cutsByClip, setCutsByClip] = useState<Record<string, Cut[]>>({});
+    const [isExporting, setIsExporting] = useState(false);
+    const [audioTracks, setAudioTracks] = useState<{ index: number; label: string }[]>([]);
+    const [metadataResult, setMetadataResult] = useState<{
+        videoPath: string;
+        metadata: VideoMetadata | null;
+        error: string | null;
+    } | null>(null);
+    const [videoUrlResult, setVideoUrlResult] = useState<{ target: string; url: string } | null>(
         null,
     );
-    const [selectedClipDuration, setSelectedClipDuration] = useState<
-        number | null
-    >(null);
-    const { videoMetadata: storedMetadata, videos } = useVideoStore();
-    const { games, gameImages, loading } = useSteam();
-    const { setBadgeContent, setBadgeVisible } = useBadge();
-
-    // Simply read from the store, no local loading
-    const currentVideoMetadata = videoPath ? storedMetadata[videoPath] : null;
-    const [timeRange, setTimeRange] = useState<TimeRange>({
-        start: 0,
-        end: 0,
-    });
-    const [cuts, setCuts] = useState<{ start: number; end: number }[]>([]);
-
-    const [isExporting, setIsExporting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [audioTracks, setAudioTracks] = useState<
-        { index: number; label: string }[]
-    >([]);
+    const alwaysCopyExport = useSetting("alwaysCopyExport");
     const chooseExportLocation = useSetting("chooseExportLocation");
+    const { setBadgeContent, setBadgeVisible } = useBadge();
+    const games = useGamesStore();
 
-    const currentVideo = useMemo(
-        () => videos.find((video) => video.path === videoPath),
-        [videos, videoPath],
-    );
-
-    const gameData = useMemo(() => {
-        if (loading || !currentVideo?.game) return null;
-
-        const appId = getGameId(currentVideo.game, games, loading);
-        const gameImage = appId && gameImages[appId];
-
-        return {
-            name: currentVideo.game,
-            appId: appId || "",
-            images: gameImage || {},
-        };
-    }, [currentVideo, games, gameImages, loading]);
-
-    const iconImage = gameData?.images
-        ? imgSrc(gameData.images.icon)
-        : undefined;
+    const videoName = useSearch({ from: editVideoRoute.id }).videoName ?? "";
+    // Prefer the clip's stored game name (survives renames and multi-underscore
+    // names); fall back to parsing it out of the filename.
+    const filenameGame = videoName.includes("_")
+        ? videoName
+              .split("_")
+              .slice(1)
+              .join("_")
+              .replace(/\.[^.]+$/, "")
+        : "";
+    const rawGame = lastLibrary.find((c) => c.path === videoPath)?.game ?? filenameGame;
+    const gameName = resolveGameName(games.games, games.aliases, rawGame);
+    const gameImage = rawGame ? gameImageFor(games.games, games.aliases, rawGame) : null;
 
     useEffect(() => {
         setBadgeContent(
             <div className="flex items-center gap-1">
-                {iconImage && (
-                    <img
-                        src={iconImage}
-                        alt={gameData?.name}
-                        className="h-4 w-4 rounded"
-                    />
-                )}
-                <span className="text-sm">{gameData?.name}</span>
+                <GameIcon game={gameName} gameImage={gameImage} />
+                <span className="text-sm">{gameName || "Clip Editor"}</span>
             </div>,
         );
         setBadgeVisible(true);
         return () => setBadgeVisible(false);
-    }, [setBadgeContent, iconImage]);
+    }, [setBadgeContent, setBadgeVisible, gameImage, gameName]);
 
-    // Effect to update time range when metadata becomes available
+    // Load metadata for the opened clip. State updates happen only in async
+    // callbacks; the "current" metadata/error are derived so a clip switch
+    // resets them immediately.
     useEffect(() => {
+        let cancelled = false;
         if (!videoPath) {
-            setError(
-                "Video path not found. Please return to the home page and select a video.",
-            );
-            setTimeRange({ start: 0, end: 0 });
-            return;
+            return () => {
+                cancelled = true;
+            };
         }
 
-        setError(null);
-
-        if (currentVideoMetadata) {
-            setTimeRange({ start: 0, end: currentVideoMetadata.duration });
-        } else {
-            setTimeRange({ start: 0, end: 0 });
-        }
-    }, [videoPath, currentVideoMetadata]);
-
-    useEffect(() => {
-        setCuts([]);
-    }, [videoPath, selectedClipPath]);
-
-    // Handle export button click
-    const handleExport = async (options: ExportOptions) => {
-        if (!videoPath) return;
-
-        setIsExporting(true);
-        try {
-            const result = await window.videoEditor.exportClip(videoPath, {
-                ...options,
-                chooseExportLocation,
+        getClipMetadata(videoPath)
+            .then((meta) => {
+                if (cancelled) return;
+                setMetadataResult({ videoPath, metadata: meta, error: null });
+                setAudioTracks(meta.audioTracks ?? []);
+                setTimeRange({ start: 0, end: meta.duration ?? 0 });
+            })
+            .catch((err) => {
+                if (cancelled) return;
+                setMetadataResult({ videoPath, metadata: null, error: String(err) });
+                setAudioTracks([]);
             });
 
-            if (result.success) {
-                window.dispatchEvent(
-                    new CustomEvent("video-exported", { detail: result }),
-                );
-                const alwaysCopyExport = getSetting("alwaysCopyExport");
-                if (alwaysCopyExport) {
-                    await window.videoEditor.copyFileToClipboard(
-                        result.outputPath || "",
-                    );
-                    toast.success("Export completed successfully", {
-                        description: "File copied to clipboard",
-                    });
-                    return;
-                }
+        return () => {
+            cancelled = true;
+        };
+    }, [videoPath]);
 
-                toast.success("Export completed successfully", {
-                    action: {
-                        label: "Copy to Clipboard",
+    const currentMetadata = metadataResult?.videoPath === videoPath ? metadataResult : null;
+    const metadata = currentMetadata?.metadata ?? null;
+    const error =
+        currentMetadata?.error ??
+        (!videoPath
+            ? "Video path not found. Please return to the home page and select a video."
+            : null);
+
+    const handleExport = async (options: ExportOptions) => {
+        if (!videoPath) return;
+        setIsExporting(true);
+        const exportToastId = toastManager.add({ title: "Exporting clip…", type: "loading" });
+        try {
+            const result = await exportClip(videoPath, {
+                ...options,
+                chooseExportLocation: isTruthySetting(chooseExportLocation)
+                    ? true
+                    : options.chooseExportLocation,
+            });
+            toastManager.close(exportToastId);
+            if (result.fileAlreadyExists) {
+                toastManager.add({
+                    title: "That export already exists — re-exporting would overwrite it.",
+                    type: "info",
+                });
+            } else {
+                window.dispatchEvent(new CustomEvent("video-exported"));
+                const successId = toastManager.add({
+                    title: "Export Successful",
+                    type: "success",
+                    actionProps: {
+                        children: "Copy",
                         onClick: async () => {
-                            try {
-                                const copyResult =
-                                    await window.videoEditor.copyFileToClipboard(
-                                        result.outputPath || "",
-                                    );
-                                if (copyResult.success) {
-                                    toast.success("File copied to clipboard");
-                                } else {
-                                    toast.error("Failed to copy file", {
-                                        description:
-                                            copyResult.error || "Unknown error",
+                            copyFileToClipboard(result.outputPath)
+                                .then(() => {
+                                    toastManager.close(successId);
+                                    toastManager.add({
+                                        title: "Clip Copied",
+                                        description: "The clip has been copied to the clipboard.",
+                                        type: "info",
                                     });
-                                }
-                            } catch (error) {
-                                toast.error("Failed to copy file to clipboard");
-                                console.error("Error copying file:", error);
-                            }
+                                })
+                                .catch((e) => {
+                                    toastManager.close(successId);
+                                    toastManager.add({
+                                        title: "Copy Failed",
+                                        description: `Failed to copy the clip: ${String(e)}`,
+                                        type: "error",
+                                    });
+                                });
                         },
                     },
                 });
-            } else {
-                toast.error("Export failed", {
-                    description: result.error || "Unknown error occurred",
-                });
             }
-        } catch (error) {
-            console.error("Export error:", error);
-            toast.error("Export failed", {
-                description: "An unexpected error occurred during export.",
-            });
+            if (isTruthySetting(alwaysCopyExport)) {
+                await toastManager
+                    .promise(copyFileToClipboard(result.outputPath), {
+                        loading: { title: "Copying to clipboard…" },
+                        success: { title: "Copied to clipboard" },
+                        error: (e) => ({ title: `Copy failed: ${String(e)}` }),
+                    })
+                    .catch(() => {});
+            }
+        } catch (e) {
+            toastManager.close(exportToastId);
+            toastManager.add({ title: `Export failed: ${String(e)}`, type: "error" });
         } finally {
             setIsExporting(false);
         }
     };
 
-    const handleSelectClip = (
-        clipPath: string | null,
-        clipDuration: number | null,
-    ) => {
+    // The media server URL for the <video> element (async: port from Rust).
+    // The current URL is derived from the latest result for the target clip.
+    useEffect(() => {
+        let cancelled = false;
+        const target = selectedClipPath ?? videoPath;
+        if (!target) {
+            return () => {
+                cancelled = true;
+            };
+        }
+        videoSrc(target)
+            .then((url) => {
+                if (!cancelled) setVideoUrlResult({ target, url });
+            })
+            .catch(() => {
+                if (!cancelled) setVideoUrlResult({ target, url: "" });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [videoPath, selectedClipPath]);
+
+    const videoTarget = selectedClipPath ?? videoPath;
+    const videoUrl = videoUrlResult?.target === videoTarget ? videoUrlResult.url : "";
+
+    // Cuts belong to the clip being edited; keying them by clip resets them
+    // (and restores each clip's own cuts) on a clip/export switch.
+    const cuts = cutsByClip[videoTarget] ?? [];
+    const setCuts = (next: Cut[]) => setCutsByClip((m) => ({ ...m, [videoTarget]: next }));
+
+    const handleSelectClip = (clipPath: string | null, clipDuration: number | null) => {
         setSelectedClipPath(clipPath);
         setSelectedClipDuration(clipDuration);
-
-        const end = clipDuration ?? currentVideoMetadata?.duration ?? 0;
-        setTimeRange({ start: 0, end });
+        if (!clipPath) {
+            // Returning from a collected previous export: restore the
+            // original video's range so the progress bar is correct.
+            setTimeRange({ start: 0, end: metadata?.duration ?? 0 });
+        }
     };
 
-    const videoSrc = selectedClipPath
-        ? `clip-video:///${selectedClipPath}`
-        : videoPath
-          ? `clip-video:///${videoPath}`
-          : "";
-
-    const videoDuration = selectedClipDuration
-        ? selectedClipDuration
-        : currentVideoMetadata?.duration || 0;
+    if (error) {
+        return (
+            <div className="flex h-full items-center justify-center p-6">
+                <Alert variant="error" className="max-w-md">
+                    <AlertTitle>Could not load the clip</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                    <Button
+                        variant="outline"
+                        className="mt-3"
+                        onClick={() => void navigate({ to: "/" })}
+                    >
+                        Back to Clips
+                    </Button>
+                </Alert>
+            </div>
+        );
+    }
 
     return (
-        <div className="h-full pt-2">
+        <div className="flex h-full flex-col gap-4 p-4">
             <ClipHeader />
-            <div className="h-[96%] p-4 pt-2 pr-2">
-                {error ? (
-                    <div className="rounded-md border border-red-300 bg-red-50 p-6 text-center dark:bg-red-950/30">
-                        <p className="mb-4 text-red-600 dark:text-red-400">
-                            {error}
-                        </p>
-                        <Button onClick={() => navigate({ to: "/" })}>
-                            Return to Home
-                        </Button>
-                    </div>
-                ) : videoPath && currentVideoMetadata ? (
-                    <div className="grid h-full grid-cols-1 gap-3 lg:grid-cols-3">
-                        <div className="flex flex-col lg:col-span-2">
-                            <ClipVideoPlayer
-                                videoSrc={videoSrc}
-                                onTimeRangeChange={setTimeRange}
-                                timeRange={timeRange}
-                                duration={videoDuration}
-                                onAudioTracksChange={setAudioTracks}
-                                cuts={cuts}
-                                onCutsChange={setCuts}
-                            />
-                        </div>
-                        <div className="flex h-full flex-col">
-                            <ExportSettings
-                                videoMetadata={currentVideoMetadata}
-                                timeRange={timeRange}
-                                onExport={handleExport}
-                                isExporting={isExporting}
-                                audioTracks={audioTracks}
-                                videoPath={videoPath}
-                                onSelectClip={handleSelectClip}
-                                selectedClipPath={selectedClipPath}
-                                cuts={cuts}
-                            />
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex h-full items-center justify-center">
-                        <p className="text-lg text-gray-500">
-                            Waiting for video data...
-                        </p>
-                    </div>
-                )}
+            <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className="min-h-0 lg:col-span-2">
+                    <ClipVideoPlayer
+                        videoSrc={videoUrl}
+                        onTimeRangeChange={setTimeRange}
+                        timeRange={timeRange}
+                        duration={selectedClipDuration ?? metadata?.duration ?? 0}
+                        audioTracks={audioTracks}
+                        onAudioTracksChange={setAudioTracks}
+                        cuts={cuts}
+                        onCutsChange={setCuts}
+                    />
+                </div>
+                <div className="min-h-0">
+                    <ExportSettings
+                        videoMetadata={metadata}
+                        timeRange={timeRange}
+                        onExport={(options) => void handleExport(options)}
+                        isExporting={isExporting}
+                        audioTracks={audioTracks}
+                        videoPath={videoPath}
+                        onSelectClip={handleSelectClip}
+                        selectedClipPath={selectedClipPath}
+                        cuts={cuts}
+                    />
+                </div>
             </div>
         </div>
     );

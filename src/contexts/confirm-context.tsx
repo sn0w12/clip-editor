@@ -1,72 +1,67 @@
-import * as React from "react";
-import { ConfirmDialog } from "@/components/ui/confirm";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import type * as React from "react";
 
-interface ConfirmOptions {
-    title: string;
-    description: string;
+import { ConfirmDialog, type ConfirmVariant } from "@/components/ui/confirm";
+
+export interface ConfirmOptions {
+    title: React.ReactNode;
+    description?: React.ReactNode;
     confirmText?: string;
     cancelText?: string;
-    variant?: "default" | "destructive";
+    variant?: ConfirmVariant;
 }
 
-interface ConfirmContextType {
+interface ConfirmContextValue {
     confirm: (options: ConfirmOptions) => Promise<boolean>;
 }
 
-const ConfirmContext = React.createContext<ConfirmContextType | undefined>(
-    undefined,
-);
+const ConfirmContext = createContext<ConfirmContextValue | null>(null);
 
-export function useConfirm() {
-    const context = React.useContext(ConfirmContext);
-    if (!context) {
-        throw new Error("useConfirm must be used within a ConfirmProvider");
-    }
-    return context;
+interface PendingConfirm extends ConfirmOptions {
+    resolve: (value: boolean) => void;
 }
 
-export function ConfirmProvider({ children }: { children: React.ReactNode }) {
-    const [isOpen, setIsOpen] = React.useState(false);
-    const [options, setOptions] = React.useState<ConfirmOptions>({
-        title: "",
-        description: "",
-        variant: "default",
-    });
+export function ConfirmProvider({ children }: { children: React.ReactNode }): React.ReactElement {
+    const [pending, setPending] = useState<PendingConfirm | null>(null);
 
-    const [resolveRef, setResolveRef] = React.useState<
-        (value: boolean) => void
-    >(() => () => {});
-
-    const confirm = React.useCallback((options: ConfirmOptions) => {
-        setOptions(options);
-        setIsOpen(true);
+    const confirm = useCallback((options: ConfirmOptions) => {
         return new Promise<boolean>((resolve) => {
-            setResolveRef(() => resolve);
+            setPending({ ...options, resolve });
         });
     }, []);
 
-    const handleConfirm = React.useCallback(() => {
-        resolveRef(true);
-    }, [resolveRef]);
+    const handleClose = useCallback((result: boolean, current: PendingConfirm | null) => {
+        setPending(null);
+        current?.resolve(result);
+    }, []);
 
-    const handleCancel = React.useCallback(() => {
-        resolveRef(false);
-    }, [resolveRef]);
+    const value = useMemo(() => ({ confirm }), [confirm]);
 
     return (
-        <ConfirmContext.Provider value={{ confirm }}>
+        <ConfirmContext.Provider value={value}>
             {children}
-            <ConfirmDialog
-                open={isOpen}
-                onOpenChange={setIsOpen}
-                title={options.title}
-                description={options.description}
-                confirmText={options.confirmText}
-                cancelText={options.cancelText}
-                variant={options.variant}
-                onConfirm={handleConfirm}
-                onCancel={handleCancel}
-            />
+            {pending && (
+                <ConfirmDialog
+                    open
+                    onOpenChange={(open) => {
+                        if (!open) handleClose(false, pending);
+                    }}
+                    title={pending.title}
+                    description={pending.description}
+                    confirmText={pending.confirmText}
+                    cancelText={pending.cancelText}
+                    variant={pending.variant}
+                    onConfirm={() => handleClose(true, pending)}
+                />
+            )}
         </ConfirmContext.Provider>
     );
+}
+
+export function useConfirm(): (options: ConfirmOptions) => Promise<boolean> {
+    const context = useContext(ConfirmContext);
+    if (!context) {
+        throw new Error("useConfirm must be used within a ConfirmProvider");
+    }
+    return context.confirm;
 }

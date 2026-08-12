@@ -1,259 +1,231 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { EditVideoRoute } from "@/routes/routes";
-import { Button } from "../ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { cn } from "@/utils/tailwind";
-import { VideoFile } from "@/types/video";
-import { useMainElement } from "@/layouts/base-layout";
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { useSteam } from "@/contexts/steam-context";
-import { getGameId, imgSrc } from "@/utils/games";
-import { useSetting, useShortcutSetting } from "@/utils/settings";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useThumbnail } from "@/hooks/use-thumbnails";
+import { rememberReturnToClip } from "@/lib/return-to-clip";
+import { useShortcutSetting } from "@/lib/settings";
+import { imgSrc } from "@/lib/tauri";
+import { cn } from "@/lib/utils";
+import { editVideoRoute } from "@/routes/router";
+import { useClipsStore } from "@/stores/clips-store";
+import type { VideoFile } from "@/types";
+
+const THUMB_WIDTH = 64;
+const THUMB_GAP = 8;
+/** Horizontal chrome (back button + prev/next) that the thumbs fit beside. */
+const WIDTH_PADDING = 336;
+
+function FilmstripThumb({
+    video,
+    current,
+    onNavigate,
+}: {
+    video: VideoFile;
+    current: boolean;
+    onNavigate: (video: VideoFile) => void;
+}) {
+    const thumb = useThumbnail(video.path);
+
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <button
+                        type="button"
+                        className={cn(
+                            "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
+                            current
+                                ? "border-accent-positive opacity-100"
+                                : "border-primary/70 hover:opacity-100",
+                        )}
+                        style={{ width: `${THUMB_WIDTH}px` }}
+                        onClick={() => {
+                            rememberReturnToClip(video.path);
+                            onNavigate(video);
+                        }}
+                        disabled={current}
+                        aria-label={`Open ${video.name}`}
+                    />
+                }
+            >
+                {thumb ? (
+                    <img
+                        src={imgSrc(thumb)}
+                        alt={video.name}
+                        className="h-full w-full object-cover"
+                        onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                        }}
+                    />
+                ) : (
+                    <span className="bg-muted block h-full w-full" />
+                )}
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+                <p className="text-sm font-medium">
+                    {video.game} |{" "}
+                    {(() => {
+                        const date = new Date(video.lastModified);
+                        if (Number.isNaN(date.getTime())) return "Unknown date";
+                        return `${date.toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                        })}, ${date.toLocaleTimeString("en-US", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            hour12: false,
+                        })}, ${date.getFullYear()}`;
+                    })()}
+                </p>
+            </TooltipContent>
+        </Tooltip>
+    );
+}
 
 function ClipHeaderLocal() {
-    const [width, setWidth] = useState<number | undefined>(undefined);
-    const [thumbWidth] = useState(64);
-    const { videoPath } = useSearch({ from: EditVideoRoute.id });
-    const { videos, thumbnails } = useVideoStore();
-    const { games, gameImages, loading } = useSteam();
-    const isCustomWindow = useSetting("windowIconsStyle") === "custom";
-    const mainElement = useMainElement();
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [totalThumbs, setTotalThumbs] = useState(0);
+    const { videoPath } = useSearch({ from: editVideoRoute.id });
+    const { clips, reload } = useClipsStore();
     const navigate = useNavigate();
 
-    const calculateTotalThumbs = useCallback(
-        (width: number | undefined): number => {
-            if (!width) return 0;
-            const widthPadding = 336;
-            const thumbPadding = 8;
-            return Math.floor(
-                (width - widthPadding) / (thumbWidth + thumbPadding),
-            );
-        },
-        [thumbWidth],
-    );
-    const [totalThumbs, setTotalThumbs] = useState(calculateTotalThumbs(width));
+    // The editor can be opened directly (route restore); make sure the library
+    // is loaded so the filmstrip has neighbours even if the home page never ran.
+    useEffect(() => {
+        if (!clips.length) void reload();
+    }, [clips.length, reload]);
+
+    const sortedVideos = useMemo(() => {
+        return [...clips].sort((a, b) => {
+            const timestampA = new Date(a.lastModified).getTime();
+            const timestampB = new Date(b.lastModified).getTime();
+            return timestampB - timestampA; // Newest first
+        });
+    }, [clips]);
+
+    const calculateTotalThumbs = useCallback((w: number | undefined): number => {
+        if (!w) return 0;
+        return Math.floor((w - WIDTH_PADDING) / (THUMB_WIDTH + THUMB_GAP));
+    }, []);
 
     useEffect(() => {
-        if (!mainElement.current) return;
+        if (!containerRef.current) return;
 
         const updateDimensions = () => {
-            console.log(
-                "Updating dimensions",
-                mainElement.current?.clientWidth,
-            );
-            if (mainElement.current) {
-                const newWidth = mainElement.current.clientWidth;
-                setWidth(newWidth);
-                setTotalThumbs(calculateTotalThumbs(newWidth));
+            if (containerRef.current) {
+                setTotalThumbs(calculateTotalThumbs(containerRef.current.clientWidth));
             }
         };
 
         updateDimensions();
         const resizeObserver = new ResizeObserver(updateDimensions);
-        resizeObserver.observe(mainElement.current);
+        resizeObserver.observe(containerRef.current);
         window.addEventListener("resize", updateDimensions);
 
-        // Clean up
         return () => {
             resizeObserver.disconnect();
             window.removeEventListener("resize", updateDimensions);
         };
-    }, [calculateTotalThumbs, mainElement]);
+    }, [calculateTotalThumbs]);
 
-    const sortedVideos = useMemo(() => {
-        return [...videos].sort((a, b) => {
-            // Convert lastModified to timestamp numbers if they're strings
-            const timestampA =
-                typeof a.lastModified === "string"
-                    ? new Date(a.lastModified).getTime()
-                    : a.lastModified;
-
-            const timestampB =
-                typeof b.lastModified === "string"
-                    ? new Date(b.lastModified).getTime()
-                    : b.lastModified;
-
-            return timestampB - timestampA; // Newest first
-        });
-    }, [videos]);
+    const normalize = useCallback((p: string) => p.replace(/^\\\\\?\\\\/, ""), []);
 
     const surroundingVideos = useMemo(() => {
-        if (!videoPath || !sortedVideos.length)
-            return { videos: [], currentIndex: -1 };
+        if (!sortedVideos.length) return { videos: [], currentIndex: -1 };
 
-        // Find current video index in sorted array
-        const currentIndex = sortedVideos.findIndex(
-            (v) => v.path === videoPath,
-        );
-        if (currentIndex === -1) return { videos: [], currentIndex: -1 };
+        const currentIndex = videoPath
+            ? sortedVideos.findIndex((v) => normalize(v.path) === normalize(videoPath))
+            : -1;
+        if (currentIndex === -1) {
+            // The opened clip is not in the library (direct open, renamed file, or
+            // route restore): show the newest clips so the header never disappears.
+            const count = Math.max(1, totalThumbs || 1);
+            return {
+                videos: sortedVideos.slice(0, Math.min(count, sortedVideos.length)),
+                currentIndex: -1,
+            };
+        }
 
-        // Calculate how many thumbnails to show on each side of current
-        const sideCount = Math.floor(totalThumbs / 2);
+        const sideCount = Math.max(1, Math.floor(totalThumbs / 2));
 
-        // Calculate start and end indices
         let startIndex = Math.max(0, currentIndex - sideCount);
-        const endIndex = Math.min(
-            sortedVideos.length - 1,
-            startIndex + totalThumbs - 1,
-        );
+        const endIndex = Math.min(sortedVideos.length - 1, startIndex + totalThumbs - 1);
 
-        // If we hit the end, adjust the start to show full width
-        if (
-            endIndex === sortedVideos.length - 1 &&
-            endIndex - startIndex + 1 < totalThumbs
-        ) {
+        if (endIndex === sortedVideos.length - 1 && endIndex - startIndex + 1 < totalThumbs) {
             startIndex = Math.max(0, sortedVideos.length - totalThumbs);
         }
 
-        const videosInRange = sortedVideos.slice(startIndex, endIndex + 1);
-        const adjustedCurrentIndex = currentIndex - startIndex;
-
-        videosInRange.forEach((video) => {
-            const appId = getGameId(video.game, games, loading);
-            if (loading || appId === null) return;
-
-            if (appId === undefined) return;
-
-            video.gameImages = gameImages[appId];
-        });
-
         return {
-            videos: videosInRange,
-            currentIndex: adjustedCurrentIndex,
+            videos: sortedVideos.slice(startIndex, endIndex + 1),
+            currentIndex: currentIndex - startIndex,
         };
-    }, [videoPath, sortedVideos, totalThumbs]);
+    }, [videoPath, sortedVideos, totalThumbs, normalize]);
 
-    const handleNavigateToVideo = (video: VideoFile) => {
-        navigate({
-            to: EditVideoRoute.id,
-            search: {
-                videoPath: video.path,
-                videoName: video.name,
-            },
-        });
-    };
+    const handleNavigateToVideo = useCallback(
+        (video: VideoFile) => {
+            void navigate({
+                to: editVideoRoute.id,
+                search: {
+                    videoPath: video.path,
+                    videoName: video.name,
+                },
+            });
+        },
+        [navigate],
+    );
 
-    const handlePrevious = () => {
+    const handlePrevious = useCallback(() => {
         if (surroundingVideos.currentIndex > 0) {
-            const previousVideo =
-                surroundingVideos.videos[surroundingVideos.currentIndex - 1];
-            handleNavigateToVideo(previousVideo);
+            handleNavigateToVideo(surroundingVideos.videos[surroundingVideos.currentIndex - 1]);
         }
-    };
+    }, [surroundingVideos, handleNavigateToVideo]);
 
-    const handleNext = () => {
-        if (
-            surroundingVideos.currentIndex <
-            surroundingVideos.videos.length - 1
-        ) {
-            const nextVideo =
-                surroundingVideos.videos[surroundingVideos.currentIndex + 1];
-            handleNavigateToVideo(nextVideo);
+    const handleNext = useCallback(() => {
+        if (surroundingVideos.currentIndex < surroundingVideos.videos.length - 1) {
+            handleNavigateToVideo(surroundingVideos.videos[surroundingVideos.currentIndex + 1]);
         }
-    };
+    }, [surroundingVideos, handleNavigateToVideo]);
 
     useShortcutSetting("goToNextVideo", handleNext);
     useShortcutSetting("goToPreviousVideo", handlePrevious);
 
-    if (surroundingVideos.videos.length === 0) {
-        return null;
-    }
+    const headerVideos = surroundingVideos.videos;
+    const headerIndex = surroundingVideos.currentIndex;
 
     return (
-        <div className="w-full pr-2 pl-4">
+        <div className="w-full pr-2 pl-4" ref={containerRef}>
             <div className="flex items-center gap-2">
-                <div className="flex-1 overflow-auto">
+                <div className="min-w-0 flex-1">
                     <div className="flex justify-end gap-2">
                         <Button
                             variant="secondary"
                             size="icon"
                             className="bg-sidebar group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end"
                             onClick={() => navigate({ to: "/" })}
+                            aria-label="Back to library"
                         >
-                            <div className="bg-border group-hover:bg-secondary-foreground mx-6 h-0.5 w-full transition-colors duration-200"></div>
+                            <div className="bg-border group-hover:bg-secondary-foreground mx-6 h-0.5 w-full transition-colors duration-200" />
                         </Button>
                         <Button
                             variant="outline"
                             size="icon"
-                            className="h-9 w-25 self-end"
+                            className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
                             onClick={handlePrevious}
-                            disabled={surroundingVideos.currentIndex <= 0}
+                            disabled={headerIndex <= 0}
+                            aria-label="Previous video"
                         >
                             <ChevronLeft className="h-4 w-4" />
                         </Button>
-                        {surroundingVideos.videos.map((video, index) => (
-                            <Tooltip key={video.path}>
-                                <TooltipTrigger asChild>
-                                    <button
-                                        className={cn(
-                                            "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
-                                            index ===
-                                                surroundingVideos.currentIndex
-                                                ? "border-accent-positive opacity-100"
-                                                : "border-primary/70 hover:opacity-100",
-                                        )}
-                                        style={{ width: `${thumbWidth}px` }}
-                                        onClick={() =>
-                                            handleNavigateToVideo(video)
-                                        }
-                                        disabled={
-                                            index ===
-                                            surroundingVideos.currentIndex
-                                        }
-                                    >
-                                        <img
-                                            src={`${thumbnails[video.path]}?height=64`}
-                                            alt={video.name}
-                                            className="h-full w-full object-cover"
-                                            onError={() => {
-                                                console.error(
-                                                    "Failed to load thumbnail:",
-                                                    video.path,
-                                                );
-                                            }}
-                                        />
-                                    </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                    <p className="flex items-center gap-1 text-sm font-medium">
-                                        {video.gameImages?.icon && (
-                                            <img
-                                                src={imgSrc(
-                                                    video.gameImages?.icon,
-                                                )}
-                                                alt={`Icon for ${video.game}`}
-                                                className="h-4 rounded"
-                                            />
-                                        )}
-                                        {video.game} |{" "}
-                                        {(() => {
-                                            const date = new Date(
-                                                video.lastModified,
-                                            );
-                                            return `${date.toLocaleDateString(
-                                                "en-US",
-                                                {
-                                                    month: "short",
-                                                    day: "numeric",
-                                                },
-                                            )}, ${date.toLocaleTimeString(
-                                                "en-US",
-                                                {
-                                                    hour: "2-digit",
-                                                    minute: "2-digit",
-                                                    hour12: false,
-                                                },
-                                            )}, ${date.getFullYear()}`;
-                                        })()}
-                                    </p>
-                                </TooltipContent>
-                            </Tooltip>
+                        {headerVideos.map((video, index) => (
+                            <FilmstripThumb
+                                key={video.path}
+                                video={video}
+                                current={index === headerIndex}
+                                onNavigate={handleNavigateToVideo}
+                            />
                         ))}
                     </div>
                 </div>
@@ -261,12 +233,10 @@ function ClipHeaderLocal() {
                 <Button
                     variant="outline"
                     size="icon"
-                    className={`${isCustomWindow ? "relative top-2.5 h-5 w-32" : "h-9.5 w-25 self-end"}`}
+                    className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
                     onClick={handleNext}
-                    disabled={
-                        surroundingVideos.currentIndex >=
-                        surroundingVideos.videos.length - 1
-                    }
+                    disabled={headerIndex < 0 || headerIndex >= headerVideos.length - 1}
+                    aria-label="Next video"
                 >
                     <ChevronRight className="h-3 w-3" />
                 </Button>
@@ -275,4 +245,4 @@ function ClipHeaderLocal() {
     );
 }
 
-export const ClipHeader = React.memo(ClipHeaderLocal);
+export const ClipHeader = memo(ClipHeaderLocal);

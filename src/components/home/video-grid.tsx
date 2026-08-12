@@ -1,88 +1,66 @@
+import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
-import { VideoCard } from "@/components/home/video-card";
-import { VideoContextMenu } from "@/components/home/video-context-menu";
-import { VideoFile, VideoGroup } from "@/types/video";
-import React, { useMemo } from "react";
 import { Separator } from "@/components/ui/separator";
-import { useSteam } from "@/contexts/steam-context";
-import { ViewMode } from "@/pages/home-page";
+import { Skeleton } from "@/components/ui/skeleton";
+import { VideoContextMenu } from "@/pages/home-page";
+import { useGamesStore } from "@/stores/games-store";
+import type { GameImage, VideoFile, VideoGroup } from "@/types";
+
+import { VideoCard } from "./video-card";
 import { VideoList } from "./video-list";
-import { cn } from "@/utils/tailwind";
 
 interface VideoGridProps {
     isLoading: boolean;
     filteredVideos: VideoFile[];
     selectedVideos: string[];
-    thumbnails: Record<string, string>;
     groups: VideoGroup[];
     videoGroupMap: Record<string, string[]>;
-    viewMode: ViewMode;
-    onSelectDirectory: () => Promise<void>;
-    onAddToGroup: (videoIds: string[], groupId: string) => void;
-    onShowCreateGroup: () => void;
-    onRemoveFromGroup: (videoIds: string[], groupId: string) => void;
+    gameImages: Record<string, GameImage | null>;
+    games: ReturnType<typeof useGamesStore>;
+    viewMode: "grid" | "list";
+    onSelectDirectory: () => Promise<unknown>;
+    onOpen: (video: VideoFile) => void;
+    onDelete: (paths: string[]) => void;
+    onRename: (video: VideoFile) => void;
+    onAddToGroup: (video: VideoFile, groupId: string) => void;
+    onRemoveFromGroup: (video: VideoFile, groupId: string) => void;
 }
 
-/**
- * Grid component that displays videos or loading/empty states
- */
-function VideoGridBase({
+export function VideoGrid({
     isLoading,
     filteredVideos,
     selectedVideos,
-    thumbnails,
     groups,
     videoGroupMap,
+    gameImages,
+    games,
     viewMode,
     onSelectDirectory,
+    onOpen,
+    onDelete,
+    onRename,
     onAddToGroup,
-    onShowCreateGroup,
     onRemoveFromGroup,
 }: VideoGridProps) {
-    const { games } = useSteam();
-
-    const sortedGames = useMemo(() => {
-        return Object.entries(games)
-            .map(([slug, { appid, displayName }]) => ({
-                id: appid,
-                slug,
-                name: displayName,
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-    }, [games]);
-
     const videosByDate = useMemo(() => {
-        const groupedVideos: Record<string, VideoFile[]> = {};
-
-        filteredVideos.forEach((video) => {
-            const date = new Date(video.lastModified);
-            const dateString = date.toISOString().split("T")[0]; // YYYY-MM-DD
-
-            if (!groupedVideos[dateString]) {
-                groupedVideos[dateString] = [];
-            }
-
-            groupedVideos[dateString].push(video);
-        });
-
+        const grouped: Record<string, VideoFile[]> = {};
+        for (const video of filteredVideos) {
+            const dateString = new Date(video.lastModified).toISOString().split("T")[0];
+            (grouped[dateString] ??= []).push(video);
+        }
         const now = new Date();
         const todayString = now.toLocaleDateString("en-CA");
-
         const yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayString = yesterday.toLocaleDateString("en-CA");
-
-        // Convert to array sorted by date (newest first)
-        return Object.entries(groupedVideos)
+        return Object.entries(grouped)
             .map(([dateString, videos]) => {
                 const date = new Date(dateString);
-                let formattedDate;
-
-                if (dateString === todayString) {
-                    formattedDate = "Today";
-                } else if (dateString === yesterdayString) {
-                    formattedDate = "Yesterday";
-                } else {
+                let formattedDate: string;
+                if (dateString === todayString) formattedDate = "Today";
+                else if (dateString === yesterdayString) formattedDate = "Yesterday";
+                else {
                     formattedDate = date.toLocaleDateString("en-US", {
                         weekday: "long",
                         year: "numeric",
@@ -90,30 +68,46 @@ function VideoGridBase({
                         day: "numeric",
                     });
                 }
-
-                // Sort videos within each date group by last modified time (newest first)
                 const sortedVideos = [...videos].sort(
                     (a, b) =>
-                        new Date(b.lastModified).getTime() -
-                        new Date(a.lastModified).getTime(),
+                        new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime(),
                 );
-
                 return {
                     date: dateString,
                     formattedDate,
                     videos: sortedVideos,
                 };
             })
-            .sort(
-                (a, b) =>
-                    new Date(b.date).getTime() - new Date(a.date).getTime(),
-            );
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [filteredVideos]);
 
     if (isLoading) {
         return (
-            <div className="flex h-64 items-center justify-center">
-                <p>Loading videos...</p>
+            <div className="space-y-6">
+                {[0, 1, 2].map((group) => (
+                    <div key={group} className="space-y-4">
+                        <Skeleton className="h-7 w-44" />
+                        <div
+                            className={
+                                viewMode === "grid"
+                                    ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                                    : "grid grid-cols-1"
+                            }
+                        >
+                            {Array.from({
+                                length: viewMode === "grid" ? 8 : 5,
+                            }).map((_, i) => (
+                                <div key={i} className="bg-muted rounded-lg">
+                                    <Skeleton className="aspect-video w-full rounded-b-none" />
+                                    <div className="space-y-2 p-4">
+                                        <Skeleton className="h-5 w-3/4" />
+                                        <Skeleton className="h-4 w-1/3" />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ))}
             </div>
         );
     }
@@ -124,11 +118,7 @@ function VideoGridBase({
                 <p className="text-muted-foreground">
                     No video files found in the selected directory.
                 </p>
-                <Button
-                    onClick={onSelectDirectory}
-                    variant="outline"
-                    className="mt-4"
-                >
+                <Button onClick={() => void onSelectDirectory()} variant="outline" className="mt-4">
                     Select Another Directory
                 </Button>
             </div>
@@ -139,63 +129,71 @@ function VideoGridBase({
         <div className="space-y-6">
             {videosByDate.map((dateGroup) => (
                 <div key={dateGroup.date} className="mb-0 space-y-4">
-                    <div className="bg-background sticky top-0 z-10 mb-0 flex items-center overflow-hidden py-2">
+                    <div className="bg-background time-header sticky top-0 z-10 mb-0 flex items-center py-2">
                         <h3 className="pr-2 text-lg font-medium text-nowrap">
                             {dateGroup.formattedDate}
                         </h3>
                         <Separator className="from-border bg-gradient-to-r to-transparent" />
+                        <svg
+                            className="pointer-events-none absolute top-full left-0 size-3"
+                            viewBox="0 0 12 12"
+                            aria-hidden="true"
+                        >
+                            <path d="M0 0 L0 12 A12 12 0 0 1 12 0 Z" fill="var(--background)" />
+                        </svg>
+                        <svg
+                            className="pointer-events-none absolute top-full right-0 size-3 -scale-x-100"
+                            viewBox="0 0 12 12"
+                            aria-hidden="true"
+                        >
+                            <path d="M0 0 L0 12 A12 12 0 0 1 12 0 Z" fill="var(--background)" />
+                        </svg>
                     </div>
                     <div
-                        className={cn("grid grid-cols-1", {
-                            "gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4":
-                                viewMode === "grid",
-                        })}
+                        className={
+                            viewMode === "grid"
+                                ? "grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+                                : "grid grid-cols-1"
+                        }
                     >
-                        {dateGroup.videos.map((video) => (
-                            <VideoContextMenu
-                                key={video.path}
-                                video={video}
-                                videos={filteredVideos}
-                                videoIds={
-                                    selectedVideos.length > 0 &&
-                                    selectedVideos.includes(video.path)
-                                        ? selectedVideos
-                                        : [video.path]
-                                }
-                                groups={groups}
-                                videoGroupMap={videoGroupMap}
-                                onAddToGroup={onAddToGroup}
-                                onShowCreateGroup={onShowCreateGroup}
-                                onRemoveFromGroup={onRemoveFromGroup}
-                                sortedGames={sortedGames}
-                            >
-                                {viewMode === "grid" ? (
-                                    <VideoCard
-                                        video={video}
-                                        thumbnailUrl={`${thumbnails[video.path]}?full=true`}
-                                        isSelected={selectedVideos.includes(
-                                            video.path,
-                                        )}
-                                        videoGroupMap={videoGroupMap}
-                                        groups={groups}
-                                    />
-                                ) : (
-                                    <VideoList
-                                        video={video}
-                                        isSelected={selectedVideos.includes(
-                                            video.path,
-                                        )}
-                                        videoGroupMap={videoGroupMap}
-                                        groups={groups}
-                                    />
-                                )}
-                            </VideoContextMenu>
-                        ))}
+                        {dateGroup.videos.map((video) => {
+                            const groupIds = videoGroupMap[video.path] ?? [];
+                            return (
+                                <VideoContextMenu
+                                    key={video.path}
+                                    video={video}
+                                    groupIds={groupIds}
+                                    groups={groups}
+                                    games={games}
+                                    onOpen={onOpen}
+                                    onDelete={onDelete}
+                                    onRename={onRename}
+                                    onAddToGroup={onAddToGroup}
+                                    onRemoveFromGroup={onRemoveFromGroup}
+                                >
+                                    {viewMode === "grid" ? (
+                                        <VideoCard
+                                            video={video}
+                                            isSelected={selectedVideos.includes(video.path)}
+                                            gameImage={gameImages[video.game] ?? null}
+                                            groups={groups}
+                                            groupIds={groupIds}
+                                        />
+                                    ) : (
+                                        <VideoList
+                                            video={video}
+                                            isSelected={selectedVideos.includes(video.path)}
+                                            gameImage={gameImages[video.game] ?? null}
+                                            groups={groups}
+                                            groupIds={groupIds}
+                                        />
+                                    )}
+                                </VideoContextMenu>
+                            );
+                        })}
                     </div>
                 </div>
-            ))}{" "}
+            ))}
         </div>
     );
 }
-
-export const VideoGrid = React.memo(VideoGridBase);

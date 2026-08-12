@@ -1,0 +1,8 @@
+{
+    "$schema": "./node_modules/oxfmt/configuration_schema.json",
+    "ignorePatterns": ["package.json", "package-lock.json"],
+    "tabWidth": 4,
+    "sortImports": true,
+    "sortTailwindcss": true,
+    "sortPackageJson": true
+}

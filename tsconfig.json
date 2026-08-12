@@ -1,26 +1,4 @@
 {
-    "compilerOptions": {
-        "jsx": "react",
-        "target": "ESNext",
-        "module": "node16",
-        "moduleResolution": "node16",
-        "lib": ["dom", "ESNext"],
-        "experimentalDecorators": true,
-        "composite": true,
-        "declaration": true,
-        "forceConsistentCasingInFileNames": true,
-        "resolvePackageJsonImports": true,
-        "allowJs": false,
-        "esModuleInterop": true,
-        "noImplicitAny": true,
-        "sourceMap": true,
-        "strict": true,
-        "skipLibCheck": true,
-        "paths": {
-            "@/*": ["./src/*"]
-        },
-        "outDir": "dist",
-        "resolveJsonModule": true
-    },
-    "include": ["src/**/*", "package.json"]
+    "files": [],
+    "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
 }

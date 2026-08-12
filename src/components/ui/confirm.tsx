@@ -1,70 +1,57 @@
-import * as React from "react";
+import type * as React from "react";
+
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
-    DialogContent,
+    DialogClose,
     DialogDescription,
     DialogFooter,
     DialogHeader,
+    DialogPopup,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 
-interface ConfirmDialogProps {
+export type ConfirmVariant = "default" | "destructive";
+
+export interface ConfirmDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    title: string;
-    description: string;
-    onConfirm: () => void;
-    onCancel?: () => void;
+    title: React.ReactNode;
+    description?: React.ReactNode;
     confirmText?: string;
     cancelText?: string;
-    variant?: "default" | "destructive";
+    variant?: ConfirmVariant;
+    onConfirm: () => void;
 }
 
+/** App-level confirmation dialog (desktop-only, plain coss Dialog). */
 export function ConfirmDialog({
     open,
     onOpenChange,
     title,
     description,
-    onConfirm,
-    onCancel,
     confirmText = "Confirm",
     cancelText = "Cancel",
     variant = "default",
-}: ConfirmDialogProps) {
-    const handleConfirm = () => {
-        onConfirm();
-        onOpenChange(false);
-    };
-
-    const handleCancel = () => {
-        onCancel?.();
-        onOpenChange(false);
-    };
-
+    onConfirm,
+}: ConfirmDialogProps): React.ReactElement {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogPopup className="w-full max-w-sm">
                 <DialogHeader>
                     <DialogTitle>{title}</DialogTitle>
-                    <DialogDescription>{description}</DialogDescription>
+                    {description ? <DialogDescription>{description}</DialogDescription> : null}
                 </DialogHeader>
                 <DialogFooter>
-                    <Button variant="outline" onClick={handleCancel}>
-                        {cancelText}
-                    </Button>
+                    <DialogClose render={<Button variant="ghost">{cancelText}</Button>} />
                     <Button
-                        variant={
-                            variant === "destructive"
-                                ? "destructive"
-                                : "default"
-                        }
-                        onClick={handleConfirm}
+                        variant={variant === "destructive" ? "destructive" : "default"}
+                        onClick={onConfirm}
                     >
                         {confirmText}
                     </Button>
                 </DialogFooter>
-            </DialogContent>
+            </DialogPopup>
         </Dialog>
     );
 }

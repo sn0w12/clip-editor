@@ -1,61 +1,75 @@
+import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 import * as React from "react";
-import * as SliderPrimitive from "@radix-ui/react-slider";
 
-import { cn } from "@/utils/tailwind";
+import { cn } from "@/lib/utils";
 
-function Slider({
+export function Slider({
     className,
+    children,
     defaultValue,
     value,
     min = 0,
     max = 100,
     ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
-    const _values = React.useMemo(
-        () =>
-            Array.isArray(value)
-                ? value
-                : Array.isArray(defaultValue)
-                  ? defaultValue
-                  : [min, max],
-        [value, defaultValue, min, max],
-    );
+}: SliderPrimitive.Root.Props): React.ReactElement {
+    const _values = React.useMemo(() => {
+        if (value !== undefined) {
+            return Array.isArray(value) ? value : [value];
+        }
+        if (defaultValue !== undefined) {
+            return Array.isArray(defaultValue) ? defaultValue : [defaultValue];
+        }
+        return [min];
+    }, [value, defaultValue, min]);
 
     return (
         <SliderPrimitive.Root
-            data-slot="slider"
+            className={cn("data-[orientation=horizontal]:w-full", className)}
             defaultValue={defaultValue}
-            value={value}
-            min={min}
             max={max}
-            className={cn(
-                "relative flex w-full touch-none items-center select-none data-[disabled]:opacity-50 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
-                className,
-            )}
+            min={min}
+            thumbAlignment="edge"
+            value={value}
             {...props}
         >
-            <SliderPrimitive.Track
-                data-slot="slider-track"
-                className={cn(
-                    "bg-muted relative grow overflow-hidden rounded-full data-[orientation=horizontal]:h-1.5 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1.5",
-                )}
+            {children}
+            <SliderPrimitive.Control
+                className="flex touch-none select-none data-disabled:pointer-events-none data-disabled:opacity-64 data-[orientation=horizontal]:w-full data-[orientation=horizontal]:min-w-44 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:flex-col"
+                data-slot="slider-control"
             >
-                <SliderPrimitive.Range
-                    data-slot="slider-range"
-                    className={cn(
-                        "bg-primary absolute z-10 hidden data-[orientation=horizontal]:h-full data-[orientation=vertical]:w-full",
-                    )}
-                />
-            </SliderPrimitive.Track>
-            {Array.from({ length: _values.length }, (_, index) => (
-                <SliderPrimitive.Thumb
-                    data-slot="slider-thumb"
-                    key={index}
-                    className="border-primary bg-background ring-ring/50 relative z-40 block size-4 shrink-0 rounded-full border shadow-sm transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
-                />
-            ))}
+                <SliderPrimitive.Track
+                    className="before:bg-input relative grow select-none before:absolute before:rounded-full data-[orientation=horizontal]:h-1 data-[orientation=horizontal]:w-full data-[orientation=horizontal]:before:inset-x-0.5 data-[orientation=horizontal]:before:inset-y-0 data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1 data-[orientation=vertical]:before:inset-x-0 data-[orientation=vertical]:before:inset-y-0.5"
+                    data-slot="slider-track"
+                >
+                    <SliderPrimitive.Indicator
+                        className="bg-primary rounded-full select-none data-[orientation=horizontal]:ms-0.5 data-[orientation=vertical]:mb-0.5"
+                        data-slot="slider-indicator"
+                    />
+                    {Array.from({ length: _values.length }, (_, i) => i).map((i) => (
+                        <SliderPrimitive.Thumb
+                            className="border-input has-focus-visible:ring-ring/24 dark:border-background dark:has-focus-visible:ring-ring/48 block size-5 shrink-0 rounded-full border bg-white shadow-xs/5 transition-[box-shadow,scale] outline-none select-none not-dark:bg-clip-padding before:absolute before:inset-0 before:rounded-full before:shadow-[0_1px_--theme(--color-black/4%)] has-focus-visible:ring-[3px] data-dragging:scale-120 sm:size-4 [:has(*:focus-visible),[data-dragging]]:shadow-none"
+                            data-slot="slider-thumb"
+                            index={i}
+                            key={String(i)}
+                        />
+                    ))}
+                </SliderPrimitive.Track>
+            </SliderPrimitive.Control>
         </SliderPrimitive.Root>
     );
 }
 
-export { Slider };
+export function SliderValue({
+    className,
+    ...props
+}: SliderPrimitive.Value.Props): React.ReactElement {
+    return (
+        <SliderPrimitive.Value
+            className={cn("flex justify-end text-sm", className)}
+            data-slot="slider-value"
+            {...props}
+        />
+    );
+}
+
+export { SliderPrimitive };

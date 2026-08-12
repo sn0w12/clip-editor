@@ -1,26 +1,30 @@
-import React, { useState, useEffect } from "react";
+import { ChevronDown, Save, Trash2 } from "lucide-react";
+import { useState } from "react";
+
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogClose,
+    DialogFooter,
+    DialogHeader,
+    DialogPanel,
+    DialogPopup,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuTrigger,
-    DropdownMenuSeparator,
     DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ChevronDown, Save, Trash2 } from "lucide-react";
-import { ExportOptions } from "@/types/video-editor";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/contexts/confirm-context";
-import { useShortcutSetting } from "@/utils/settings";
+import { useShortcutSetting } from "@/lib/settings";
+import type { ExportOptions } from "@/types";
 
 interface ExportButtonProps {
     onExport: (options: Partial<ExportOptions>) => void;
@@ -77,46 +81,32 @@ const DEFAULT_PRESETS: ExportPreset[] = [
 
 const LOCAL_STORAGE_KEY = "clipEditor_customExportPresets";
 
-export function ExportButton({
-    onExport,
-    isExporting,
-    baseOptions,
-}: ExportButtonProps) {
-    const [presets, setPresets] = useState<ExportPreset[]>(DEFAULT_PRESETS);
+export function ExportButton({ onExport, isExporting, baseOptions }: ExportButtonProps) {
+    const [presets, setPresets] = useState<ExportPreset[]>(() => {
+        try {
+            const savedPresetsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
+            if (savedPresetsJson) {
+                const customPresets = JSON.parse(savedPresetsJson) as ExportPreset[];
+                return [...DEFAULT_PRESETS, ...customPresets];
+            }
+        } catch (error) {
+            console.error("Failed to load custom presets:", error);
+        }
+        return DEFAULT_PRESETS;
+    });
     const [saveDialogOpen, setSaveDialogOpen] = useState(false);
     const [newPresetName, setNewPresetName] = useState("");
     const [newPresetDescription, setNewPresetDescription] = useState("");
-    const { confirm } = useConfirm();
-
-    useEffect(() => {
-        loadCustomPresets();
-    }, []);
+    const confirm = useConfirm();
 
     const handleDirectExport = () => {
         onExport(baseOptions);
     };
     useShortcutSetting("exportClip", handleDirectExport);
 
-    const loadCustomPresets = () => {
-        try {
-            const savedPresetsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
-            if (savedPresetsJson) {
-                const customPresets = JSON.parse(
-                    savedPresetsJson,
-                ) as ExportPreset[];
-                setPresets([...DEFAULT_PRESETS, ...customPresets]);
-            }
-        } catch (error) {
-            console.error("Failed to load custom presets:", error);
-        }
-    };
-
     const saveCustomPresets = (customPresets: ExportPreset[]) => {
         try {
-            localStorage.setItem(
-                LOCAL_STORAGE_KEY,
-                JSON.stringify(customPresets),
-            );
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(customPresets));
             setPresets([...DEFAULT_PRESETS, ...customPresets]);
         } catch (error) {
             console.error("Failed to save custom presets:", error);
@@ -133,11 +123,8 @@ export function ExportButton({
             isCustom: true,
         };
 
-        // Get existing custom presets
         const customPresets = presets.filter((preset) => preset.isCustom) || [];
-        const updatedCustomPresets = [...customPresets, newPreset];
-
-        saveCustomPresets(updatedCustomPresets);
+        saveCustomPresets([...customPresets, newPreset]);
         setSaveDialogOpen(false);
         setNewPresetName("");
         setNewPresetDescription("");
@@ -148,22 +135,21 @@ export function ExportButton({
             title: "Delete Preset",
             description: `Are you sure you want to delete the preset "${presetToDelete.name}"?`,
             confirmText: "Delete",
+            variant: "destructive",
         });
         if (confirmed) {
             const customPresets = presets.filter(
-                (preset) =>
-                    preset.isCustom && preset.name !== presetToDelete.name,
+                (preset) => preset.isCustom && preset.name !== presetToDelete.name,
             );
             saveCustomPresets(customPresets);
         }
     };
 
     const handlePresetExport = (preset: ExportPreset) => {
-        const mergedOptions = {
+        onExport({
             ...baseOptions,
             ...preset.options,
-        };
-        onExport(mergedOptions);
+        });
     };
 
     const customPresets = presets.filter((preset) => preset.isCustom);
@@ -172,23 +158,26 @@ export function ExportButton({
     return (
         <div className="flex w-full">
             <Button
-                className="h-11 flex-1 justify-center rounded-r-none text-center"
+                className="flex-1 justify-center rounded-r-none text-center"
                 onClick={handleDirectExport}
                 disabled={isExporting}
-                size="lg"
             >
                 {isExporting ? "Exporting..." : "Export Clip"}
             </Button>
 
             <DropdownMenu>
-                <DropdownMenuTrigger asChild disabled={isExporting}>
-                    <Button
-                        size="icon"
-                        className="h-11 w-11 rounded-l-none border-l"
-                    >
-                        <ChevronDown className="h-4 w-4" />
-                    </Button>
-                </DropdownMenuTrigger>
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            size="icon"
+                            className="rounded-l-none border-l"
+                            disabled={isExporting}
+                            aria-label="Export presets"
+                        >
+                            <ChevronDown className="h-4 w-4" />
+                        </Button>
+                    }
+                />
                 <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuItem
                         onClick={() => setSaveDialogOpen(true)}
@@ -200,104 +189,96 @@ export function ExportButton({
 
                     <DropdownMenuSeparator />
 
-                    <DropdownMenuLabel>Default Presets</DropdownMenuLabel>
-                    {defaultPresets.map((preset, index) => (
-                        <DropdownMenuItem
-                            key={`default-${index}`}
-                            onClick={() => handlePresetExport(preset)}
-                        >
-                            <div className="flex flex-col">
-                                <span>{preset.name}</span>
-                                <span className="text-muted-foreground text-xs">
-                                    {preset.description}
-                                </span>
-                            </div>
-                        </DropdownMenuItem>
-                    ))}
+                    <DropdownMenuGroup>
+                        <DropdownMenuLabel>Default Presets</DropdownMenuLabel>
+                        {defaultPresets.map((preset, index) => (
+                            <DropdownMenuItem
+                                key={`default-${index}`}
+                                onClick={() => handlePresetExport(preset)}
+                            >
+                                <div className="flex flex-col">
+                                    <span>{preset.name}</span>
+                                    <span className="text-muted-foreground text-xs">
+                                        {preset.description}
+                                    </span>
+                                </div>
+                            </DropdownMenuItem>
+                        ))}
+                    </DropdownMenuGroup>
 
                     {customPresets.length > 0 && (
                         <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuLabel>
-                                Custom Presets
-                            </DropdownMenuLabel>
-                            {customPresets.map((preset, index) => (
-                                <DropdownMenuItem
-                                    key={`custom-${index}`}
-                                    className="flex justify-between"
-                                >
-                                    <div
-                                        className="flex-1 cursor-pointer"
-                                        onClick={() =>
-                                            handlePresetExport(preset)
-                                        }
+                            <DropdownMenuGroup>
+                                <DropdownMenuLabel>Custom Presets</DropdownMenuLabel>
+                                {customPresets.map((preset, index) => (
+                                    <DropdownMenuItem
+                                        key={`custom-${index}`}
+                                        className="flex justify-between"
+                                        onClick={() => handlePresetExport(preset)}
                                     >
-                                        <div className="flex flex-col">
+                                        <div className="flex min-w-0 flex-1 flex-col">
                                             <span>{preset.name}</span>
                                             <span className="text-muted-foreground text-xs">
                                                 {preset.description}
                                             </span>
                                         </div>
-                                    </div>
-                                    <Button
-                                        variant="destructive"
-                                        size="icon"
-                                        className="h-8 w-8"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeletePreset(preset);
-                                        }}
-                                    >
-                                        <Trash2 className="text-primary h-4 w-4" />
-                                    </Button>
-                                </DropdownMenuItem>
-                            ))}
+                                        <span
+                                            role="button"
+                                            tabIndex={0}
+                                            className="hover:bg-destructive/10 text-destructive -m-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded"
+                                            aria-label={`Delete preset ${preset.name}`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                void handleDeletePreset(preset);
+                                            }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") {
+                                                    e.stopPropagation();
+                                                    void handleDeletePreset(preset);
+                                                }
+                                            }}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                        </span>
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuGroup>
                         </>
                     )}
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-                <DialogContent>
+                <DialogPopup className="sm:max-w-sm">
                     <DialogHeader>
                         <DialogTitle>Save Export Preset</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="preset-name">Preset Name</Label>
+                    <DialogPanel className="grid gap-4">
+                        <Field>
+                            <FieldLabel>Preset Name</FieldLabel>
                             <Input
                                 id="preset-name"
                                 value={newPresetName}
-                                onChange={(e) =>
-                                    setNewPresetName(e.target.value)
-                                }
+                                onChange={(e) => setNewPresetName(e.target.value)}
                                 placeholder="My Custom Preset"
                             />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="preset-description">
-                                Description (optional)
-                            </Label>
+                        </Field>
+                        <Field>
+                            <FieldLabel>Description (optional)</FieldLabel>
                             <Input
                                 id="preset-description"
                                 value={newPresetDescription}
-                                onChange={(e) =>
-                                    setNewPresetDescription(e.target.value)
-                                }
+                                onChange={(e) => setNewPresetDescription(e.target.value)}
                                 placeholder="Custom settings for specific use case"
                             />
-                        </div>
-                    </div>
+                        </Field>
+                    </DialogPanel>
                     <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setSaveDialogOpen(false)}
-                        >
-                            Cancel
-                        </Button>
+                        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
                         <Button onClick={handleSavePreset}>Save Preset</Button>
                     </DialogFooter>
-                </DialogContent>
+                </DialogPopup>
             </Dialog>
         </div>
     );

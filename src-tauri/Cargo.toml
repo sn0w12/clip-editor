@@ -1,0 +1,58 @@
+[package]
+name = "clip-editor"
+version = "0.4.0"
+description = "Clip Editor - game clip manager, editor, and replay buffer"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "clip_editor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-prevent-default = "5"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+notify = "7"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+percent-encoding = "2"
+base64 = "0.22"
+thumbhash = "0.1"
+tiny_http = "0.12"
+parking_lot = "0.12"
+screencap = { path = "../crates/screencap" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Shell",
+] }
+winreg = "0.52"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt"] }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

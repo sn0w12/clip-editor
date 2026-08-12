@@ -6,20 +6,20 @@ on:
             - "v*.*.*"
 
 jobs:
-    create-release:
-        runs-on: ubuntu-latest
-        outputs:
-            release_id: ${{ steps.create_release.outputs.id }}
-            upload_url: ${{ steps.create_release.outputs.upload_url }}
-
+    publish-tauri:
         permissions:
             contents: write
-            packages: write
-            issues: write
-            pull-requests: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    # Only windows for now
+                    - platform: "windows-latest"
+                      args: ""
 
+        runs-on: ${{ matrix.platform }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             - name: Generate Release Notes
               id: generate_release_notes
@@ -29,49 +29,36 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-            - name: Create Release
-              id: create_release
-              uses: actions/create-release@v1
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            - name: Setup Node
+              uses: actions/setup-node@v6
               with:
-                  tag_name: ${{ github.ref_name }}
-                  release_name: Release ${{ github.ref_name }}
-                  body: ${{ steps.generate_release_notes.outputs.changelog }}
-                  draft: true
+                  node-version: lts/*
+                  cache: "npm"
 
-    build:
-        needs: create-release
-        runs-on: ${{ matrix.os }}
-        strategy:
-            matrix:
-                os: [windows-latest, ubuntu-latest]
-
-        permissions:
-            contents: write
-            packages: write
-            issues: write
-            pull-requests: read
-
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Setup Node.js
-              uses: actions/setup-node@v3
+            - name: install Rust stable
+              uses: dtolnay/rust-toolchain@stable
               with:
-                  node-version: "22"
+                  # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
+                  targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-            - name: Install libvips for sharp (Linux only)
-              if: runner.os == 'Linux'
-              run: sudo apt-get update && sudo apt-get install -y libvips-dev
+            - name: Rust cache
+              uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: "./src-tauri -> target"
 
-            - name: Install dependencies
+            - name: Install frontend dependencies
               run: npm install
 
-            - name: Rebuild native modules for Electron
-              run: npx electron-rebuild -f -w sharp
-
-            - name: Publish to GitHub Releases
+            - name: Build and publish
+              uses: tauri-apps/tauri-action@v1
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: npm run publish
+                  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+              with:
+                  tagName: v__VERSION__
+                  releaseName: "Clip Editor v__VERSION__"
+                  releaseBody: ${{ steps.generate_release_notes.outputs.changelog }}
+                  releaseDraft: true
+                  prerelease: false
+                  args: ${{ matrix.args }}

@@ -1,76 +1,113 @@
-import React, { useRef, useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
-import { VideoFile, VideoGroup } from "@/types/video";
-import { FileVideo, Gamepad2 } from "lucide-react";
-import { format } from "date-fns";
 import { useNavigate } from "@tanstack/react-router";
-import { useSteam } from "@/contexts/steam-context";
-import { getGameId, imgSrc } from "@/utils/games";
-import { Skeleton } from "../ui/skeleton";
+import { Gamepad2Icon } from "lucide-react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+
+import { Frame, FramePanel, FrameFooter } from "@/components/ui/frame";
+import { useBadge } from "@/contexts/badge-context";
+import { useThumbnail } from "@/hooks/use-thumbnails";
+import { rememberReturnToClip } from "@/lib/return-to-clip";
+import { imgSrc, videoSrc } from "@/lib/tauri";
+import { thumbHashBase64ToDataURL } from "@/lib/thumbhash";
+import { cn } from "@/lib/utils";
+import type { GameImage, VideoFile, VideoGroup } from "@/types";
+
+import { GameIcon } from "../game-icon";
 
 interface VideoCardProps {
     video: VideoFile;
-    thumbnailUrl?: string;
     isSelected: boolean;
-    videoGroupMap: Record<string, string[]>;
+    gameImage?: GameImage | null;
     groups: VideoGroup[];
+    groupIds: string[];
 }
 
-export function VideoCard({
+export const VideoCard = memo(function VideoCard({
     video,
-    thumbnailUrl,
     isSelected,
-    videoGroupMap,
+    gameImage,
     groups,
+    groupIds,
 }: VideoCardProps) {
     const navigate = useNavigate();
-    const { games, gameImages, loading } = useSteam();
+    const { scanError, path, thumbnail: inlineThumb, thumbhash } = video;
+    // When the backend already returned the thumbnail inline, skip the
+    // per-card request entirely; otherwise fall back to the async hook.
+    const fallbackThumb = useThumbnail(scanError ? undefined : inlineThumb ? undefined : path);
+    const thumbUrl = inlineThumb ?? fallbackThumb ?? null;
+    // If the cached JPEG is gone (e.g. caches were moved), fall back to the
+    // ThumbHash placeholder instead of showing a broken image. Track which URL
+    // failed so a new URL automatically re-enables the thumbnail (no effect).
+    const [thumbFailedUrl, setThumbFailedUrl] = useState<string | null>(null);
+    // The ThumbHash renders instantly (it's a tiny base64 placeholder), so a
+    // card never sits on a blank box while the JPEG thumbnail is generated.
+    // Decode it on the main thread only when there's no real thumbnail yet —
+    // cards with a cached JPEG skip the decode entirely (it's the biggest
+    // per-card cost on the home grid).
+    const showThumb = thumbUrl !== null && thumbFailedUrl !== thumbUrl;
+    const thumbhashUrl = useMemo(
+        () => (!showThumb && thumbhash ? thumbHashBase64ToDataURL(thumbhash) : null),
+        [showThumb, thumbhash],
+    );
 
     const [showVideo, setShowVideo] = useState(false);
+    const [videoUrl, setVideoUrl] = useState("");
+    useEffect(() => {
+        let cancelled = false;
+        videoSrc(video.path)
+            .then((url) => {
+                if (!cancelled) setVideoUrl(url);
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [video.path]);
     const [videoLoaded, setVideoLoaded] = useState(false);
     const [progress, setProgress] = useState(0);
     const [isHoveringProgressBar, setIsHoveringProgressBar] = useState(false);
     const hoverTimerRef = useRef<number | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const progressAnimationRef = useRef<number | null>(null);
-    const progressBarRef = useRef<HTMLDivElement>(null);
     const lastPlaybackPositionRef = useRef<number>(0);
 
-    const appId = getGameId(video.game, games, loading);
-    const hasGameIcon = appId && gameImages[appId]?.icon;
+    const { setBadgeContent, setBadgeVisible } = useBadge();
 
     const handleCardClick = () => {
+        rememberReturnToClip(video.path);
         navigate({
             to: "/clips/edit",
-            search: {
-                videoPath: video.path,
-                videoName: video.name,
-            },
+            search: { videoPath: video.path, videoName: video.name },
         });
     };
 
     const handleMouseEnter = () => {
+        if (video.scanError) return;
+        // Show the game icon + name in the window badge while hovering.
+        setBadgeContent(
+            <div className="flex items-center gap-1">
+                <GameIcon game={video.game} gameImage={gameImage} />
+                <span className="text-sm">{video.game || "Clip Editor"}</span>
+            </div>,
+        );
+        setBadgeVisible(true);
         hoverTimerRef.current = window.setTimeout(() => {
             setShowVideo(true);
         }, 700);
     };
 
     const handleMouseLeave = () => {
-        // Clear the timer if the mouse leaves before the timeout
+        setBadgeVisible(false);
         if (hoverTimerRef.current) {
             clearTimeout(hoverTimerRef.current);
             hoverTimerRef.current = null;
         }
-
         if (progressAnimationRef.current) {
             cancelAnimationFrame(progressAnimationRef.current);
             progressAnimationRef.current = null;
         }
-
         if (videoRef.current && videoLoaded) {
             lastPlaybackPositionRef.current = videoRef.current.currentTime;
         }
-
         setShowVideo(false);
         setVideoLoaded(false);
         setProgress(0);
@@ -79,95 +116,42 @@ export function VideoCard({
 
     const handleVideoLoad = () => {
         setVideoLoaded(true);
-
-        // Restore the previous playback position if it exists
         if (videoRef.current && lastPlaybackPositionRef.current > 0) {
             const duration = videoRef.current.duration || 0;
             if (lastPlaybackPositionRef.current < duration) {
                 videoRef.current.currentTime = lastPlaybackPositionRef.current;
                 setProgress((lastPlaybackPositionRef.current / duration) * 100);
             } else {
-                // If we're past the end, reset to beginning
                 lastPlaybackPositionRef.current = 0;
             }
         }
-
-        // Start updating progress immediately after video is loaded
         if (videoRef.current && showVideo) {
-            videoRef.current.play().catch((error) => {
-                console.log("Video autoplay prevented:", error);
-            });
-
-            // Start progress animation if not already running
-            if (!progressAnimationRef.current) {
-                progressAnimationRef.current =
-                    requestAnimationFrame(updateProgressBar);
-            }
+            videoRef.current.play().catch(() => undefined);
         }
     };
 
-    const updateProgressBar = () => {
-        if (videoRef.current && showVideo) {
-            // Only update if video is actually loaded and has duration
-            if (videoLoaded && videoRef.current.duration) {
-                const currentTime = videoRef.current.currentTime;
-                const duration = videoRef.current.duration || 1;
-                const progressPercent = (currentTime / duration) * 100;
-                setProgress(progressPercent);
-            }
-
-            progressAnimationRef.current =
-                requestAnimationFrame(updateProgressBar);
-        } else if (progressAnimationRef.current) {
-            // If video is not showing anymore, cancel animation
-            cancelAnimationFrame(progressAnimationRef.current);
-            progressAnimationRef.current = null;
-        }
-    };
-
-    const handleProgressBarClick = (e: React.MouseEvent<HTMLDivElement>) => {
-        e.stopPropagation(); // Prevent card click
-        if (!videoRef.current) return;
-
-        const rect = e.currentTarget.getBoundingClientRect();
-        const clickPosition = e.clientX - rect.left;
-        const percentage = (clickPosition / rect.width) * 100;
-        const seekTime = (videoRef.current.duration || 0) * (percentage / 100);
-
-        videoRef.current.currentTime = seekTime;
-        lastPlaybackPositionRef.current = seekTime;
-        setProgress(percentage);
-    };
-
-    const handleProgressBarMouseEnter = () => {
-        setIsHoveringProgressBar(true);
-    };
-
-    const handleProgressBarMouseLeave = () => {
-        setIsHoveringProgressBar(false);
-    };
-
-    // Handle video playback after the video is shown
+    // Drive the hover-preview progress bar with a self-contained rAF loop that
+    // starts/stops with (showVideo, videoLoaded). Ref writes happen in the
+    // effect; state updates happen in the animation frame callback.
     useEffect(() => {
-        if (showVideo && videoLoaded && videoRef.current) {
-            videoRef.current.play().catch((error) => {
-                console.log("Video autoplay prevented:", error);
-            });
-
-            if (!progressAnimationRef.current) {
-                progressAnimationRef.current =
-                    requestAnimationFrame(updateProgressBar);
-            }
-        } else if ((!showVideo || !videoLoaded) && videoRef.current) {
-            videoRef.current.pause();
-
-            // Cancel progress animation
+        if (showVideo && videoLoaded) {
+            if (videoRef.current) videoRef.current.play().catch(() => undefined);
+            const tick = () => {
+                const video = videoRef.current;
+                if (!video) return;
+                if (showVideo && videoLoaded && video.duration) {
+                    setProgress((video.currentTime / video.duration) * 100);
+                }
+                progressAnimationRef.current = requestAnimationFrame(tick);
+            };
+            progressAnimationRef.current = requestAnimationFrame(tick);
+        } else {
+            if (videoRef.current) videoRef.current.pause();
             if (progressAnimationRef.current) {
                 cancelAnimationFrame(progressAnimationRef.current);
                 progressAnimationRef.current = null;
             }
         }
-
         return () => {
             if (progressAnimationRef.current) {
                 cancelAnimationFrame(progressAnimationRef.current);
@@ -176,43 +160,35 @@ export function VideoCard({
         };
     }, [showVideo, videoLoaded]);
 
-    // Clean up timer when component unmounts
     useEffect(() => {
         return () => {
-            if (hoverTimerRef.current) {
-                clearTimeout(hoverTimerRef.current);
-                hoverTimerRef.current = null;
-            }
-
-            if (progressAnimationRef.current) {
-                cancelAnimationFrame(progressAnimationRef.current);
-                progressAnimationRef.current = null;
-            }
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+            if (progressAnimationRef.current) cancelAnimationFrame(progressAnimationRef.current);
+            lastPlaybackPositionRef.current = 0;
         };
     }, []);
 
-    useEffect(() => {
-        return () => {
-            // Reset stored position when component unmounts
-            lastPlaybackPositionRef.current = 0;
-        };
-    }, [video.path]);
+    const groupDots = groupIds
+        .slice(0, 3)
+        .map((id) => groups.find((g) => g.id === id))
+        .filter(Boolean) as VideoGroup[];
 
     return (
-        <Card
-            className={`selectable-item hover:border-primary/70 ease-snappy cursor-pointer gap-0 overflow-hidden py-0 transition-colors duration-200 ${
-                isSelected ? "border-primary bg-accent" : ""
-            }`}
+        <Frame
+            className={cn(
+                "selectable-item cursor-pointer border-2 border-transparent transition-colors duration-150 ease-snappy select-none scroll-mt-11",
+                isSelected ? "border-primary/70 hover:border-primary/90" : "hover:border-accent",
+            )}
             onClick={handleCardClick}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
             data-video-path={video.path}
         >
-            <div className="bg-muted relative aspect-video">
+            <FramePanel className="relative aspect-video overflow-hidden p-0">
                 {showVideo && (
                     <video
                         ref={videoRef}
-                        src={`clip-video:///${video.path}`}
+                        src={videoUrl}
                         className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-in-out ${
                             videoLoaded ? "opacity-100" : "opacity-0"
                         }`}
@@ -220,133 +196,125 @@ export function VideoCard({
                         loop
                         playsInline
                         preload="metadata"
-                        crossOrigin="anonymous"
                         onLoadedData={handleVideoLoad}
                     />
                 )}
 
-                {thumbnailUrl ? (
+                {showThumb ? (
                     <img
-                        src={thumbnailUrl}
+                        src={imgSrc(thumbUrl)}
                         alt={`Thumbnail for ${encodeURIComponent(video.name)}`}
                         className={`h-full w-full object-cover transition-opacity duration-300 ease-in-out ${
-                            showVideo && videoLoaded
-                                ? "opacity-0"
-                                : "opacity-100"
+                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
                         }`}
                         loading="lazy"
-                        draggable="false"
+                        draggable={false}
+                        onError={() => setThumbFailedUrl(thumbUrl)}
+                        onDragStart={(e) => e.preventDefault()}
+                    />
+                ) : thumbhashUrl ? (
+                    <img
+                        src={thumbhashUrl}
+                        alt={`Thumbnail for ${encodeURIComponent(video.name)}`}
+                        className={`h-full w-full object-cover transition-opacity duration-300 ease-in-out ${
+                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
+                        }`}
+                        draggable={false}
                         onDragStart={(e) => e.preventDefault()}
                     />
                 ) : (
                     <div
                         className={`flex h-full w-full flex-col items-center justify-center gap-2 transition-opacity duration-300 ease-in-out ${
-                            showVideo && videoLoaded
-                                ? "opacity-0"
-                                : "opacity-100"
+                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
                         }`}
                     >
-                        <FileVideo
-                            size={40}
-                            className="text-muted-foreground opacity-50"
-                        />
+                        <Gamepad2Icon size={40} className="text-muted-foreground opacity-50" />
                         <p className="text-muted-foreground text-xs">
-                            Generating thumbnail...
+                            {video.scanError ? "Unreadable file" : "Generating thumbnail..."}
                         </p>
                     </div>
                 )}
 
-                {/* Interactive Progress bar */}
                 {showVideo && videoLoaded && (
                     <div
-                        ref={progressBarRef}
                         className={`absolute right-0 bottom-0 left-0 ${isHoveringProgressBar ? "h-3 cursor-pointer" : "h-1"} bg-background/20 transition-all duration-200`}
-                        onClick={handleProgressBarClick}
-                        onMouseEnter={handleProgressBarMouseEnter}
-                        onMouseLeave={handleProgressBarMouseLeave}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            if (!videoRef.current) return;
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const percentage = ((e.clientX - rect.left) / rect.width) * 100;
+                            const seekTime = (videoRef.current.duration || 0) * (percentage / 100);
+                            videoRef.current.currentTime = seekTime;
+                            lastPlaybackPositionRef.current = seekTime;
+                            setProgress(percentage);
+                        }}
+                        onMouseEnter={() => setIsHoveringProgressBar(true)}
+                        onMouseLeave={() => setIsHoveringProgressBar(false)}
                     >
                         <div
-                            className={`bg-accent-positive h-full transition-all duration-100`}
+                            className="bg-accent-positive h-full transition-all duration-100"
                             style={{ width: `${progress}%` }}
                         />
                     </div>
                 )}
-            </div>
-            <div className="p-4">
-                <div className="flex items-center justify-between">
-                    <h3 className="group relative line-clamp-1 text-lg font-medium">
-                        {video.name}
-                    </h3>
-                    {videoGroupMap[video.path]?.length > 0 && (
-                        <div className="flex gap-1">
-                            {videoGroupMap[video.path]
-                                ?.slice(0, 3)
-                                .map((groupId) => {
-                                    const group = groups.find(
-                                        (g) => g.id === groupId,
-                                    );
-                                    if (!group) return null;
-                                    return (
-                                        <span
-                                            key={groupId}
-                                            className="h-3 w-3 rounded-full"
-                                            style={{
-                                                backgroundColor: group.color,
-                                            }}
-                                            title={group.name}
-                                        />
-                                    );
-                                })}
-                            {videoGroupMap[video.path]?.length > 3 && (
-                                <span className="text-muted-foreground text-xs">
-                                    +{videoGroupMap[video.path].length - 3}
-                                </span>
-                            )}
-                        </div>
-                    )}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                    {video.game && (
-                        <p className="bg-muted text-muted-foreground flex h-5 items-center gap-1 rounded py-0.5 pr-1 pl-0.5 text-xs">
-                            {loading ? (
-                                <Skeleton className="h-4 w-4 rounded" />
-                            ) : (
-                                <>
-                                    {hasGameIcon ? (
-                                        <img
-                                            src={imgSrc(gameImages[appId].icon)}
-                                            alt={`Icon for ${video.game}`}
-                                            className="h-4 rounded"
-                                            onError={(e) => {
-                                                e.currentTarget.style.display =
-                                                    "none";
-                                                e.currentTarget.nextElementSibling?.classList.remove(
-                                                    "hidden",
-                                                );
-                                            }}
-                                        />
-                                    ) : null}
-                                    <Gamepad2
-                                        className={`h-4 w-4 ${hasGameIcon ? "hidden" : ""}`}
-                                    />
-                                </>
-                            )}
-                            {video.game}
-                        </p>
-                    )}
-                </div>
-                <div className="mt-1 flex flex-wrap justify-between gap-1">
+            </FramePanel>
+            <FrameFooter className="flex flex-col gap-1 px-4 py-2">
+                <h3 className="group relative line-clamp-1 text-lg font-medium">{video.name}</h3>
+                {groupDots.length > 0 && (
+                    <div className="flex gap-1">
+                        {groupDots.map((group) => (
+                            <span
+                                key={group.id}
+                                className="h-3 w-3 rounded-full"
+                                style={{
+                                    backgroundColor: group.color ?? "var(--accent-color)",
+                                }}
+                            />
+                        ))}
+                        {groupIds.length > 3 && (
+                            <span className="text-muted-foreground text-xs">
+                                +{groupIds.length - 3}
+                            </span>
+                        )}
+                    </div>
+                )}
+                {video.game && (
+                    <p className="bg-muted text-muted-foreground flex h-5 w-fit items-center gap-1 rounded py-0.5 pr-1 pl-0.5 text-xs">
+                        <GameIcon game={video.game} gameImage={gameImage} />
+                        {video.game}
+                    </p>
+                )}
+                <div className="flex flex-wrap justify-between gap-1">
                     <p className="text-muted-foreground text-sm">
                         {(video.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
                     <p className="text-muted-foreground text-sm">
-                        {format(
-                            new Date(video.lastModified),
-                            "MMM d, yyyy, HH:mm",
-                        )}
+                        {formatDateTime(video.lastModified)}
                     </p>
                 </div>
-            </div>
-        </Card>
+            </FrameFooter>
+        </Frame>
     );
+});
+
+export function formatDateTime(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    const months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ];
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mm = String(date.getMinutes()).padStart(2, "0");
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}, ${hh}:${mm}`;
 }

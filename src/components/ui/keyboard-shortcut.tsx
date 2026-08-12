@@ -1,116 +1,111 @@
-import React from "react";
-import { useKeyPressed } from "@/hooks/use-keys-pressed";
+import { useEffect, useState } from "react";
+
+import { cn } from "@/lib/utils";
 
 interface KeyboardShortcutProps {
-    keys: string[] | string;
+    keys: string;
     className?: string;
 }
 
-const KEY_VISUALS: Record<string, string> = {
-    arrowup: "↑",
-    arrowdown: "↓",
-    arrowleft: "←",
-    arrowright: "→",
-    enter: "⏎",
-    escape: "⎋",
-    space: "␣",
-    tab: "⇥",
-    backspace: "⌫",
-    delete: "del",
-    control: "ctrl",
-    alt: "alt",
-    meta: "⌘",
-    capslock: "caps",
-};
-
-function ParseShortcutKeys(keys: string[] | string): string[] {
-    if (Array.isArray(keys)) {
-        return keys.map((key) => key.toLowerCase());
-    }
-    return keys.toLowerCase().split("+");
+/** Track currently-pressed keys (for visual pressed state). */
+function useHeldKeys(): string[] {
+    const [held, setHeld] = useState<string[]>([]);
+    useEffect(() => {
+        const down = (e: KeyboardEvent) => {
+            setHeld((prev) => (prev.includes(e.key) ? prev : [...prev, e.key]));
+        };
+        const up = (e: KeyboardEvent) => {
+            setHeld((prev) => prev.filter((k) => k !== e.key));
+        };
+        const onBlur = () => setHeld([]);
+        window.addEventListener("keydown", down);
+        window.addEventListener("keyup", up);
+        window.addEventListener("blur", onBlur);
+        return () => {
+            window.removeEventListener("keydown", down);
+            window.removeEventListener("keyup", up);
+            window.removeEventListener("blur", onBlur);
+        };
+    }, []);
+    return held;
 }
 
-function getKeyVisual(key: string): string {
-    const normalized = key.trim().toLowerCase();
-    return KEY_VISUALS[normalized] ?? key;
+function formatForDisplay(key: string): string {
+    const map: Record<string, string> = {
+        ARROWUP: "↑",
+        ARROWDOWN: "↓",
+        ARROWLEFT: "←",
+        ARROWRIGHT: "→",
+        " ": "Space",
+    };
+    return map[key] ?? key;
 }
 
-function KeyboardShortcut({ keys, className = "" }: KeyboardShortcutProps) {
-    const parsedKeys = ParseShortcutKeys(keys);
-    const pressedKeys = useKeyPressed();
-
+function Kbd({
+    className,
+    isPressed,
+    ...props
+}: React.ComponentProps<"kbd"> & { isPressed: boolean }): React.ReactElement {
+    const bg = isPressed
+        ? "bg-success text-background dark:text-foreground"
+        : "bg-muted text-muted-foreground";
     return (
-        <span
-            className={`text-muted-foreground pointer-events-none absolute top-1/2 right-3 flex -translate-y-1/2 gap-2 text-sm ${className}`}
-        >
-            {parsedKeys.map((key, index) => (
-                <kbd
-                    key={`${parsedKeys.join("-")}-${index}`}
-                    className={`rounded-md border px-1 py-0.5 text-xs transition-colors ${
-                        pressedKeys.has(key.toLowerCase())
-                            ? "bg-accent-positive border-accent-positive text-primary-foreground"
-                            : "bg-muted"
-                    }`}
-                >
-                    {getKeyVisual(key)}
-                </kbd>
-            ))}
-        </span>
+        <kbd
+            className={cn(
+                "pointer-events-none inline-flex h-5 min-w-5 select-none items-center justify-center gap-1 rounded-[.25rem] px-1 font-medium text-xs transition-colors duration-50 ease-snappy [&_svg:not([class*='size-'])]:size-3",
+                bg,
+                className,
+            )}
+            data-slot="kbd"
+            {...props}
+        />
     );
 }
 
-function ContextKeyboardShortcut({
-    keys,
-    className = "",
-}: KeyboardShortcutProps) {
-    const parsedKeys = ParseShortcutKeys(keys);
-    const pressedKeys = useKeyPressed();
-
+function KbdGroup({ className, ...props }: React.ComponentProps<"kbd">): React.ReactElement {
     return (
-        <span
-            className={`text-muted-foreground pointer-events-none flex gap-1 text-sm ${className}`}
-        >
-            {parsedKeys.map((key, index) => (
-                <kbd
-                    key={`${parsedKeys.join("-")}-${index}`}
-                    className={`rounded-md border px-1 py-0.5 text-xs transition-colors ${
-                        pressedKeys.has(key.toLowerCase())
-                            ? "bg-accent-positive border-accent-positive text-primary-foreground"
-                            : "bg-muted"
-                    }`}
-                >
-                    {getKeyVisual(key)}
-                </kbd>
-            ))}
-        </span>
+        <kbd
+            className={cn("inline-flex items-center gap-1", className)}
+            data-slot="kbd-group"
+            {...props}
+        />
     );
 }
 
-function TooltipKeyboardShortcut({
-    keys,
-    className = "",
-}: KeyboardShortcutProps) {
-    const parsedKeys = ParseShortcutKeys(keys);
-    const pressedKeys = useKeyPressed();
+function KeyboardShortcut({ keys, className }: KeyboardShortcutProps) {
+    const pressedKeys = useHeldKeys();
+    const formattedPressedKeys = pressedKeys.map((key) => {
+        if (key === "Control") return "Ctrl";
+        return formatForDisplay(key);
+    });
 
     return (
-        <span
-            className={`text-background pointer-events-none z-10 flex gap-1 text-sm ${className}`}
-        >
-            {parsedKeys.map((key, index) => (
-                <kbd
-                    key={`${parsedKeys.join("-")}-${index}`}
-                    className={`bg-primary rounded-sm border px-1 text-xs transition-colors ${
-                        pressedKeys.has(key.toLowerCase())
-                            ? "bg-accent-positive border-accent-positive text-primary-foreground"
-                            : "bg-muted"
-                    }`}
-                >
-                    {getKeyVisual(key)}
-                </kbd>
+        <KbdGroup className={cn("absolute top-1/2 right-3 flex -translate-y-1/2", className)}>
+            {keys.split("+").map((key, index) => (
+                <Kbd key={`${index}-${key}`} isPressed={formattedPressedKeys.includes(key)}>
+                    {formatForDisplay(key)}
+                </Kbd>
             ))}
-        </span>
+        </KbdGroup>
     );
 }
 
-export { KeyboardShortcut, ContextKeyboardShortcut, TooltipKeyboardShortcut };
+function ContextKeyboardShortcut({ keys, className }: KeyboardShortcutProps) {
+    const pressedKeys = useHeldKeys();
+    const formattedPressedKeys = pressedKeys.map((key) => {
+        if (key === "Control") return "Ctrl";
+        return formatForDisplay(key);
+    });
+
+    return (
+        <KbdGroup className={className}>
+            {keys.split("+").map((key, index) => (
+                <Kbd key={`${index}-${key}`} isPressed={formattedPressedKeys.includes(key)}>
+                    {formatForDisplay(key)}
+                </Kbd>
+            ))}
+        </KbdGroup>
+    );
+}
+
+export { ContextKeyboardShortcut, KeyboardShortcut };

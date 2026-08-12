@@ -11,6 +11,7 @@ import { imgSrc } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { editVideoRoute } from "@/routes/router";
 import { useClipsStore } from "@/stores/clips-store";
+import { filterClips, useFiltersStore } from "@/stores/filters-store";
 import type { VideoFile } from "@/types";
 
 const THUMB_WIDTH = 64;
@@ -90,6 +91,7 @@ function ClipHeaderLocal() {
     const [totalThumbs, setTotalThumbs] = useState(0);
     const { videoPath } = useSearch({ from: editVideoRoute.id });
     const { clips, reload } = useClipsStore();
+    const { dateRange, selectedGames, selectedGroupIds } = useFiltersStore();
     const navigate = useNavigate();
 
     // The editor can be opened directly (route restore); make sure the library
@@ -99,12 +101,15 @@ function ClipHeaderLocal() {
     }, [clips.length, reload]);
 
     const sortedVideos = useMemo(() => {
-        return [...clips].sort((a, b) => {
+        // The filmstrip follows the home page's active filters so prev/next
+        // navigate within the same set the user was browsing.
+        const filtered = [...filterClips(clips, { dateRange, selectedGames, selectedGroupIds })];
+        return filtered.sort((a, b) => {
             const timestampA = new Date(a.lastModified).getTime();
             const timestampB = new Date(b.lastModified).getTime();
             return timestampB - timestampA; // Newest first
         });
-    }, [clips]);
+    }, [clips, dateRange, selectedGames, selectedGroupIds]);
 
     const calculateTotalThumbs = useCallback((w: number | undefined): number => {
         if (!w) return 0;

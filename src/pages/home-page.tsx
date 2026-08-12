@@ -43,6 +43,7 @@ import { useConfirm } from "@/contexts/confirm-context";
 import { rememberReturnToClip, takeReturnToClip } from "@/lib/return-to-clip";
 import { dateKey } from "@/lib/utils";
 import { useClipsStore } from "@/stores/clips-store";
+import { filterClips, useFiltersStore } from "@/stores/filters-store";
 import { useGamesStore, resolveGameName } from "@/stores/games-store";
 import type { GameImage, SteamGame, VideoFile } from "@/types";
 
@@ -71,13 +72,20 @@ export function HomePage() {
     const [viewMode, setViewMode] = useState<ViewMode>(
         () => (localStorage.getItem("view-mode") as ViewMode) || "grid",
     );
-    const [dateRange, setDateRange] = useState<{ start?: Date; end?: Date }>({});
-    const [selectedGames, setSelectedGames] = useState<string[]>([]);
-    const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
     const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
     const [newGroupName, setNewGroupName] = useState("");
     const [renaming, setRenaming] = useState<VideoFile | null>(null);
     const [renameValue, setRenameValue] = useState("");
+
+    const {
+        dateRange,
+        selectedGames,
+        selectedGroupIds,
+        setDateRange,
+        setSelectedGames,
+        setSelectedGroupIds,
+        clearFilters,
+    } = useFiltersStore();
 
     const gameNames = useMemo(() => {
         const names = new Set<string>();
@@ -85,21 +93,10 @@ export function HomePage() {
         return [...names].sort((a, b) => a.localeCompare(b));
     }, [clips]);
 
-    const filtered = useMemo(() => {
-        let result = [...clips];
-        if (dateRange.start) {
-            const start = dateKey(dateRange.start.toISOString());
-            result = result.filter((c) => dateKey(c.lastModified) >= start);
-        }
-        if (dateRange.end) {
-            const end = dateKey(dateRange.end.toISOString());
-            result = result.filter((c) => dateKey(c.lastModified) <= end);
-        }
-        if (selectedGames.length > 0) result = result.filter((c) => selectedGames.includes(c.game));
-        if (selectedGroupIds.length > 0)
-            result = result.filter((c) => c.groupIds.some((id) => selectedGroupIds.includes(id)));
-        return result;
-    }, [clips, dateRange, selectedGames, selectedGroupIds]);
+    const filtered = useMemo(
+        () => filterClips(clips, { dateRange, selectedGames, selectedGroupIds }),
+        [clips, dateRange, selectedGames, selectedGroupIds],
+    );
 
     const resolvedGameNames = useMemo(() => {
         const map: Record<string, string> = {};
@@ -148,12 +145,6 @@ export function HomePage() {
     const totalSize = useMemo(() => filtered.reduce((sum, c) => sum + c.size, 0), [filtered]);
 
     const selection = useDragSelection(filtered, (v) => v.path, containerRef);
-
-    const clearFilters = () => {
-        setDateRange({});
-        setSelectedGames([]);
-        setSelectedGroupIds([]);
-    };
 
     const setViewModePersisted = (mode: ViewMode) => {
         setViewMode(mode);

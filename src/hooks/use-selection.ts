@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+
+import { useShortcutSetting } from "@/lib/settings";
 
 export function useSelection<T>(items: T[], getId: (item: T) => string) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -58,25 +60,9 @@ export function useSelection<T>(items: T[], getId: (item: T) => string) {
         });
     }, [items, getId]);
 
-    // Ctrl+A select all, Ctrl+D select none, Ctrl+I invert.
-    useEffect(() => {
-        const onKeyDown = (event: KeyboardEvent) => {
-            if (!event.ctrlKey && !event.metaKey) return;
-            const key = event.key.toLowerCase();
-            if (key === "a") {
-                event.preventDefault();
-                toggleAll();
-            } else if (key === "d") {
-                event.preventDefault();
-                clear();
-            } else if (key === "i") {
-                event.preventDefault();
-                invert();
-            }
-        };
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [toggleAll, clear, invert]);
+    useShortcutSetting("selectAll", toggleAll);
+    useShortcutSetting("selectNone", clear);
+    useShortcutSetting("selectInvert", invert);
 
     return useMemo(
         () => ({ selected, toggle, clear, setAll, toggleAll, invert }),

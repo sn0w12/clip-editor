@@ -74,6 +74,7 @@ const SHORTCUT_GROUPS: { title: string; shortcuts: ShortcutDef[] }[] = [
             ["selectAll", "Select all", "Ctrl+A"],
             ["selectNone", "Select none", "Ctrl+D"],
             ["selectInvert", "Invert selection", "Ctrl+I"],
+            ["continueSelection", "Continue selection", "Shift"],
         ],
     },
     {
@@ -82,6 +83,8 @@ const SHORTCUT_GROUPS: { title: string; shortcuts: ShortcutDef[] }[] = [
             ["pauseVideo", "Pause / play", "Space"],
             ["toggleFullscreen", "Fullscreen", "F"],
             ["muteSound", "Mute", "M"],
+            ["volumeUp", "Volume up", "ARROWUP"],
+            ["volumeDown", "Volume down", "ARROWDOWN"],
             ["skipForward", "Skip forward", "ARROWRIGHT"],
             ["skipBackward", "Skip backward", "ARROWLEFT"],
         ],

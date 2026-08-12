@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
-import { useShortcutSetting } from "@/lib/settings";
+import { parseShortcut, useSetting, useShortcutSetting } from "@/lib/settings";
+import type { Shortcut } from "@/lib/settings";
 
 interface Box {
     x: number;
@@ -27,6 +28,20 @@ const SELECTABLE_ELEMENTS = [
     "span",
     "[role='button']",
 ];
+
+function modifiersHeld(
+    shortcut: Shortcut | null,
+    e: { ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean },
+): boolean {
+    if (!shortcut) return false;
+    if (!shortcut.ctrl && !shortcut.shift && !shortcut.alt && !shortcut.meta) return false;
+    return (
+        (!shortcut.shift || e.shiftKey) &&
+        (!shortcut.ctrl || e.ctrlKey) &&
+        (!shortcut.alt || e.altKey) &&
+        (!shortcut.meta || e.metaKey)
+    );
+}
 
 export function useDragSelection<T>(
     items: T[],
@@ -68,26 +83,36 @@ export function useDragSelection<T>(
         [onSelectionChange],
     );
 
-    const handleMouseDown = useCallback((e: MouseEvent) => {
-        if (e.button !== 0) return;
-        const target = e.target as HTMLElement;
-        if (target.closest(".selectable-item")) return;
-        if (target.closest(SELECTABLE_ELEMENTS.join(", "))) return;
-        // The listener is attached to the container, so `currentTarget` is it.
-        const containerRect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
-        // The start point is stored container-relative so the selection stays
-        // anchored to the content even when the container scrolls mid-drag.
-        const x = e.clientX - (containerRect?.left ?? 0);
-        const y = e.clientY - (containerRect?.top ?? 0);
-        startRef.current = {
-            x,
-            y,
-            ctrl: e.ctrlKey || e.metaKey,
-            shift: e.shiftKey,
-        };
-        setBox({ x, y, w: 0, h: 0 });
-        setIsSelecting(true);
-    }, []);
+    // The modifier that extends a range during a drag, from the settings.
+    const continueSelectionText = useSetting("shortcut_continueSelection");
+    const continueModifier = useMemo(
+        () =>
+            parseShortcut(
+                typeof continueSelectionText === "string" ? continueSelectionText : undefined,
+            ),
+        [continueSelectionText],
+    );
+
+    const handleMouseDown = useCallback(
+        (e: MouseEvent) => {
+            if (e.button !== 0) return;
+            const target = e.target as HTMLElement;
+            if (target.closest(".selectable-item")) return;
+            if (target.closest(SELECTABLE_ELEMENTS.join(", "))) return;
+            const containerRect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+            const x = e.clientX - (containerRect?.left ?? 0);
+            const y = e.clientY - (containerRect?.top ?? 0);
+            startRef.current = {
+                x,
+                y,
+                ctrl: e.ctrlKey || e.metaKey,
+                shift: modifiersHeld(continueModifier, e),
+            };
+            setBox({ x, y, w: 0, h: 0 });
+            setIsSelecting(true);
+        },
+        [continueModifier],
+    );
 
     useEffect(() => {
         document.body.style.userSelect = isSelecting ? "none" : "";

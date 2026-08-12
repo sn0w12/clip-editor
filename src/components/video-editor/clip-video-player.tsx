@@ -554,6 +554,30 @@ export function ClipVideoPlayer({
     };
     useShortcutSetting("muteSound", toggleMute);
 
+    const volumeUp = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        const current = isMuted ? 0 : volume;
+        const next = Math.min(1, Number((current + 0.1).toFixed(2)));
+        if (isMuted) {
+            setIsMuted(false);
+            video.muted = false;
+        }
+        setVolume(next);
+        video.volume = next;
+    };
+
+    const volumeDown = () => {
+        const video = videoRef.current;
+        if (!video) return;
+        const next = Math.max(0, Number((volume - 0.1).toFixed(2)));
+        setVolume(next);
+        video.volume = next;
+    };
+
+    useShortcutSetting("volumeUp", volumeUp);
+    useShortcutSetting("volumeDown", volumeDown);
+
     const togglePlaySelectedOnly = () => {
         setPlaySelectedOnly((prev) => !prev);
     };

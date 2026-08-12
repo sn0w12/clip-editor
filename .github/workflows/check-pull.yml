@@ -23,7 +23,9 @@ jobs:
             - name: Rust cache
               uses: Swatinem/rust-cache@v2
               with:
-                  workspaces: "./src-tauri -> target"
+                  workspaces: |
+                      ./src-tauri -> target
+                      ./crates/screencap -> target
 
             - name: Install frontend dependencies
               run: npm install
@@ -39,6 +41,22 @@ jobs:
 
             - name: Build frontend
               run: npm run build
+
+            - name: Check Rust formatting (app)
+              run: cargo fmt --check
+              working-directory: src-tauri
+
+            - name: Check Rust formatting (screencap)
+              run: cargo fmt --check
+              working-directory: crates/screencap
+
+            - name: Check app
+              run: cargo check
+              working-directory: src-tauri
+
+            - name: Check screencap
+              run: cargo check
+              working-directory: crates/screencap
 
             - name: Test app
               run: cargo test --lib

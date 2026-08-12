@@ -293,8 +293,8 @@ impl RecordingHandle {
             }
         }
 
-        let controller =
-            ReplayController::start(config, None).map_err(|e| err("recording.start", e))?;
+        let controller = ReplayController::start(config, Some(crate::media::ffmpeg_dir()))
+            .map_err(|e| err("recording.start", e))?;
         // Swap the shared state through the Arc fields (interior mutability),
         // then (re)spawn the forwarder against the new controller.
         *self.controller.lock() = Some(controller);

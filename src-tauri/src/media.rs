@@ -1,7 +1,8 @@
 //! Media pipeline around the FFmpeg binary resolved by screencap's ffmpeg
-//! machinery (`resolve_ffmpeg`/`check_encoder` over ffmpeg-sidecar): ffprobe
-//! metadata (legacy contract), thumbnail extraction, waveform extraction, and
-//! the export pipeline (cuts, hardware codecs, atomic output).
+//! machinery (`resolve_ffmpeg`/`check_encoder` over ffmpeg-sidecar, with the
+//! download fallback landing in the app data dir): ffprobe metadata (legacy
+//! contract), thumbnail extraction, waveform extraction, and the export
+//! pipeline (cuts, hardware codecs, atomic output).
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -66,9 +67,29 @@ impl<R: Runtime> ExportEvents for tauri::AppHandle<R> {
     }
 }
 
-/// Resolve FFmpeg once per process through ffmpeg-sidecar's machinery: the
-/// sidecar beside the executable, then a system FFmpeg on PATH, then the
-/// crate's automatic download into the sidecar directory (which unpacks
+/// The directory FFmpeg is resolved from and downloaded into. The app points
+/// this at its data dir during setup: `%APPDATA%\clip-editor` is writable
+/// under both per-user NSIS and per-machine MSI installs, unlike the exe's own
+/// directory under Program Files. When unset (unit/e2e tests, standalone use)
+/// it falls back to the executable's own directory.
+static FFMPEG_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Point the FFmpeg resolution/download at `dir`. Called once during app
+/// setup; a no-op afterwards.
+pub fn set_ffmpeg_dir(dir: PathBuf) {
+    let _ = FFMPEG_DIR.set(dir);
+}
+
+/// The directory `resolve_ffmpeg` resolves and downloads FFmpeg into.
+pub fn ffmpeg_dir() -> PathBuf {
+    FFMPEG_DIR.get().cloned().unwrap_or_else(|| {
+        ffmpeg_sidecar::paths::sidecar_dir().unwrap_or_else(|_| PathBuf::from("."))
+    })
+}
+
+/// Resolve FFmpeg once per process: the sidecar beside the executable, the
+/// previously-downloaded binary in the app data dir, a system FFmpeg on PATH,
+/// then a one-time automatic download into the app data dir (which unpacks
 /// ffprobe too). The result is cached, so every later call is free; if the
 /// user replaces FFmpeg mid-run, a restart picks it up.
 static FFMPEG: std::sync::OnceLock<Result<PathBuf, String>> = std::sync::OnceLock::new();
@@ -84,11 +105,18 @@ fn resolve_ffmpeg_uncached() -> Result<PathBuf, String> {
             return Ok(path);
         }
     }
-    // 2. System FFmpeg on PATH.
+    // 2. A previous download in the app data dir (survives restarts, updater
+    //    swaps, and installs into either per-user or Program Files locations).
+    let dest = ffmpeg_dir();
+    let cached = dest.join(format!("ffmpeg{}", std::env::consts::EXE_SUFFIX));
+    if cached.is_file() {
+        return Ok(cached);
+    }
+    // 3. System FFmpeg on PATH.
     if ffmpeg_sidecar::command::ffmpeg_is_installed() {
         return Ok(ffmpeg_sidecar::paths::ffmpeg_path());
     }
-    // 3. Automatic download (re-checks before downloading).
+    // 4. Automatic download into the app data dir.
     let progress = |event: ffmpeg_sidecar::download::FfmpegDownloadProgressEvent| match event {
         ffmpeg_sidecar::download::FfmpegDownloadProgressEvent::Starting => {
             println!("[ffmpeg] download started");
@@ -111,17 +139,32 @@ fn resolve_ffmpeg_uncached() -> Result<PathBuf, String> {
             println!("[ffmpeg] download complete");
         }
     };
-    ffmpeg_sidecar::download::auto_download_with_progress(progress)
+    download_ffmpeg_into(&dest, progress)
         .map_err(|e| err("media.ffmpeg", format!("automatic download failed: {e}")))?;
-    ffmpeg_sidecar::paths::sidecar_path()
-        .ok()
-        .filter(|p| p.is_file())
-        .ok_or_else(|| {
-            err(
-                "media.ffmpeg",
-                "ffmpeg is not present beside the executable and the automatic download produced no binary",
-            )
-        })
+    if cached.is_file() {
+        return Ok(cached);
+    }
+    Err(err(
+        "media.ffmpeg",
+        "ffmpeg is not on PATH and the automatic download produced no binary in the app data dir",
+    ))
+}
+
+/// Download and unpack the ffmpeg-sidecar release archive (ffmpeg, ffprobe,
+/// ffplay) into `dir`. Unlike `auto_download_with_progress`, the destination
+/// is caller-controlled instead of pinned to the executable's directory.
+fn download_ffmpeg_into(
+    dir: &Path,
+    progress: impl Fn(ffmpeg_sidecar::download::FfmpegDownloadProgressEvent),
+) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("create download dir: {e}"))?;
+    let url = ffmpeg_sidecar::download::ffmpeg_download_url()
+        .map_err(|e| format!("unsupported platform: {e}"))?;
+    let archive =
+        ffmpeg_sidecar::download::download_ffmpeg_package_with_progress(url, dir, progress)
+            .map_err(|e| format!("download failed: {e}"))?;
+    ffmpeg_sidecar::download::unpack_ffmpeg(&archive, dir)
+        .map_err(|e| format!("unpack failed: {e}"))
 }
 
 /// ffprobe: beside the resolved FFmpeg binary, or on PATH when FFmpeg itself

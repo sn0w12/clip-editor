@@ -91,6 +91,10 @@ pub fn run() {
             let cache_root = data_dir.join("cache");
             std::fs::create_dir_all(&data_dir).map_err(|e| format!("app data dir: {e}"))?;
             std::fs::create_dir_all(&cache_root).map_err(|e| format!("app cache dir: {e}"))?;
+            // The FFmpeg fallback downloads next to the db/caches: the data
+            // dir is writable under both per-user NSIS and per-machine MSI
+            // installs, unlike the exe dir under Program Files.
+            crate::media::set_ffmpeg_dir(data_dir.clone());
             let db = db::open(&data_dir.join("clip-editor.db"))?;
 
             let steam_dir = crate::db::get_all_settings(&db)

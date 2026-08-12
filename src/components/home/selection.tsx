@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 
+import { useShortcutSetting } from "@/lib/settings";
+
 interface Box {
     x: number;
     y: number;
@@ -223,27 +225,33 @@ export function useDragSelection<T>(
         };
     }, [isSelecting, containerRef, items, getItemId, setSelection]);
 
+    const selectAll = useCallback(() => {
+        setSelection(new Set(items.map(getItemId)));
+    }, [items, getItemId, setSelection]);
+
+    const selectNone = useCallback(() => {
+        setSelection(new Set());
+    }, [setSelection]);
+
+    const selectInvert = useCallback(() => {
+        const all = new Set(items.map(getItemId));
+        const next = new Set<string>();
+        for (const id of all) if (!selectedRef.current.has(id)) next.add(id);
+        setSelection(next);
+    }, [items, getItemId, setSelection]);
+
+    useShortcutSetting("selectAll", selectAll);
+    useShortcutSetting("selectNone", selectNone);
+    useShortcutSetting("selectInvert", selectInvert);
+
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!e.ctrlKey && !e.metaKey) return;
-            const key = e.key.toLowerCase();
-            if (key === "a") {
-                e.preventDefault();
-                setSelection(new Set(items.map(getItemId)));
-            } else if (key === "d") {
-                e.preventDefault();
-                setSelection(new Set());
-            } else if (key === "i") {
-                e.preventDefault();
-                const all = new Set(items.map(getItemId));
-                const next = new Set<string>();
-                for (const id of all) if (!selectedRef.current.has(id)) next.add(id);
-                setSelection(next);
-            }
+            if (e.key !== "Escape") return;
+            selectNone();
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [items, getItemId, setSelection]);
+    }, [selectNone]);
 
     useEffect(() => {
         const container = containerRef.current;

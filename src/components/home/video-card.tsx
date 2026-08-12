@@ -265,7 +265,7 @@ export const VideoCard = memo(function VideoCard({
                     </div>
                 )}
             </FramePanel>
-            <FrameFooter className="flex flex-col gap-1 px-4 py-2">
+            <FrameFooter className="flex flex-col gap-1 p-2">
                 <h3 className="group relative line-clamp-1 text-lg font-medium">{video.name}</h3>
                 {groupDots.length > 0 && (
                     <div className="flex gap-1">

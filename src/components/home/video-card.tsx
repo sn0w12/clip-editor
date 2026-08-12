@@ -9,9 +9,21 @@ import { rememberReturnToClip } from "@/lib/return-to-clip";
 import { imgSrc, videoSrc } from "@/lib/tauri";
 import { thumbHashBase64ToDataURL } from "@/lib/thumbhash";
 import { cn } from "@/lib/utils";
-import type { GameImage, VideoFile, VideoGroup } from "@/types";
+import type { GameImage, VideoFile, VideoGroup, VideoMetadata } from "@/types";
 
 import { GameIcon } from "../game-icon";
+
+function previewDuration(video: HTMLVideoElement | null, metadata?: VideoMetadata | null): number {
+    const own = video?.duration;
+    if (own != null && Number.isFinite(own) && own > 0) return own;
+    const meta = metadata?.duration;
+    if (meta != null && Number.isFinite(meta) && meta > 0) return meta;
+    if (video && video.seekable.length > 0) {
+        const end = video.seekable.end(video.seekable.length - 1);
+        if (Number.isFinite(end) && end > 0) return end;
+    }
+    return 0;
+}
 
 interface VideoCardProps {
     video: VideoFile;
@@ -30,19 +42,9 @@ export const VideoCard = memo(function VideoCard({
 }: VideoCardProps) {
     const navigate = useNavigate();
     const { scanError, path, thumbnail: inlineThumb, thumbhash } = video;
-    // When the backend already returned the thumbnail inline, skip the
-    // per-card request entirely; otherwise fall back to the async hook.
     const fallbackThumb = useThumbnail(scanError ? undefined : inlineThumb ? undefined : path);
     const thumbUrl = inlineThumb ?? fallbackThumb ?? null;
-    // If the cached JPEG is gone (e.g. caches were moved), fall back to the
-    // ThumbHash placeholder instead of showing a broken image. Track which URL
-    // failed so a new URL automatically re-enables the thumbnail (no effect).
     const [thumbFailedUrl, setThumbFailedUrl] = useState<string | null>(null);
-    // The ThumbHash renders instantly (it's a tiny base64 placeholder), so a
-    // card never sits on a blank box while the JPEG thumbnail is generated.
-    // Decode it on the main thread only when there's no real thumbnail yet —
-    // cards with a cached JPEG skip the decode entirely (it's the biggest
-    // per-card cost on the home grid).
     const showThumb = thumbUrl !== null && thumbFailedUrl !== thumbUrl;
     const thumbhashUrl = useMemo(
         () => (!showThumb && thumbhash ? thumbHashBase64ToDataURL(thumbhash) : null),
@@ -117,48 +119,40 @@ export const VideoCard = memo(function VideoCard({
     const handleVideoLoad = () => {
         setVideoLoaded(true);
         if (videoRef.current && lastPlaybackPositionRef.current > 0) {
-            const duration = videoRef.current.duration || 0;
-            if (lastPlaybackPositionRef.current < duration) {
+            const duration = previewDuration(videoRef.current, video.metadata);
+            if (duration > 0 && lastPlaybackPositionRef.current < duration) {
                 videoRef.current.currentTime = lastPlaybackPositionRef.current;
                 setProgress((lastPlaybackPositionRef.current / duration) * 100);
             } else {
                 lastPlaybackPositionRef.current = 0;
             }
         }
-        if (videoRef.current && showVideo) {
-            videoRef.current.play().catch(() => undefined);
-        }
+        videoRef.current?.play().catch(() => undefined);
     };
 
-    // Drive the hover-preview progress bar with a self-contained rAF loop that
-    // starts/stops with (showVideo, videoLoaded). Ref writes happen in the
-    // effect; state updates happen in the animation frame callback.
-    useEffect(() => {
-        if (showVideo && videoLoaded) {
-            if (videoRef.current) videoRef.current.play().catch(() => undefined);
-            const tick = () => {
-                const video = videoRef.current;
-                if (!video) return;
-                if (showVideo && videoLoaded && video.duration) {
-                    setProgress((video.currentTime / video.duration) * 100);
-                }
-                progressAnimationRef.current = requestAnimationFrame(tick);
-            };
+    const startProgressLoop = () => {
+        if (progressAnimationRef.current) return;
+        const tick = () => {
+            const el = videoRef.current;
+            if (!el || el.paused) {
+                progressAnimationRef.current = null;
+                return;
+            }
+            const duration = previewDuration(el, video.metadata);
+            if (duration > 0) {
+                setProgress(Math.min(100, (el.currentTime / duration) * 100));
+            }
             progressAnimationRef.current = requestAnimationFrame(tick);
-        } else {
-            if (videoRef.current) videoRef.current.pause();
-            if (progressAnimationRef.current) {
-                cancelAnimationFrame(progressAnimationRef.current);
-                progressAnimationRef.current = null;
-            }
-        }
-        return () => {
-            if (progressAnimationRef.current) {
-                cancelAnimationFrame(progressAnimationRef.current);
-                progressAnimationRef.current = null;
-            }
         };
-    }, [showVideo, videoLoaded]);
+        progressAnimationRef.current = requestAnimationFrame(tick);
+    };
+
+    const stopProgressLoop = () => {
+        if (progressAnimationRef.current) {
+            cancelAnimationFrame(progressAnimationRef.current);
+            progressAnimationRef.current = null;
+        }
+    };
 
     useEffect(() => {
         return () => {
@@ -185,7 +179,7 @@ export const VideoCard = memo(function VideoCard({
             data-video-path={video.path}
         >
             <FramePanel className="relative aspect-video overflow-hidden p-0">
-                {showVideo && (
+                {showVideo && videoUrl && (
                     <video
                         ref={videoRef}
                         src={videoUrl}
@@ -197,6 +191,9 @@ export const VideoCard = memo(function VideoCard({
                         playsInline
                         preload="metadata"
                         onLoadedData={handleVideoLoad}
+                        onPlay={startProgressLoop}
+                        onPause={stopProgressLoop}
+                        onEnded={stopProgressLoop}
                     />
                 )}
 
@@ -244,11 +241,14 @@ export const VideoCard = memo(function VideoCard({
                         )}
                         onClick={(e) => {
                             e.stopPropagation();
-                            if (!videoRef.current) return;
+                            const el = videoRef.current;
+                            if (!el) return;
                             const rect = e.currentTarget.getBoundingClientRect();
                             const percentage = ((e.clientX - rect.left) / rect.width) * 100;
-                            const seekTime = (videoRef.current.duration || 0) * (percentage / 100);
-                            videoRef.current.currentTime = seekTime;
+                            const duration = previewDuration(el, video.metadata);
+                            if (duration <= 0) return;
+                            const seekTime = duration * (percentage / 100);
+                            el.currentTime = seekTime;
                             lastPlaybackPositionRef.current = seekTime;
                             setProgress(percentage);
                         }}

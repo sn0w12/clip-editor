@@ -237,7 +237,11 @@ export const VideoCard = memo(function VideoCard({
 
                 {showVideo && videoLoaded && (
                     <div
-                        className={`absolute right-0 bottom-0 left-0 ${isHoveringProgressBar ? "h-3 cursor-pointer" : "h-1"} bg-background/20 transition-all duration-200`}
+                        className={cn(
+                            "absolute right-0 bottom-0 left-0 bg-background/20 duration-200 ease-snappy h-1.5 hit-area-y-2",
+                            isHoveringProgressBar &&
+                                "bottom-2 cursor-pointer mx-2 hit-area-x-2 rounded-full bg-background/40",
+                        )}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (!videoRef.current) return;
@@ -252,7 +256,10 @@ export const VideoCard = memo(function VideoCard({
                         onMouseLeave={() => setIsHoveringProgressBar(false)}
                     >
                         <div
-                            className="bg-accent-positive h-full transition-all duration-100"
+                            className={cn(
+                                "bg-accent-positive h-full transition-all duration-200 ease-snappy",
+                                isHoveringProgressBar && "rounded-full",
+                            )}
                             style={{ width: `${progress}%` }}
                         />
                     </div>

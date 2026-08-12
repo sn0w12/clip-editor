@@ -915,7 +915,7 @@ function TracksEditor({
                         />
                         <Button
                             size="icon-sm"
-                            variant="ghost"
+                            variant="destructive-outline"
                             aria-label="Remove track"
                             onClick={() => onChange(tracks.filter((_, i) => i !== index))}
                         >

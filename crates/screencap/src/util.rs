@@ -13,7 +13,10 @@ pub struct RateLimiter {
 
 impl RateLimiter {
     pub fn new(interval: Duration) -> Self {
-        RateLimiter { interval, last: None }
+        RateLimiter {
+            interval,
+            last: None,
+        }
     }
 
     /// Returns `true` if the rate-limit window has elapsed since the last
@@ -62,9 +65,8 @@ pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::i
     {
         // SAFETY: on little-endian targets an f32's memory image is its LE
         // encoding; a single write beats per-sample `to_le_bytes` calls.
-        let bytes = unsafe {
-            std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 4)
-        };
+        let bytes =
+            unsafe { std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 4) };
         return writer.write_all(bytes);
     }
     #[cfg(not(target_endian = "little"))]
@@ -75,4 +77,3 @@ pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::i
         Ok(())
     }
 }
-

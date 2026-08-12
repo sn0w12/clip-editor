@@ -41,7 +41,10 @@ impl HotkeyControl {
             .name("hotkey".to_string())
             .spawn(move || run_hotkey_thread(parsed, tx, err_tx, shutdown_rx))
             .map_err(|e| HotkeyError::General(format!("cannot spawn hotkey thread: {e}")))?;
-        Ok(HotkeyControl { shutdown: shutdown_tx, join: Some(join) })
+        Ok(HotkeyControl {
+            shutdown: shutdown_tx,
+            join: Some(join),
+        })
     }
 
     /// Signal the control thread to stop (the supervisor keeps it alive until
@@ -87,15 +90,19 @@ fn run_hotkey_thread(
             }
             hotkey_id = hotkey.id();
         }
-        ParsedHotkey::Raw { ctrl, shift, alt, win, vk } => {
-            match register_raw_hotkey(*ctrl, *shift, *alt, *win, *vk, tx.clone()) {
-                Ok(handle) => raw_hotkey = Some(handle),
-                Err(e) => {
-                    let _ = err_tx.send(RunError::Hotkey(e));
-                    return;
-                }
+        ParsedHotkey::Raw {
+            ctrl,
+            shift,
+            alt,
+            win,
+            vk,
+        } => match register_raw_hotkey(*ctrl, *shift, *alt, *win, *vk, tx.clone()) {
+            Ok(handle) => raw_hotkey = Some(handle),
+            Err(e) => {
+                let _ = err_tx.send(RunError::Hotkey(e));
+                return;
             }
-        }
+        },
     }
 
     // Stop the pump by posting WM_QUIT to this thread's queue.
@@ -125,7 +132,7 @@ fn run_hotkey_thread(
     #[cfg(windows)]
     {
         use windows::Win32::UI::WindowsAndMessaging::{
-            DispatchMessageW, GetMessageW, TranslateMessage, MSG,
+            DispatchMessageW, GetMessageW, MSG, TranslateMessage,
         };
         unsafe {
             let mut msg = std::mem::zeroed::<MSG>();
@@ -148,7 +155,9 @@ fn drain_global_hotkey_events(hotkey_id: u32, tx: &Sender<HotkeyCommand>) {
     while let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
         if event.state() == HotKeyState::Pressed && event.id() == hotkey_id {
             let title = crate::naming::active_window_title();
-            let _ = tx.send(HotkeyCommand::Save { foreground_title: title });
+            let _ = tx.send(HotkeyCommand::Save {
+                foreground_title: title,
+            });
         }
     }
 }
@@ -157,7 +166,8 @@ fn drain_global_hotkey_events(hotkey_id: u32, tx: &Sender<HotkeyCommand>) {
 #[cfg(windows)]
 const RAW_HOTKEY_ID: i32 = 0x5343_5243;
 #[cfg(windows)]
-static RAW_HOTKEY_TX: parking_lot::Mutex<Option<Sender<HotkeyCommand>>> = parking_lot::Mutex::new(None);
+static RAW_HOTKEY_TX: parking_lot::Mutex<Option<Sender<HotkeyCommand>>> =
+    parking_lot::Mutex::new(None);
 
 /// Register an extended (non-global-hotkey) key via a hidden window that
 /// receives WM_HOTKEY, dispatched by our message pump.
@@ -173,10 +183,10 @@ fn register_raw_hotkey(
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        RegisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN,
+        HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN, RegisterHotKey,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, RegisterClassW, UnregisterClassW, WNDCLASSW, WM_HOTKEY,
+        CreateWindowExW, DefWindowProcW, RegisterClassW, UnregisterClassW, WM_HOTKEY, WNDCLASSW,
         WS_EX_TOOLWINDOW,
     };
 
@@ -189,7 +199,9 @@ fn register_raw_hotkey(
         if msg == WM_HOTKEY {
             if let Some(tx) = RAW_HOTKEY_TX.lock().as_ref() {
                 let title = crate::naming::active_window_title();
-                let _ = tx.send(HotkeyCommand::Save { foreground_title: title });
+                let _ = tx.send(HotkeyCommand::Save {
+                    foreground_title: title,
+                });
             }
             return LRESULT(0);
         }
@@ -232,7 +244,10 @@ fn register_raw_hotkey(
         ) {
             Ok(hwnd) => hwnd,
             Err(e) => {
-                let _ = UnregisterClassW(windows::core::PCWSTR(class_name.as_ptr()), Some(hinstance.into()));
+                let _ = UnregisterClassW(
+                    windows::core::PCWSTR(class_name.as_ptr()),
+                    Some(hinstance.into()),
+                );
                 return Err(HotkeyError::General(format!(
                     "cannot create hotkey window: {e}"
                 )));
@@ -256,7 +271,10 @@ fn register_raw_hotkey(
         if RegisterHotKey(Some(hwnd), RAW_HOTKEY_ID, mods, vk).is_err() {
             *RAW_HOTKEY_TX.lock() = None;
             let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(hwnd);
-            let _ = UnregisterClassW(windows::core::PCWSTR(class_name.as_ptr()), Some(hinstance.into()));
+            let _ = UnregisterClassW(
+                windows::core::PCWSTR(class_name.as_ptr()),
+                Some(hinstance.into()),
+            );
             return Err(HotkeyError::General(
                 "cannot register hotkey (reserved by Windows or in use by another application?)"
                     .to_string(),
@@ -281,7 +299,10 @@ fn cleanup_raw_hotkey(hwnd: windows::Win32::Foundation::HWND, atom: u16) {
                 .encode_utf16()
                 .chain(Some(0))
                 .collect();
-            let _ = UnregisterClassW(windows::core::PCWSTR(class_name.as_ptr()), Some(hinstance.into()));
+            let _ = UnregisterClassW(
+                windows::core::PCWSTR(class_name.as_ptr()),
+                Some(hinstance.into()),
+            );
         }
         let _ = atom;
     }
@@ -293,7 +314,13 @@ fn cleanup_raw_hotkey(hwnd: windows::Win32::Foundation::HWND, atom: u16) {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedHotkey {
     Standard(HotKey),
-    Raw { ctrl: bool, shift: bool, alt: bool, win: bool, vk: u32 },
+    Raw {
+        ctrl: bool,
+        shift: bool,
+        alt: bool,
+        win: bool,
+        vk: u32,
+    },
 }
 
 impl ParsedHotkey {
@@ -301,9 +328,20 @@ impl ParsedHotkey {
     pub fn describe(&self) -> String {
         match self {
             ParsedHotkey::Standard(hk) => hk.to_string(),
-            ParsedHotkey::Raw { ctrl, shift, alt, win, vk } => {
+            ParsedHotkey::Raw {
+                ctrl,
+                shift,
+                alt,
+                win,
+                vk,
+            } => {
                 let mut out = String::new();
-                for (held, name) in [(*ctrl, "ctrl"), (*shift, "shift"), (*alt, "alt"), (*win, "win")] {
+                for (held, name) in [
+                    (*ctrl, "ctrl"),
+                    (*shift, "shift"),
+                    (*alt, "alt"),
+                    (*win, "win"),
+                ] {
                     if held {
                         out.push_str(name);
                         out.push('+');
@@ -328,7 +366,10 @@ fn extended_key_name(vk: u32) -> Option<&'static str> {
 /// (`win` aliases `cmd`) and the extended Windows keys that grammar lacks
 /// (e.g. `ContextMenu`).
 pub fn parse_hotkey_extended(s: &str) -> Result<ParsedHotkey, String> {
-    let normalized = s.replace("win+", "cmd+").replace("Win+", "cmd+").replace("WIN+", "cmd+");
+    let normalized = s
+        .replace("win+", "cmd+")
+        .replace("Win+", "cmd+")
+        .replace("WIN+", "cmd+");
     if let Ok(hk) = normalized.parse::<HotKey>() {
         return Ok(ParsedHotkey::Standard(hk));
     }
@@ -360,7 +401,13 @@ pub fn parse_hotkey_extended(s: &str) -> Result<ParsedHotkey, String> {
         "CONTEXTMENU" | "MENU" | "APPS" => 0x5D,
         other => return Err(format!("unsupported key `{other}` in hotkey `{s}`")),
     };
-    Ok(ParsedHotkey::Raw { ctrl, shift, alt, win, vk })
+    Ok(ParsedHotkey::Raw {
+        ctrl,
+        shift,
+        alt,
+        win,
+        vk,
+    })
 }
 
 /// Record a hotkey by pressing it, then write it into the config file.
@@ -422,8 +469,8 @@ fn capture_hotkey() -> Result<String, RunError> {
     use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::Threading::GetCurrentThreadId;
     use windows::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, GetMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
-        KBDLLHOOKSTRUCT, LLKHF_UP, MSG, WH_KEYBOARD_LL, WM_QUIT,
+        CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_UP, MSG, PostThreadMessageW,
+        SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_QUIT,
     };
 
     static STATE: parking_lot::Mutex<Option<HookState>> = parking_lot::Mutex::new(None);
@@ -560,7 +607,7 @@ fn vk_name(vk: u32) -> Option<String> {
 #[cfg(windows)]
 fn probe_registrable(mods_bits: u32, vk: u32) -> bool {
     use windows::Win32::UI::Input::KeyboardAndMouse::{
-        RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS,
+        HOT_KEY_MODIFIERS, RegisterHotKey, UnregisterHotKey,
     };
     const PROBE_ID: i32 = 0x5343;
     unsafe {
@@ -576,13 +623,12 @@ fn probe_registrable(mods_bits: u32, vk: u32) -> bool {
 
 /// Replace `replay.hotkey` in the config file, preserving everything else.
 fn set_hotkey_in_file(path: &std::path::Path, hotkey: &str) -> Result<(), RunError> {
-    let text = std::fs::read_to_string(path)
-        .map_err(|e| RunError::Io(e))?;
-    let mut doc = text
-        .parse::<toml_edit::DocumentMut>()
-        .map_err(|e| RunError::Hotkey(HotkeyError::General(format!(
+    let text = std::fs::read_to_string(path).map_err(|e| RunError::Io(e))?;
+    let mut doc = text.parse::<toml_edit::DocumentMut>().map_err(|e| {
+        RunError::Hotkey(HotkeyError::General(format!(
             "config is not valid TOML: {e}"
-        ))))?;
+        )))
+    })?;
     doc["replay"]["hotkey"] = toml_edit::value(hotkey);
     std::fs::write(path, doc.to_string()).map_err(RunError::Io)
 }
@@ -611,7 +657,13 @@ mod tests {
     #[test]
     fn extended_parse_accepts_menu_key() {
         match parse_hotkey_extended("ContextMenu").unwrap() {
-            ParsedHotkey::Raw { ctrl, shift, alt, win, vk } => {
+            ParsedHotkey::Raw {
+                ctrl,
+                shift,
+                alt,
+                win,
+                vk,
+            } => {
                 assert!(!ctrl && !shift && !alt && !win);
                 assert_eq!(vk, 0x5D);
             }
@@ -628,11 +680,22 @@ mod tests {
             parse_hotkey_extended("ctrl+shift+KeyQ").unwrap(),
             ParsedHotkey::Standard(_)
         ));
-        assert!(matches!(parse_hotkey_extended("win+Q").unwrap(), ParsedHotkey::Standard(_)));
+        assert!(matches!(
+            parse_hotkey_extended("win+Q").unwrap(),
+            ParsedHotkey::Standard(_)
+        ));
         assert!(parse_hotkey_extended("bogus+key").is_err());
         assert!(parse_hotkey_extended("").is_err());
-        assert_eq!(parse_hotkey_extended("ContextMenu").unwrap().describe(), "ContextMenu");
-        assert_eq!(parse_hotkey_extended("ctrl+ContextMenu").unwrap().describe(), "ctrl+ContextMenu");
+        assert_eq!(
+            parse_hotkey_extended("ContextMenu").unwrap().describe(),
+            "ContextMenu"
+        );
+        assert_eq!(
+            parse_hotkey_extended("ctrl+ContextMenu")
+                .unwrap()
+                .describe(),
+            "ctrl+ContextMenu"
+        );
     }
 
     #[test]
@@ -667,11 +730,21 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        std::fs::write(&path, "[replay]\nhotkey = \"ctrl+shift+KeyQ\"\n[video]\ncodec = \"auto\"\n").unwrap();
+        std::fs::write(
+            &path,
+            "[replay]\nhotkey = \"ctrl+shift+KeyQ\"\n[video]\ncodec = \"auto\"\n",
+        )
+        .unwrap();
         set_hotkey_in_file(&path, "ctrl+alt+F12").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(text.contains("hotkey = \"ctrl+alt+F12\""), "hotkey updated: {text}");
-        assert!(text.contains("codec = \"auto\""), "other keys preserved: {text}");
+        assert!(
+            text.contains("hotkey = \"ctrl+alt+F12\""),
+            "hotkey updated: {text}"
+        );
+        assert!(
+            text.contains("codec = \"auto\""),
+            "other keys preserved: {text}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -681,7 +754,7 @@ mod tests {
     fn capture_with_injected(expected: &str, keys: &[(u16, bool)]) -> String {
         use std::time::Duration;
         use windows::Win32::UI::Input::KeyboardAndMouse::{
-            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+            INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
         };
         for attempt in 0..4 {
             let handle = std::thread::spawn(capture_hotkey);
@@ -694,7 +767,11 @@ mod tests {
                             ki: KEYBDINPUT {
                                 wVk: VIRTUAL_KEY(*vk),
                                 wScan: 0,
-                                dwFlags: if *up { KEYEVENTF_KEYUP } else { Default::default() },
+                                dwFlags: if *up {
+                                    KEYEVENTF_KEYUP
+                                } else {
+                                    Default::default()
+                                },
                                 time: 0,
                                 dwExtraInfo: 0,
                             },
@@ -704,7 +781,10 @@ mod tests {
                     std::thread::sleep(Duration::from_millis(20));
                 }
             }
-            let result = handle.join().expect("capture thread ends").expect("capture succeeds");
+            let result = handle
+                .join()
+                .expect("capture thread ends")
+                .expect("capture succeeds");
             if result == expected || attempt == 3 {
                 return result;
             }
@@ -720,7 +800,14 @@ mod tests {
         let _guard = HOOK_TEST_LOCK.lock();
         let result = capture_with_injected(
             "ctrl+alt+F12",
-            &[(0x11, false), (0x12, false), (0x7B, false), (0x7B, true), (0x12, true), (0x11, true)],
+            &[
+                (0x11, false),
+                (0x12, false),
+                (0x7B, false),
+                (0x7B, true),
+                (0x12, true),
+                (0x11, true),
+            ],
         );
         assert_eq!(result, "ctrl+alt+F12");
     }

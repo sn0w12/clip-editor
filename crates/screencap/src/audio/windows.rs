@@ -21,14 +21,14 @@ use crossbeam_channel::{Receiver, Sender};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing::{debug, warn};
 use wasapi::{
-    initialize_mta, AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat,
+    AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat, initialize_mta,
 };
 
-use crate::audio::resample::{convert_channels, StreamingResampler};
+use crate::audio::resample::{StreamingResampler, convert_channels};
 use crate::audio::{AudioBlock, AudioError, AudioEvent, SourceInfo, SourceKey, SourceKind};
 use crate::config::ProcessRule;
 use crate::error::RunError;
-use crate::util::{send_drop_oldest, RateLimiter};
+use crate::util::{RateLimiter, send_drop_oldest};
 
 /// Windows 10 build that added application-loopback (process-tree) capture.
 const MIN_BUILD: u32 = 20348;
@@ -77,8 +77,8 @@ pub fn spawn_process_audio(
 
 /// Windows build check: application-loopback requires build 20348+.
 fn check_windows_build() -> Result<(), AudioError> {
-    use windows::Win32::System::SystemInformation::OSVERSIONINFOW;
     use windows::Wdk::System::SystemServices::RtlGetVersion;
+    use windows::Win32::System::SystemInformation::OSVERSIONINFOW;
 
     unsafe {
         let mut info: OSVERSIONINFOW = std::mem::zeroed();
@@ -129,9 +129,9 @@ impl Manager {
                 Ok(()) => {}
                 Err(e) => {
                     // Session enumeration failed: report terminal and stop.
-                    let _ = self.err_tx.send(RunError::Capture(
-                        crate::error::CaptureError::Audio(e),
-                    ));
+                    let _ = self
+                        .err_tx
+                        .send(RunError::Capture(crate::error::CaptureError::Audio(e)));
                     break;
                 }
             }
@@ -310,7 +310,10 @@ fn root_pids(session_pids: &HashSet<Pid>, system: &System) -> Vec<Pid> {
 }
 
 /// Testable core of [`root_pids`]: `parent_of` resolves a PID's parent.
-fn root_pids_with<F: Fn(Pid) -> Option<Pid>>(session_pids: &HashSet<Pid>, parent_of: F) -> Vec<Pid> {
+fn root_pids_with<F: Fn(Pid) -> Option<Pid>>(
+    session_pids: &HashSet<Pid>,
+    parent_of: F,
+) -> Vec<Pid> {
     let mut roots: HashSet<Pid> = HashSet::new();
     for &pid in session_pids {
         let mut current = pid;
@@ -371,7 +374,10 @@ impl Worker {
                 )
             })
             .map_err(|e| AudioError::Capture(format!("cannot spawn worker: {e}")))?;
-        Ok(Worker { stop: stop_tx, join: Some(join) })
+        Ok(Worker {
+            stop: stop_tx,
+            join: Some(join),
+        })
     }
 
     fn stop(&self) {
@@ -418,11 +424,22 @@ fn run_worker(
         }
     };
     let mut client = client;
-    let format = WaveFormat::new(32, 32, &SampleType::Float, LOOPBACK_RATE as usize, LOOPBACK_CHANNELS as usize, None);
-    if let Err(e) = client.initialize_client(&format, &Direction::Capture, &StreamMode::EventsShared {
-        autoconvert: false,
-        buffer_duration_hns: 1_000_000, // 100 ms
-    }) {
+    let format = WaveFormat::new(
+        32,
+        32,
+        &SampleType::Float,
+        LOOPBACK_RATE as usize,
+        LOOPBACK_CHANNELS as usize,
+        None,
+    );
+    if let Err(e) = client.initialize_client(
+        &format,
+        &Direction::Capture,
+        &StreamMode::EventsShared {
+            autoconvert: false,
+            buffer_duration_hns: 1_000_000, // 100 ms
+        },
+    ) {
         warn!(source = %key.0, error = %e, "cannot initialize loopback client; omitting source");
         return;
     }
@@ -472,56 +489,53 @@ fn run_worker(
         loop {
             match capture.get_next_packet_size() {
                 Ok(Some(0)) | Ok(None) => break,
-                Ok(Some(_frames)) => {
-                    match capture.read_from_device(&mut read_buf) {
-                        Ok((read, _info)) => {
-                            let bytes = read as usize * bytes_per_frame;
-                            let mut samples = f32s_from_le(&read_buf[..bytes]);
-                            if channels != LOOPBACK_CHANNELS {
-                                samples =
-                                    convert_channels(samples, LOOPBACK_CHANNELS, channels);
-                            }
-                            match resampler.as_mut() {
-                                Some(r) => {
-                                    r.push(&samples);
-                                    out.extend_from_slice(&r.take_output());
-                                }
-                                None => out.extend_from_slice(&samples),
-                            }
-                            while out.len() >= block_frames * channels as usize {
-                                let block: Vec<f32> =
-                                    out.drain(..block_frames * channels as usize).collect();
-                                let block_pts = match next_pts {
-                                    Some(pts) => pts,
-                                    None => {
-                                        let start = origin.elapsed().saturating_sub(block_dur);
-                                        Duration::from_millis(((start.as_millis() / 20) * 20) as u64)
-                                    }
-                                };
-                                next_pts = Some(block_pts + block_dur);
-                                send_drop_oldest(
-                                    &event_tx,
-                                    &event_rx,
-                                    AudioEvent::Block(AudioBlock {
-                                        source: key.clone(),
-                                        pts: block_pts,
-                                        sample_rate,
-                                        channels,
-                                        samples: block,
-                                    }),
-                                    &mut limiter,
-                                    "audio",
-                                );
-                            }
+                Ok(Some(_frames)) => match capture.read_from_device(&mut read_buf) {
+                    Ok((read, _info)) => {
+                        let bytes = read as usize * bytes_per_frame;
+                        let mut samples = f32s_from_le(&read_buf[..bytes]);
+                        if channels != LOOPBACK_CHANNELS {
+                            samples = convert_channels(samples, LOOPBACK_CHANNELS, channels);
                         }
-                        Err(e) => {
-                            if limiter.should_emit() {
-                                warn!(source = %key.0, error = %e, "loopback read failed; source paused");
+                        match resampler.as_mut() {
+                            Some(r) => {
+                                r.push(&samples);
+                                out.extend_from_slice(&r.take_output());
                             }
-                            break;
+                            None => out.extend_from_slice(&samples),
+                        }
+                        while out.len() >= block_frames * channels as usize {
+                            let block: Vec<f32> =
+                                out.drain(..block_frames * channels as usize).collect();
+                            let block_pts = match next_pts {
+                                Some(pts) => pts,
+                                None => {
+                                    let start = origin.elapsed().saturating_sub(block_dur);
+                                    Duration::from_millis(((start.as_millis() / 20) * 20) as u64)
+                                }
+                            };
+                            next_pts = Some(block_pts + block_dur);
+                            send_drop_oldest(
+                                &event_tx,
+                                &event_rx,
+                                AudioEvent::Block(AudioBlock {
+                                    source: key.clone(),
+                                    pts: block_pts,
+                                    sample_rate,
+                                    channels,
+                                    samples: block,
+                                }),
+                                &mut limiter,
+                                "audio",
+                            );
                         }
                     }
-                }
+                    Err(e) => {
+                        if limiter.should_emit() {
+                            warn!(source = %key.0, error = %e, "loopback read failed; source paused");
+                        }
+                        break;
+                    }
+                },
                 Err(_) => break,
             }
         }
@@ -585,10 +599,7 @@ mod tests {
         };
         let mut roots = root_pids_with(&sessions, parents);
         roots.sort_by_key(|p| p.as_u32());
-        assert_eq!(
-            roots,
-            vec![Pid::from_u32(100), Pid::from_u32(300)]
-        );
+        assert_eq!(roots, vec![Pid::from_u32(100), Pid::from_u32(300)]);
     }
 
     #[test]
@@ -596,7 +607,11 @@ mod tests {
         // 100 <-> 200 cycle; must terminate (guard) with a bounded result.
         let sessions = pids(&[100, 200]);
         let parents = |pid: Pid| {
-            Some(if pid.as_u32() == 100 { Pid::from_u32(200) } else { Pid::from_u32(100) })
+            Some(if pid.as_u32() == 100 {
+                Pid::from_u32(200)
+            } else {
+                Pid::from_u32(100)
+            })
         };
         let roots = root_pids_with(&sessions, parents);
         assert!(roots.len() <= 2);

@@ -9,11 +9,11 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
-use crate::audio::resample::{convert_channels, StreamingResampler};
+use crate::audio::resample::{StreamingResampler, convert_channels};
 use crate::audio::{AudioBlock, AudioError, AudioEvent, SourceKey};
 use crate::config::InputRule;
 use crate::error::RunError;
-use crate::util::{send_drop_oldest, RateLimiter};
+use crate::util::{RateLimiter, send_drop_oldest};
 
 /// Start the microphone producer on its own thread. Returns an error only if
 /// the configured device cannot be opened at startup.
@@ -84,11 +84,9 @@ pub fn spawn_microphone(
                 move |err: cpal::Error| {
                     // Device disappearance is terminal: a silent microphone
                     // would silently violate the no-leak invariant.
-                    let _ = err_tx.send(RunError::Capture(
-                        crate::error::CaptureError::Audio(AudioError::Microphone(format!(
-                            "input stream error: {err}"
-                        ))),
-                    ));
+                    let _ = err_tx.send(RunError::Capture(crate::error::CaptureError::Audio(
+                        AudioError::Microphone(format!("input stream error: {err}")),
+                    )));
                 }
             };
 
@@ -116,7 +114,8 @@ pub fn spawn_microphone(
                             None => {
                                 let start = origin.elapsed().saturating_sub(block_dur);
                                 Duration::from_millis(
-                                    ((start.as_millis() / block_ms as u128) * block_ms as u128) as u64,
+                                    ((start.as_millis() / block_ms as u128) * block_ms as u128)
+                                        as u64,
                                 )
                             }
                         };
@@ -139,16 +138,8 @@ pub fn spawn_microphone(
             };
 
             let stream = device
-                .build_input_stream_raw(
-                    stream_config,
-                    sample_format,
-                    data_cb,
-                    err_cb,
-                    None,
-                )
-                .map_err(|e| {
-                    AudioError::Microphone(format!("cannot build input stream: {e}"))
-                });
+                .build_input_stream_raw(stream_config, sample_format, data_cb, err_cb, None)
+                .map_err(|e| AudioError::Microphone(format!("cannot build input stream: {e}")));
             match stream {
                 Ok(stream) => {
                     if let Err(e) = stream.play() {
@@ -164,9 +155,8 @@ pub fn spawn_microphone(
                     let _ = stream.pause();
                 }
                 Err(e) => {
-                    let _ = err_tx_thread.send(RunError::Capture(
-                        crate::error::CaptureError::Audio(e),
-                    ));
+                    let _ =
+                        err_tx_thread.send(RunError::Capture(crate::error::CaptureError::Audio(e)));
                 }
             }
         })
@@ -221,9 +211,7 @@ fn decode_to_f32(data: &cpal::Data) -> Vec<f32> {
             .collect(),
         cpal::SampleFormat::F64 => bytes
             .chunks_exact(8)
-            .map(|c| {
-                f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32
-            })
+            .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32)
             .collect(),
         cpal::SampleFormat::I24 => {
             // 24-bit samples stored in 4 bytes (little endian, sign-extended).
@@ -235,15 +223,13 @@ fn decode_to_f32(data: &cpal::Data) -> Vec<f32> {
                 })
                 .collect()
         }
-        cpal::SampleFormat::U24 => {
-            bytes
-                .chunks_exact(4)
-                .map(|c| {
-                    let raw = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    ((raw >> 8) as f32 - 8388608.0) / 8388608.0
-                })
-                .collect()
-        }
+        cpal::SampleFormat::U24 => bytes
+            .chunks_exact(4)
+            .map(|c| {
+                let raw = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                ((raw >> 8) as f32 - 8388608.0) / 8388608.0
+            })
+            .collect(),
         other => {
             debug!(format = ?other, "unsupported device sample format; treating as silence");
             vec![0.0; bytes.len()]

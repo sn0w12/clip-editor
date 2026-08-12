@@ -50,7 +50,6 @@ impl AudioRouter {
             mismatch_drop: RateLimiter::new(Duration::from_secs(5)),
             drop_counts: HashMap::new(),
             last_summary: std::time::Instant::now(),
-
         };
         for info in sources {
             router.register_source(info);
@@ -131,8 +130,14 @@ impl AudioRouter {
     }
 
     fn track_includes(track: &ResolvedTrack, info: &SourceInfo) -> bool {
-        let included = track.include.iter().any(|s| Self::selector_matches(s, info));
-        let excluded = track.exclude.iter().any(|s| Self::selector_matches(s, info));
+        let included = track
+            .include
+            .iter()
+            .any(|s| Self::selector_matches(s, info));
+        let excluded = track
+            .exclude
+            .iter()
+            .any(|s| Self::selector_matches(s, info));
         included && !excluded
     }
 
@@ -249,7 +254,10 @@ impl AudioRouter {
         }
 
         self.mix_index += 1;
-        debug!(window_end_ms = win_end_dur.as_millis(), "mixed audio window");
+        debug!(
+            window_end_ms = win_end_dur.as_millis(),
+            "mixed audio window"
+        );
         output
     }
 }
@@ -289,7 +297,12 @@ mod tests {
         include: Vec<Selector>,
         exclude: Vec<Selector>,
     ) -> ResolvedTrack {
-        ResolvedTrack { number, name: name.to_string(), include, exclude }
+        ResolvedTrack {
+            number,
+            name: name.to_string(),
+            include,
+            exclude,
+        }
     }
 
     const RATE: u32 = 48000;
@@ -305,7 +318,10 @@ mod tests {
         // Only window 0 has data; windows 1 and 2 must be silence.
         router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
         let m0 = router.mix();
-        assert_eq!(m0[0].samples.iter().filter(|s| **s != 0.0).count(), FRAMES * 2);
+        assert_eq!(
+            m0[0].samples.iter().filter(|s| **s != 0.0).count(),
+            FRAMES * 2
+        );
         let m1 = router.mix();
         assert!(m1[0].samples.iter().all(|s| *s == 0.0));
         let m2 = router.mix();
@@ -326,7 +342,14 @@ mod tests {
             m2[0].samples.iter().all(|s| *s == 0.0),
             "late block must not leak into later windows"
         );
-        assert_eq!(router.queues.get(&SourceKey("source:a".into())).unwrap().len(), 0);
+        assert_eq!(
+            router
+                .queues
+                .get(&SourceKey("source:a".into()))
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -355,13 +378,25 @@ mod tests {
                 1,
                 "other",
                 vec![Selector::AllProcesses],
-                vec![Selector::Tag("muted".into()), Selector::Tag("tracked".into())],
+                vec![
+                    Selector::Tag("muted".into()),
+                    Selector::Tag("tracked".into()),
+                ],
             ),
-            track(2, "discord", vec![Selector::Source("discord".into())], vec![]),
+            track(
+                2,
+                "discord",
+                vec![Selector::Source("discord".into())],
+                vec![],
+            ),
             track(5, "non_muted", vec![Selector::AllNonMutedProcesses], vec![]),
         ];
         let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
-        for (src, amp) in [("source:spotify", 1.0f32), ("source:discord", 0.25), ("source:other", 0.5)] {
+        for (src, amp) in [
+            ("source:spotify", 1.0f32),
+            ("source:discord", 0.25),
+            ("source:other", 0.5),
+        ] {
             let mut b = block(src, 0, FRAMES, CH, RATE);
             for s in b.samples.iter_mut() {
                 *s = amp;
@@ -438,13 +473,21 @@ mod tests {
     #[test]
     fn source_removal_stops_contribution() {
         let sources = vec![info("process:100", SourceKind::Process, &[])];
-        let tracks = vec![track(5, "non_muted", vec![Selector::AllNonMutedProcesses], vec![])];
+        let tracks = vec![track(
+            5,
+            "non_muted",
+            vec![Selector::AllNonMutedProcesses],
+            vec![],
+        )];
         let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
         router.apply_event(AudioEvent::Block(block("process:100", 0, FRAMES, CH, RATE)));
         assert!(router.mix()[0].samples.iter().any(|s| *s != 0.0));
         router.apply_event(AudioEvent::SourceRemoved(SourceKey("process:100".into())));
         let m = router.mix();
-        assert!(m[0].samples.iter().all(|s| *s == 0.0), "removed source must be silent");
+        assert!(
+            m[0].samples.iter().all(|s| *s == 0.0),
+            "removed source must be silent"
+        );
     }
 
     #[test]
@@ -455,7 +498,13 @@ mod tests {
         router.apply_event(AudioEvent::Block(block("source:a", 0, 480, CH, 24000)));
         let m = router.mix();
         assert!(m[0].samples.iter().all(|s| *s == 0.0));
-        assert!(router.queues.get(&SourceKey("source:a".into())).unwrap().is_empty());
+        assert!(
+            router
+                .queues
+                .get(&SourceKey("source:a".into()))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

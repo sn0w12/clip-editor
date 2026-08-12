@@ -39,10 +39,8 @@ fn main() {
     // Serial copy (what the capture does today).
     let s = src.clone();
     let d = dst.clone();
-    bench("copy serial", move || {
-        unsafe {
-            std::ptr::copy_nonoverlapping(s.as_ptr(), d.as_ptr() as *mut u8, FRAME);
-        }
+    bench("copy serial", move || unsafe {
+        std::ptr::copy_nonoverlapping(s.as_ptr(), d.as_ptr() as *mut u8, FRAME);
     });
 
     // Parallel copy over 4 threads.
@@ -100,5 +98,7 @@ fn main() {
         std::hint::black_box(&out);
     });
 
-    println!("note: memory-bound copies do not speed up when split across threads; the extra thread scheduling only contends with the game.");
+    println!(
+        "note: memory-bound copies do not speed up when split across threads; the extra thread scheduling only contends with the game."
+    );
 }

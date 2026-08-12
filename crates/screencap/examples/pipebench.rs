@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 use windows::Win32::Foundation::CloseHandle;
-use windows::Win32::Storage::FileSystem::{FlushFileBuffers, WriteFile, PIPE_ACCESS_OUTBOUND};
+use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_OUTBOUND, WriteFile};
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE, PIPE_WAIT,
 };
@@ -158,7 +158,11 @@ fn main() {
     let ffmpeg = {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("target");
-        p.push(if cfg!(debug_assertions) { "debug" } else { "release" });
+        p.push(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        });
         p.push("ffmpeg.exe");
         if !p.exists() {
             eprintln!("ffmpeg.exe not found at {}", p.display());
@@ -176,19 +180,39 @@ fn main() {
         cmd.arg("-read_ahead_limit").arg(readahead.to_string());
     }
     cmd.args([
-        "-f", "rawvideo", "-pix_fmt", "bgra", "-video_size",
-        &format!("{w}x{h}"), "-framerate", &fps.to_string(), "-i", &url,
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "bgra",
+        "-video_size",
+        &format!("{w}x{h}"),
+        "-framerate",
+        &fps.to_string(),
+        "-i",
+        &url,
     ]);
     cmd.arg("-c:v").arg(&codec);
     if codec == "libx264" {
-        cmd.arg("-threads").arg("4").arg("-preset").arg("veryfast").arg("-crf").arg(q.to_string());
+        cmd.arg("-threads")
+            .arg("4")
+            .arg("-preset")
+            .arg("veryfast")
+            .arg("-crf")
+            .arg(q.to_string());
     } else {
         cmd.arg("-cq").arg(q.to_string());
     }
     if mux == "segment" {
         cmd.args([
-            "-f", "segment", "-segment_time", "1", "-reset_timestamps", "1",
-            "-segment_list_type", "csv", "-segment_list",
+            "-f",
+            "segment",
+            "-segment_time",
+            "1",
+            "-reset_timestamps",
+            "1",
+            "-segment_list_type",
+            "csv",
+            "-segment_list",
             segments_txt.to_str().unwrap(),
         ]);
         let pattern = work.join("seg_%05d.mkv");

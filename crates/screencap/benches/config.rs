@@ -2,8 +2,8 @@
 //! heaviest realistic document).
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use figment::providers::{Format, Toml};
 use figment::Figment;
+use figment::providers::{Format, Toml};
 use screencap::config::Config;
 
 fn bench_config(c: &mut Criterion) {

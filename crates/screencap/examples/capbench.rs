@@ -19,7 +19,11 @@ fn main() {
         .unwrap_or(10);
     let fps: u32 = 60;
 
-    let settings = VideoSettings { monitor: MonitorSpec::Primary, fps, cursor: false };
+    let settings = VideoSettings {
+        monitor: MonitorSpec::Primary,
+        fps,
+        cursor: false,
+    };
     let info = {
         let backend = screencap::video::create_backend(&settings).expect("backend");
         backend.resolve().expect("resolve")
@@ -34,7 +38,14 @@ fn main() {
     let origin = Instant::now();
     let backend = screencap::video::create_backend(&settings).expect("backend");
     backend
-        .spawn(info, origin, tx.clone(), rx.clone(), err_tx.clone(), shutdown_rx.clone())
+        .spawn(
+            info,
+            origin,
+            tx.clone(),
+            rx.clone(),
+            err_tx.clone(),
+            shutdown_rx.clone(),
+        )
         .expect("spawn capture");
 
     // Consumer mirrors the segmenter's video writer drain (just discards here).

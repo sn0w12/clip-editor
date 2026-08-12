@@ -4,8 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
-use figment::providers::{Env, Format, Toml};
 use figment::Figment;
+use figment::providers::{Env, Format, Toml};
 use serde::Deserialize;
 
 use crate::error::ConfigError;
@@ -274,7 +274,6 @@ impl Selector {
     }
 }
 
-
 #[derive(Debug, Deserialize)]
 struct RawConfig {
     #[serde(default)]
@@ -428,7 +427,11 @@ impl Default for RawReplay {
 
 impl Default for RawVideo {
     fn default() -> Self {
-        RawVideo { codec: default_codec(), quality: default_quality(), cursor: default_cursor() }
+        RawVideo {
+            codec: default_codec(),
+            quality: default_quality(),
+            cursor: default_cursor(),
+        }
     }
 }
 
@@ -444,7 +447,6 @@ impl Default for RawAudio {
         }
     }
 }
-
 
 /// The default configuration path: `<platform config dir>/screencap/config.toml`
 /// (e.g. `%APPDATA%\screencap\config.toml` on Windows).
@@ -531,7 +533,12 @@ impl Config {
             ));
         }
         for i in &self.audio.inputs {
-            out.push_str(&format!("input source `{}`: {} on `{}`\n", i.id, i.kind.as_str(), i.device));
+            out.push_str(&format!(
+                "input source `{}`: {} on `{}`\n",
+                i.id,
+                i.kind.as_str(),
+                i.device
+            ));
         }
         for t in &self.audio.tracks {
             let incl: Vec<String> = t.include.iter().map(|s| s.describe()).collect();
@@ -547,7 +554,6 @@ impl Config {
         out
     }
 }
-
 
 impl RawConfig {
     fn validate(self) -> Result<Config, ConfigError> {
@@ -573,7 +579,10 @@ impl RawConfig {
             ));
         }
         if !(1..=240).contains(&self.replay.fps) {
-            return fail(format!("replay.fps must be between 1 and 240, got {}", self.replay.fps));
+            return fail(format!(
+                "replay.fps must be between 1 and 240, got {}",
+                self.replay.fps
+            ));
         }
         if self.replay.output_dir.as_os_str().is_empty() {
             return fail("replay.output_dir must not be empty".to_string());
@@ -585,7 +594,9 @@ impl RawConfig {
         if base.is_empty() {
             return fail("replay.filename_base must not be empty".to_string());
         }
-        if base.chars().any(|c| matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()) {
+        if base.chars().any(|c| {
+            matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+        }) {
             return fail(format!(
                 "replay.filename_base contains Windows-invalid characters: `{base}`"
             ));
@@ -597,8 +608,7 @@ impl RawConfig {
         }
 
         // monitor
-        let monitor =
-            MonitorSpec::parse(&self.replay.monitor).map_err(ConfigError::Validation)?;
+        let monitor = MonitorSpec::parse(&self.replay.monitor).map_err(ConfigError::Validation)?;
 
         // hotkey (standard global-hotkey syntax or extended keys such as
         // ContextMenu)
@@ -616,7 +626,7 @@ impl RawConfig {
                 return fail(format!(
                     "video.codec must be `auto`, `libx264`, `h264_nvenc`, `h264_amf`, or \
                      `h264_qsv`, got `{other}`"
-                ))
+                ));
             }
         };
         if self.video.quality > 51 {
@@ -679,13 +689,20 @@ impl RawConfig {
                 ));
             }
             if i.device.is_empty() {
-                return fail(format!("audio.inputs[].device must not be empty for `{}`", i.id));
+                return fail(format!(
+                    "audio.inputs[].device must not be empty for `{}`",
+                    i.id
+                ));
             }
             if input_ids.iter().any(|id| id == &i.id) {
                 return fail(format!("duplicate audio.inputs[].id: `{}`", i.id));
             }
             input_ids.push(i.id.clone());
-            inputs.push(InputRule { id: i.id.clone(), kind: InputKind::Microphone, device: i.device.clone() });
+            inputs.push(InputRule {
+                id: i.id.clone(),
+                kind: InputKind::Microphone,
+                device: i.device.clone(),
+            });
         }
 
         // all configured tags (from process rules)
@@ -708,7 +725,10 @@ impl RawConfig {
             }
             track_numbers.push(t.number);
             if t.name.is_empty() {
-                return fail(format!("audio.tracks[].name must not be empty for track {}", t.number));
+                return fail(format!(
+                    "audio.tracks[].name must not be empty for track {}",
+                    t.number
+                ));
             }
             if t.name.chars().any(|c| c.is_control()) {
                 return fail(format!(
@@ -731,7 +751,12 @@ impl RawConfig {
                 .map(|s| parse_selector(s, &process_ids, &input_ids, &configured_tags))
                 .collect::<Result<Vec<Selector>, String>>()
                 .map_err(ConfigError::Validation)?;
-            tracks.push(ResolvedTrack { number: t.number, name: t.name.clone(), include, exclude });
+            tracks.push(ResolvedTrack {
+                number: t.number,
+                name: t.name.clone(),
+                include,
+                exclude,
+            });
         }
 
         if tracks.is_empty() {
@@ -750,7 +775,11 @@ impl RawConfig {
                 success_sound: validated_success_sound(self.replay.success_sound)?,
                 buffer_dir: validated_buffer_dir(self.replay.buffer_dir)?,
             },
-            video: VideoConfig { codec, quality: self.video.quality, cursor: self.video.cursor },
+            video: VideoConfig {
+                codec,
+                quality: self.video.quality,
+                cursor: self.video.cursor,
+            },
             audio: AudioConfig {
                 sample_rate: self.audio.sample_rate,
                 channels: self.audio.channels,
@@ -797,10 +826,14 @@ impl ReplayConfig {
     }
 }
 
-fn validate_id(id: &str, what: &str) -> Result<(), ConfigError> {    if id.is_empty() {
+fn validate_id(id: &str, what: &str) -> Result<(), ConfigError> {
+    if id.is_empty() {
         return Err(ConfigError::Validation(format!("{what} must not be empty")));
     }
-    if id.chars().any(|c| c == ':' || c.is_whitespace() || c.is_control()) {
+    if id
+        .chars()
+        .any(|c| c == ':' || c.is_whitespace() || c.is_control())
+    {
         return Err(ConfigError::Validation(format!(
             "{what} contains invalid characters (no `:`, whitespace, or control chars): `{id}`"
         )));
@@ -824,9 +857,14 @@ fn validate_executable(exe: &str) -> Result<(), ConfigError> {
 
 fn validate_tag(tag: &str) -> Result<(), ConfigError> {
     if tag.is_empty() {
-        return Err(ConfigError::Validation("process rule tags must not be empty".to_string()));
+        return Err(ConfigError::Validation(
+            "process rule tags must not be empty".to_string(),
+        ));
     }
-    if tag.chars().any(|c| c == ':' || c.is_whitespace() || c.is_control()) {
+    if tag
+        .chars()
+        .any(|c| c == ':' || c.is_whitespace() || c.is_control())
+    {
         return Err(ConfigError::Validation(format!(
             "tag contains invalid characters (no `:`, whitespace, or control chars): `{tag}`"
         )));
@@ -870,7 +908,6 @@ fn parse_selector(
     }
 }
 
-
 /// Write a configuration file, failing if the destination already exists.
 pub fn write_config(path: &Path, content: &str) -> Result<(), ConfigError> {
     if path.exists() {
@@ -880,13 +917,13 @@ pub fn write_config(path: &Path, content: &str) -> Result<(), ConfigError> {
         )));
     }
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| ConfigError::Validation(format!("cannot create {}: {e}", parent.display())))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ConfigError::Validation(format!("cannot create {}: {e}", parent.display()))
+        })?;
     }
     std::fs::write(path, content)
         .map_err(|e| ConfigError::Validation(format!("cannot write {}: {e}", path.display())))
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -902,7 +939,11 @@ mod tests {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("screencap_test_{tag}_{}_{}", std::process::id(), stamp));
+        let dir = std::env::temp_dir().join(format!(
+            "screencap_test_{tag}_{}_{}",
+            std::process::id(),
+            stamp
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -936,7 +977,13 @@ mod tests {
     #[test]
     fn buffer_dir_is_optional_and_validated() {
         // omitted -> auto (None)
-        assert!(load_from_str("[replay]\nfps = 30\n").unwrap().replay.buffer_dir.is_none());
+        assert!(
+            load_from_str("[replay]\nfps = 30\n")
+                .unwrap()
+                .replay
+                .buffer_dir
+                .is_none()
+        );
         // explicit path passes through
         let cfg = load_from_str("[replay]\nbuffer_dir = \"D:\\\\screencap-buffer\"\n").unwrap();
         assert_eq!(
@@ -950,7 +997,11 @@ mod tests {
         let resolved = cfg.replay.resolved_buffer_dir();
         assert_eq!(resolved.parent(), Some(std::env::temp_dir().as_path()));
         assert!(
-            resolved.file_name().unwrap().to_string_lossy().starts_with("screencap-buffer-"),
+            resolved
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("screencap-buffer-"),
             "auto buffer dir is per-process: {resolved:?}"
         );
     }
@@ -967,7 +1018,13 @@ mod tests {
             Some("C:/sounds/save.wav")
         );
         // omitted -> no sound
-        assert!(load_from_str("[replay]\nfps = 30\n").unwrap().replay.success_sound.is_none());
+        assert!(
+            load_from_str("[replay]\nfps = 30\n")
+                .unwrap()
+                .replay
+                .success_sound
+                .is_none()
+        );
     }
 
     #[test]
@@ -989,7 +1046,11 @@ mod tests {
         assert_eq!(cfg.audio.sample_rate, 48000);
         assert_eq!(cfg.audio.channels, 2);
         assert_eq!(cfg.audio.block_ms, 20);
-        assert_eq!(cfg.audio.processes.len(), 0, "minimal default has no process rules");
+        assert_eq!(
+            cfg.audio.processes.len(),
+            0,
+            "minimal default has no process rules"
+        );
         assert_eq!(cfg.audio.inputs.len(), 0, "minimal default has no inputs");
         assert_eq!(cfg.audio.tracks.len(), 1);
         assert_eq!(cfg.audio.tracks[0].number, 1);
@@ -1062,13 +1123,19 @@ fps = 30
             msg.contains("duration_seconds"),
             "error should name the offending key, got: {msg}"
         );
-        assert!(matches!(err, ConfigError::Figment(_)), "expected a Figment error");
+        assert!(
+            matches!(err, ConfigError::Figment(_)),
+            "expected a Figment error"
+        );
     }
 
     #[test]
     fn malformed_toml_syntax_is_figment_error() {
         let err = load_from_str("[replay\nduration_seconds = 30\n").unwrap_err();
-        assert!(matches!(err, ConfigError::Figment(_)), "expected a Figment error");
+        assert!(
+            matches!(err, ConfigError::Figment(_)),
+            "expected a Figment error"
+        );
     }
 
     #[test]
@@ -1092,7 +1159,16 @@ fps = 30
 
     #[test]
     fn validates_filename_base() {
-        for bad in ["", "My/Game", "Bad:Name", "Trailing ", "Trailing.", "a*b", "bad?name", "x\"y"] {
+        for bad in [
+            "",
+            "My/Game",
+            "Bad:Name",
+            "Trailing ",
+            "Trailing.",
+            "a*b",
+            "bad?name",
+            "x\"y",
+        ] {
             assert!(
                 load_from_str(&format!("[replay]\nfilename_base = {bad:?}\n")).is_err(),
                 "expected rejection of filename_base {bad:?}"
@@ -1114,7 +1190,10 @@ fps = 30
             MonitorSpec::Index(2)
         );
         assert_eq!(
-            load_from_str("[replay]\nmonitor = \"primary\"\n").unwrap().replay.monitor,
+            load_from_str("[replay]\nmonitor = \"primary\"\n")
+                .unwrap()
+                .replay
+                .monitor,
             MonitorSpec::Primary
         );
     }
@@ -1140,52 +1219,74 @@ fps = 30
     #[test]
     fn selector_validation() {
         // unknown selector literal
-        assert!(load_from_str(
-            "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"banana\"]\n"
-        )
-        .is_err());
+        assert!(
+            load_from_str("[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"banana\"]\n")
+                .is_err()
+        );
         // unknown source id
-        assert!(load_from_str(
-            "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"source:missing\"]\n"
-        )
-        .is_err());
+        assert!(
+            load_from_str(
+                "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"source:missing\"]\n"
+            )
+            .is_err()
+        );
         // unknown input id
-        assert!(load_from_str(
-            "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"input:missing\"]\n"
-        )
-        .is_err());
+        assert!(
+            load_from_str(
+                "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"input:missing\"]\n"
+            )
+            .is_err()
+        );
         // unknown tag
-        assert!(load_from_str(
-            "[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"tag:nope\"]\n"
-        )
-        .is_err());
+        assert!(
+            load_from_str("[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = [\"tag:nope\"]\n")
+                .is_err()
+        );
         // track with no selectors
-        assert!(load_from_str("[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = []\n").is_err());
+        assert!(
+            load_from_str("[[audio.tracks]]\nnumber = 9\nname = \"x\"\ninclude = []\n").is_err()
+        );
         // empty track name
-        assert!(load_from_str("[[audio.tracks]]\nnumber = 9\nname = \"\"\ninclude = [\"all_processes\"]\n")
-            .is_err());
+        assert!(
+            load_from_str(
+                "[[audio.tracks]]\nnumber = 9\nname = \"\"\ninclude = [\"all_processes\"]\n"
+            )
+            .is_err()
+        );
         // duplicate track number
-        assert!(load_from_str(
-            "[[audio.tracks]]\nnumber = 1\nname = \"a\"\ninclude = [\"all_processes\"]\n\
+        assert!(
+            load_from_str(
+                "[[audio.tracks]]\nnumber = 1\nname = \"a\"\ninclude = [\"all_processes\"]\n\
              [[audio.tracks]]\nnumber = 1\nname = \"b\"\ninclude = [\"all_processes\"]\n"
-        )
-        .is_err());
+            )
+            .is_err()
+        );
         // track number 0
-        assert!(load_from_str("[[audio.tracks]]\nnumber = 0\nname = \"x\"\ninclude = [\"all_processes\"]\n")
-            .is_err());
+        assert!(
+            load_from_str(
+                "[[audio.tracks]]\nnumber = 0\nname = \"x\"\ninclude = [\"all_processes\"]\n"
+            )
+            .is_err()
+        );
         // duplicate process id
-        assert!(load_from_str(
-            "[[audio.processes]]\nid = \"a\"\nexecutable = \"a.exe\"\n\
+        assert!(
+            load_from_str(
+                "[[audio.processes]]\nid = \"a\"\nexecutable = \"a.exe\"\n\
              [[audio.processes]]\nid = \"a\"\nexecutable = \"b.exe\"\n"
-        )
-        .is_err());
+            )
+            .is_err()
+        );
         // executable with path separator
-        assert!(load_from_str("[[audio.processes]]\nid = \"a\"\nexecutable = \"C:/a.exe\"\n").is_err());
+        assert!(
+            load_from_str("[[audio.processes]]\nid = \"a\"\nexecutable = \"C:/a.exe\"\n").is_err()
+        );
         // tag with colon
-        assert!(load_from_str(
-            "[[audio.processes]]\nid = \"a\"\nexecutable = \"a.exe\"\ntags = [\"bad:tag\"]\n"
-        )
-        .is_err());
+        assert!(
+            load_from_str(
+                "[[audio.processes]]\nid = \"a\"\nexecutable = \"a.exe\"\ntags = [\"bad:tag\"]\n"
+            )
+            .is_err()
+        );
         // valid track referring to configured source and tag
         assert!(load_from_str(
             "[[audio.processes]]\nid = \"discord\"\nexecutable = \"Discord.exe\"\ntags = [\"tracked\"]\n\

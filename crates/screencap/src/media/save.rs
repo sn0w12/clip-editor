@@ -4,10 +4,10 @@
 //! buffer stays MKV (live-safe), but the saved clip is MP4 so the editor can
 //! play it directly (WebView2 cannot demux Matroska).
 
-use std::path::{Path, PathBuf};
-use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use tracing::{info, warn};
 
@@ -48,7 +48,10 @@ pub fn save_replay(
     let selected_segments: Vec<&crate::media::SegmentInfo> =
         selected.iter().map(|&i| &segments[i]).collect();
 
-    let actual: f64 = selected_segments.iter().map(|s| s.duration.as_secs_f64()).sum();
+    let actual: f64 = selected_segments
+        .iter()
+        .map(|s| s.duration.as_secs_f64())
+        .sum();
     if actual < duration_seconds as f64 {
         warn!(
             actual_seconds = format!("{actual:.1}"),
@@ -58,7 +61,10 @@ pub fn save_replay(
     }
 
     std::fs::create_dir_all(output_dir).map_err(|e| {
-        MediaError::General(format!("cannot create output dir {}: {e}", output_dir.display()))
+        MediaError::General(format!(
+            "cannot create output dir {}: {e}",
+            output_dir.display()
+        ))
     })?;
 
     // Private concat list in the buffer directory (forward slashes so FFmpeg
@@ -78,7 +84,10 @@ pub fn save_replay(
         list.push_str(&format!("file '{escaped}'\n"));
     }
     std::fs::write(&list_path, list).map_err(|e| {
-        MediaError::General(format!("cannot write concat list {}: {e}", list_path.display()))
+        MediaError::General(format!(
+            "cannot write concat list {}: {e}",
+            list_path.display()
+        ))
     })?;
 
     // Target name fixed up front (timestamp and title captured at hotkey time,
@@ -164,17 +173,24 @@ mod save_window_test {
             return;
         }
         let buffer_dir = PathBuf::from(
-            std::env::var("SAVE_TEST_BUFFER").expect("SAVE_TEST_BUFFER must point at a live buffer dir"),
+            std::env::var("SAVE_TEST_BUFFER")
+                .expect("SAVE_TEST_BUFFER must point at a live buffer dir"),
         );
-        let store = Arc::new(crate::media::segmenter::SegmentStore::new(buffer_dir.clone()));
+        let store = Arc::new(crate::media::segmenter::SegmentStore::new(
+            buffer_dir.clone(),
+        ));
         let list = std::fs::read_to_string(buffer_dir.join("segments.txt")).unwrap();
         for line in list.lines() {
             let f: Vec<&str> = line.trim().split(',').collect();
             if f.len() != 3 {
                 continue;
             }
-            let Ok(start) = f[1].trim().parse::<f64>() else { continue };
-            let Ok(end) = f[2].trim().parse::<f64>() else { continue };
+            let Ok(start) = f[1].trim().parse::<f64>() else {
+                continue;
+            };
+            let Ok(end) = f[2].trim().parse::<f64>() else {
+                continue;
+            };
             let dur = end - start;
             if dur <= 0.0 {
                 continue;
@@ -195,9 +211,16 @@ mod save_window_test {
         let newest = segs.last().expect("no segments");
         let newest_mtime = std::fs::metadata(&newest.path).unwrap().modified().unwrap();
         let now = std::time::SystemTime::now();
-        let age = now.duration_since(newest_mtime).unwrap_or_default().as_secs_f64();
-        println!("SAVE-WINDOW: newest recorded segment `{}` is {:.2}s old at save time", newest.name, age);
-        let out_dir = PathBuf::from(std::env::var("SAVE_TEST_OUT").unwrap_or_else(|_| "savewindow".into()));
+        let age = now
+            .duration_since(newest_mtime)
+            .unwrap_or_default()
+            .as_secs_f64();
+        println!(
+            "SAVE-WINDOW: newest recorded segment `{}` is {:.2}s old at save time",
+            newest.name, age
+        );
+        let out_dir =
+            PathBuf::from(std::env::var("SAVE_TEST_OUT").unwrap_or_else(|_| "savewindow".into()));
         std::fs::create_dir_all(&out_dir).unwrap();
         let out = super::save_replay(
             &PathBuf::from(std::env::var("SAVE_TEST_FFMPEG").unwrap_or_else(|_| "ffmpeg".into())),

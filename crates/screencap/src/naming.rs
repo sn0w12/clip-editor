@@ -13,8 +13,7 @@ pub fn sanitize_title(title: &str) -> String {
     let mut out: String = title
         .chars()
         .map(|c| {
-            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
-            {
+            if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
                 '_'
             } else {
                 c
@@ -157,7 +156,10 @@ mod tests {
         let title = "My_Game_Clip";
 
         let first = pick_output_path(&dir, base, title);
-        assert_eq!(first.file_name().unwrap().to_str().unwrap(), "Replay_My_Game_Clip.mp4");
+        assert_eq!(
+            first.file_name().unwrap().to_str().unwrap(),
+            "Replay_My_Game_Clip.mp4"
+        );
         std::fs::write(&first, "1").unwrap();
 
         let second = pick_output_path(&dir, base, title);

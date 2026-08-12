@@ -29,7 +29,12 @@ pub struct VideoFrame {
 impl VideoFrame {
     pub fn new(pts: Duration, width: u32, height: u32, bgra: Vec<u8>) -> Self {
         debug_assert_eq!(bgra.len() as u64, width as u64 * height as u64 * 4);
-        VideoFrame { pts, width, height, bgra: Arc::new(bgra) }
+        VideoFrame {
+            pts,
+            width,
+            height,
+            bgra: Arc::new(bgra),
+        }
     }
 }
 
@@ -148,4 +153,3 @@ pub fn create_backend(settings: &VideoSettings) -> Result<Box<dyn VideoBackend>,
 
 #[cfg(windows)]
 pub mod windows;
-

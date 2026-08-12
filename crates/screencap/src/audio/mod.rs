@@ -96,7 +96,9 @@ pub struct TrackAudioBlock {
 /// Errors produced by the audio subsystem.
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {
-    #[error("Windows build too old: application-loopback capture requires Windows 10 build 20348 or newer (found {0})")]
+    #[error(
+        "Windows build too old: application-loopback capture requires Windows 10 build 20348 or newer (found {0})"
+    )]
     WindowsTooOld(String),
     #[error("audio capture failed: {0}")]
     Capture(String),

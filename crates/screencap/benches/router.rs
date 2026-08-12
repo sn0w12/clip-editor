@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use screencap::audio::{AudioBlock, AudioEvent, AudioRouter, SourceInfo, SourceKind, SourceKey};
+use screencap::audio::{AudioBlock, AudioEvent, AudioRouter, SourceInfo, SourceKey, SourceKind};
 use screencap::config::{ResolvedTrack, Selector};
 
 fn block(source: &str, pts_ms: u64) -> AudioBlock {

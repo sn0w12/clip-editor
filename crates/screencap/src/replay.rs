@@ -4,8 +4,8 @@
 //! concurrently.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
@@ -95,7 +95,10 @@ pub enum ReplayEvent {
     /// Capture is live and the rolling buffer is ready.
     Started { width: u32, height: u32, fps: u32 },
     /// Rolling buffer fill, published roughly once per second.
-    BufferProgress { available_seconds: f64, target_seconds: u32 },
+    BufferProgress {
+        available_seconds: f64,
+        target_seconds: u32,
+    },
     /// A save was requested and is being assembled.
     Saving,
     /// A save finished; the file is complete and atomically present.
@@ -136,9 +139,8 @@ impl ReplayController {
         {
             let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(16);
             let (event_tx, event_rx) = crossbeam_channel::bounded(500);
-            let handle = thread_builder("replay-supervisor").spawn(move || {
-                supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx))
-            })?;
+            let handle = thread_builder("replay-supervisor")
+                .spawn(move || supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx)))?;
             Ok(Self {
                 cmd_tx,
                 event_rx,
@@ -181,7 +183,8 @@ impl ReplayController {
 }
 
 /// Entry point for the `run` command.
-pub fn run(config_path: Option<PathBuf>) -> Result<(), RunError> {    #[cfg(not(windows))]
+pub fn run(config_path: Option<PathBuf>) -> Result<(), RunError> {
+    #[cfg(not(windows))]
     {
         let _ = config_path;
         return Err(RunError::Platform(PlatformError::Unsupported(
@@ -508,7 +511,10 @@ fn supervise_inner(
         }
         if last_fill_log.elapsed() >= Duration::from_secs(5) {
             let fill = store.available_seconds() / duration_secs as f64;
-            info!(fill_percent = format!("{:.0}%", (fill * 100.0).clamp(0.0, 100.0)), "buffer");
+            info!(
+                fill_percent = format!("{:.0}%", (fill * 100.0).clamp(0.0, 100.0)),
+                "buffer"
+            );
             last_fill_log = Instant::now();
         }
         if last_progress.elapsed() >= Duration::from_secs(1) {
@@ -706,13 +712,21 @@ mod save_window_test {
     fn ffmpeg() -> PathBuf {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("target");
-        p.push(if cfg!(debug_assertions) { "debug" } else { "release" });
+        p.push(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        });
         p.push("ffmpeg.exe");
         assert!(p.exists(), "ffmpeg.exe must sit at {}", p.display());
         p
     }
 
-    fn send_drop_oldest(tx: &Sender<VideoFrame>, rx: &crossbeam_channel::Receiver<VideoFrame>, item: VideoFrame) {
+    fn send_drop_oldest(
+        tx: &Sender<VideoFrame>,
+        rx: &crossbeam_channel::Receiver<VideoFrame>,
+        item: VideoFrame,
+    ) {
         if tx.try_send(item.clone()).is_err() {
             let _ = rx.try_recv();
             let _ = tx.try_send(item);
@@ -803,13 +817,16 @@ mod save_window_test {
         )
         .expect("segmenter spawns");
 
-        let err_log: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let err_log: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let err_log2 = err_log.clone();
-        let _err_thread = std::thread::spawn(move || loop {
-            match err_rx.recv_timeout(Duration::from_secs(1)) {
-                Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        let _err_thread = std::thread::spawn(move || {
+            loop {
+                match err_rx.recv_timeout(Duration::from_secs(1)) {
+                    Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                }
             }
         });
 
@@ -901,7 +918,9 @@ mod save_window_test {
         let mut child = Command::new(ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-i"])
             .arg(path)
-            .args(["-map", "0:a:0", "-f", "f32le", "-ac", "2", "-ar", "48000", "-"])
+            .args([
+                "-map", "0:a:0", "-f", "f32le", "-ac", "2", "-ar", "48000", "-",
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -982,13 +1001,16 @@ mod save_window_test {
         )
         .expect("segmenter spawns");
 
-        let err_log: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let err_log: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let err_log2 = err_log.clone();
-        let _err_thread = std::thread::spawn(move || loop {
-            match err_rx.recv_timeout(Duration::from_secs(1)) {
-                Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+        let _err_thread = std::thread::spawn(move || {
+            loop {
+                match err_rx.recv_timeout(Duration::from_secs(1)) {
+                    Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                }
             }
         });
 

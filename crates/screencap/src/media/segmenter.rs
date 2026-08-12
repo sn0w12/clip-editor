@@ -10,9 +10,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write as _;
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::thread;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
@@ -25,7 +25,7 @@ use crate::audio::TrackAudioBlock;
 use crate::config::{ResolvedTrack, VideoCodec};
 use crate::error::{MediaError, RunError};
 use crate::media::SegmentInfo;
-use crate::util::{write_f32le, RateLimiter};
+use crate::util::{RateLimiter, write_f32le};
 use crate::video::{VideoFrame, VideoInfo};
 
 /// How often the segment list is rescanned and pruning runs.
@@ -109,7 +109,10 @@ impl SegmentStore {
     pub fn prepare(&self) -> Result<(), MediaError> {
         let inner = self.inner.lock();
         std::fs::create_dir_all(&inner.buffer_dir).map_err(|e| {
-            MediaError::General(format!("cannot create buffer dir {}: {e}", inner.buffer_dir.display()))
+            MediaError::General(format!(
+                "cannot create buffer dir {}: {e}",
+                inner.buffer_dir.display()
+            ))
         })?;
         if let Ok(entries) = std::fs::read_dir(&inner.buffer_dir) {
             for entry in entries.flatten() {
@@ -138,7 +141,11 @@ impl SegmentStore {
         for path in &pinned {
             inner.active.insert(path.clone());
         }
-        SegmentSnapshot { store: self.clone(), segments, pinned }
+        SegmentSnapshot {
+            store: self.clone(),
+            segments,
+            pinned,
+        }
     }
 
     /// Total closed-segment duration (seconds), for buffer-fill logging.
@@ -252,10 +259,10 @@ impl Drop for SegmentSnapshot {
 mod pipe {
     use std::io;
 
-    use windows::Win32::Foundation::{CloseHandle, ERROR_PIPE_CONNECTED, HANDLE, INVALID_HANDLE_VALUE};
-    use windows::Win32::Storage::FileSystem::{
-        FlushFileBuffers, WriteFile, PIPE_ACCESS_OUTBOUND,
+    use windows::Win32::Foundation::{
+        CloseHandle, ERROR_PIPE_CONNECTED, HANDLE, INVALID_HANDLE_VALUE,
     };
+    use windows::Win32::Storage::FileSystem::{FlushFileBuffers, PIPE_ACCESS_OUTBOUND, WriteFile};
     use windows::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
     };
@@ -305,7 +312,9 @@ mod pipe {
                 Ok(()) => Ok(()),
                 // A client may connect between CreateNamedPipeW and the first
                 // ConnectNamedPipe call; that is a success, not an error.
-                Err(e) if e.code() == windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0) => {
+                Err(e)
+                    if e.code() == windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0) =>
+                {
                     Ok(())
                 }
                 Err(_) => Err(io::Error::last_os_error()),
@@ -461,9 +470,8 @@ pub fn spawn_segmenter(
     // stream order in the file matches the configured track numbers instead
     // of renumbering track 5 down to 4.
     let max_number = params.tracks.iter().map(|t| t.number).max().unwrap_or(0);
-    let slot_for = |number: u16| -> Option<usize> {
-        params.tracks.iter().position(|t| t.number == number)
-    };
+    let slot_for =
+        |number: u16| -> Option<usize> { params.tracks.iter().position(|t| t.number == number) };
     let slots: Vec<u16> = (1..=max_number).collect();
     for number in &slots {
         match slot_for(*number) {
@@ -483,7 +491,10 @@ pub fn spawn_segmenter(
             None => {
                 // Silent placeholder: anullsrc generates the track's silence.
                 let layout = layout_for(params.channels);
-                let anull = format!("anullsrc=channel_layout={layout}:sample_rate={}", params.sample_rate);
+                let anull = format!(
+                    "anullsrc=channel_layout={layout}:sample_rate={}",
+                    params.sample_rate
+                );
                 cmd.args(["-f", "lavfi", "-i", &anull]);
             }
         }
@@ -632,7 +643,9 @@ pub fn spawn_segmenter(
                             let _ = stdin.flush();
                             break;
                         }
-                        if last_write.elapsed() > STALL_TIMEOUT && !writer_flag.load(Ordering::SeqCst) {
+                        if last_write.elapsed() > STALL_TIMEOUT
+                            && !writer_flag.load(Ordering::SeqCst)
+                        {
                             let _ = writer_err.send(RunError::media(
                                 "media pipeline stalled: no video frames for several seconds",
                             ));
@@ -760,7 +773,11 @@ pub fn spawn_segmenter(
                 } else if !last_lines.is_empty() {
                     let _ = monitor_err.send(RunError::media(format!(
                         "ffmpeg exited unexpectedly: {}",
-                        last_lines.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" | ")
+                        last_lines
+                            .iter()
+                            .map(|s| s.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" | ")
                     )));
                 }
             }
@@ -786,7 +803,13 @@ pub fn spawn_segmenter(
                         Err(RecvTimeoutError::Timeout) => break,
                     }
                 }
-                scan_segments(&params.buffer_dir, &store, &params.ffmpeg, &mut last_sizes_seen, &mut limiter);
+                scan_segments(
+                    &params.buffer_dir,
+                    &store,
+                    &params.ffmpeg,
+                    &mut last_sizes_seen,
+                    &mut limiter,
+                );
                 store.prune(params.keep);
                 if !shutting_down {
                     match shutdown.recv_timeout(SCAN_INTERVAL) {
@@ -986,7 +1009,11 @@ mod pipe_isolation_test {
     fn ffmpeg() -> PathBuf {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.push("target");
-        p.push(if cfg!(debug_assertions) { "debug" } else { "release" });
+        p.push(if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        });
         p.push("ffmpeg.exe");
         p
     }
@@ -1076,7 +1103,10 @@ mod pipe_isolation_test {
             if p.extension().is_none_or(|e| e != "mkv") {
                 continue;
             }
-            let out = work.join(format!("dec_{}.bin", p.file_stem().unwrap().to_string_lossy()));
+            let out = work.join(format!(
+                "dec_{}.bin",
+                p.file_stem().unwrap().to_string_lossy()
+            ));
             let status = std::process::Command::new(ffmpeg())
                 .args(["-hide_banner", "-loglevel", "error", "-i"])
                 .arg(&p)
@@ -1087,9 +1117,7 @@ mod pipe_isolation_test {
             assert!(status.success(), "decode failed for {}", p.display());
             let bytes = std::fs::read(&out).unwrap();
             let nf = bytes.len() / frame_bytes;
-            let mut vals: Vec<u8> = (0..nf)
-                .map(|f| bytes[f * frame_bytes + 2])
-                .collect();
+            let mut vals: Vec<u8> = (0..nf).map(|f| bytes[f * frame_bytes + 2]).collect();
             vals.dedup();
             report.push(format!(
                 "{}:{}frames:greys[{}]",

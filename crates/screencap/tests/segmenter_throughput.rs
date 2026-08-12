@@ -16,13 +16,21 @@ use screencap::video::{VideoFrame, VideoInfo};
 fn ffmpeg() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     p.push("target");
-    p.push(if cfg!(debug_assertions) { "debug" } else { "release" });
+    p.push(if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    });
     p.push("ffmpeg.exe");
     assert!(p.exists(), "ffmpeg.exe must sit at {}", p.display());
     p
 }
 
-fn send_drop_oldest(tx: &Sender<VideoFrame>, rx: &crossbeam_channel::Receiver<VideoFrame>, item: VideoFrame) {
+fn send_drop_oldest(
+    tx: &Sender<VideoFrame>,
+    rx: &crossbeam_channel::Receiver<VideoFrame>,
+    item: VideoFrame,
+) {
     if tx.try_send(item.clone()).is_err() {
         let _ = rx.try_recv();
         let _ = tx.try_send(item);
@@ -121,15 +129,17 @@ fn segmenter_keeps_pace_with_the_wall() {
     // Drain any terminal errors into a shared log.
     let err_log: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
     let err_log2 = err_log.clone();
-    let _err_thread = std::thread::spawn(move || loop {
-        match err_rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
-                if Instant::now() > deadline {
-                    break;
+    let _err_thread = std::thread::spawn(move || {
+        loop {
+            match err_rx.recv_timeout(Duration::from_secs(1)) {
+                Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    if Instant::now() > deadline {
+                        break;
+                    }
                 }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             }
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         }
     });
 

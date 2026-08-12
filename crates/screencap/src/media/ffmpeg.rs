@@ -95,18 +95,19 @@ pub fn resolve_ffmpeg(ffmpeg_dir: Option<PathBuf>) -> Result<PathBuf, MediaError
     // Fallback source: BtbN GitHub builds (includes libx264).
     #[cfg(target_os = "windows")]
     {
-        let fallback_url =
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+        let fallback_url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
         if let Ok(dir) = ffmpeg_sidecar::paths::sidecar_dir() {
-            info!(url = fallback_url, "downloading ffmpeg from fallback mirror");
+            info!(
+                url = fallback_url,
+                "downloading ffmpeg from fallback mirror"
+            );
             match ffmpeg_sidecar::download::download_ffmpeg_package_with_progress(
                 fallback_url,
                 &dir,
                 progress,
             )
-            .and_then(|archive| {
-                ffmpeg_sidecar::download::unpack_ffmpeg(&archive, &dir)
-            }) {
+            .and_then(|archive| ffmpeg_sidecar::download::unpack_ffmpeg(&archive, &dir))
+            {
                 Ok(()) => {
                     if let Some(path) = sidecar_ffmpeg() {
                         info!(path = %path.display(), "using fallback-downloaded ffmpeg");

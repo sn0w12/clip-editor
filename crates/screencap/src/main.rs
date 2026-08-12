@@ -154,7 +154,10 @@ fn validate(config_path: Option<PathBuf>) -> Result<(), error::ConfigError> {
     }
     #[cfg(not(windows))]
     {
-        println!("monitor: {} (resolution available on Windows only)", cfg.replay.monitor.describe());
+        println!(
+            "monitor: {} (resolution available on Windows only)",
+            cfg.replay.monitor.describe()
+        );
     }
 
     println!();
@@ -169,7 +172,11 @@ fn init(config_path: Option<PathBuf>, example: bool) -> Result<PathBuf, error::C
         Some(p) => p,
         None => config::default_config_path(),
     };
-    let content = if example { config::SAMPLE_CONFIG } else { config::MINIMAL_CONFIG };
+    let content = if example {
+        config::SAMPLE_CONFIG
+    } else {
+        config::MINIMAL_CONFIG
+    };
     config::write_config(&path, content)?;
     Ok(path)
 }
@@ -182,12 +189,7 @@ fn list_processes(contains: Option<&str>) -> Result<(), error::RunError> {
     let mut rows: Vec<(u32, String)> = system
         .processes()
         .iter()
-        .map(|(pid, process)| {
-            (
-                pid.as_u32(),
-                process.name().to_string_lossy().into_owned(),
-            )
-        })
+        .map(|(pid, process)| (pid.as_u32(), process.name().to_string_lossy().into_owned()))
         .filter(|(_, name)| match contains {
             Some(needle) => name.to_lowercase().contains(&needle.to_lowercase()),
             None => true,

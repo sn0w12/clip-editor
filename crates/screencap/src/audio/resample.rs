@@ -99,15 +99,12 @@ impl StreamingResampler {
                 InterleavedSlice::new(input, ch, input_frames).expect("input adapter fits");
             let output_frames = self.resampler.output_frames_next();
             self.out_scratch.resize(output_frames * ch, 0.0);
-            let mut out_adapter = InterleavedSlice::new_mut(
-                &mut self.out_scratch,
-                ch,
-                output_frames,
-            )
-            .expect("output adapter fits");
-            if let Err(e) = self
-                .resampler
-                .process_into_buffer(&input_adapter, &mut out_adapter, None)
+            let mut out_adapter =
+                InterleavedSlice::new_mut(&mut self.out_scratch, ch, output_frames)
+                    .expect("output adapter fits");
+            if let Err(e) =
+                self.resampler
+                    .process_into_buffer(&input_adapter, &mut out_adapter, None)
             {
                 // Never expected for a fixed-chunk resampler; skip the chunk.
                 tracing::warn!(error = %e, "resampler chunk failed");
@@ -194,6 +191,9 @@ mod tests {
         // sub-chunk remainder that stays buffered.
         assert!(out.len() >= 84_000, "output too short: {}", out.len());
         assert!(out.len() <= 100_000, "output too long: {}", out.len());
-        assert!(out.iter().any(|s| s.abs() > 0.5), "sine should pass through");
+        assert!(
+            out.iter().any(|s| s.abs() > 0.5),
+            "sine should pass through"
+        );
     }
 }

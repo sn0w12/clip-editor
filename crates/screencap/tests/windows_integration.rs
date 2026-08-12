@@ -19,7 +19,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
+    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY,
 };
 
 const FIXTURE: &str = r#"[replay]
@@ -110,7 +110,16 @@ fn end_to_end_save_via_hotkey() {
     let ffmpeg = app_dir.join("ffmpeg.exe");
     let wav = work.join("save.wav");
     let status = Command::new(&ffmpeg)
-        .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=0.2"])
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=880:duration=0.2",
+        ])
         .arg(&wav)
         .status()
         .expect("ffmpeg runs to generate the sound");
@@ -163,14 +172,20 @@ fn end_to_end_save_via_hotkey() {
 
     if let Some(message) = failed {
         eprintln!("integration test failed: {message}");
-        eprintln!("app log:\n{}", std::fs::read_to_string(&log_path).unwrap_or_default());
+        eprintln!(
+            "app log:\n{}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
         panic!("{message}");
     }
     let saved = saved.expect("saved mkv appeared within 30s");
 
     // 6. Structural verification with the bundled ffprobe.
     let ffprobe = app_dir.join("ffprobe.exe");
-    assert!(ffprobe.exists(), "ffprobe.exe must sit beside screencap.exe");
+    assert!(
+        ffprobe.exists(),
+        "ffprobe.exe must sit beside screencap.exe"
+    );
 
     let json = run_ffprobe(&ffprobe, &saved);
     let streams = json["streams"].as_array().expect("streams array");
@@ -184,7 +199,11 @@ fn end_to_end_save_via_hotkey() {
         .iter()
         .filter(|s| s["codec_type"] == "audio")
         .collect();
-    assert_eq!(audio.len(), 5, "five audio streams (track 4 is the silent placeholder)");
+    assert_eq!(
+        audio.len(),
+        5,
+        "five audio streams (track 4 is the silent placeholder)"
+    );
 
     let mut track_numbers: Vec<u32> = audio
         .iter()
@@ -196,18 +215,26 @@ fn end_to_end_save_via_hotkey() {
         })
         .collect();
     track_numbers.sort_unstable();
-    assert_eq!(track_numbers, vec![1, 2, 3, 4, 5], "screencap_track metadata 1/2/3/4/5");
+    assert_eq!(
+        track_numbers,
+        vec![1, 2, 3, 4, 5],
+        "screencap_track metadata 1/2/3/4/5"
+    );
 
-    let mut titles: Vec<String> = audio
-        .iter()
-        .map(|s| tag_of(s, "title"))
-        .collect();
+    let mut titles: Vec<String> = audio.iter().map(|s| tag_of(s, "title")).collect();
     titles.sort();
     let mut expected = vec!["discord", "mic", "non_muted", "other", "silent"];
     expected.sort();
-    assert_eq!(titles, expected, "stream titles match configured track names");
+    assert_eq!(
+        titles, expected,
+        "stream titles match configured track names"
+    );
 
-    let duration: f64 = json["format"]["duration"].as_str().unwrap().parse().unwrap();
+    let duration: f64 = json["format"]["duration"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
     assert!(
         (2.0..=5.0).contains(&duration),
         "duration {duration:.2}s within one segment of 3s"
@@ -279,7 +306,10 @@ fn menu_key_hotkey_saves_clip() {
     let _ = child.wait();
 
     if let Some(message) = failed {
-        panic!("{message}\napp log:\n{}", std::fs::read_to_string(&log_path).unwrap_or_default());
+        panic!(
+            "{message}\napp log:\n{}",
+            std::fs::read_to_string(&log_path).unwrap_or_default()
+        );
     }
     assert!(saved.is_some(), "menu-key hotkey must produce a saved clip");
     let _ = std::fs::remove_dir_all(&work);
@@ -347,7 +377,11 @@ fn send_menu_key() {
                     ki: KEYBDINPUT {
                         wVk: VIRTUAL_KEY(vk),
                         wScan: 0,
-                        dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                        dwFlags: if up {
+                            KEYEVENTF_KEYUP
+                        } else {
+                            Default::default()
+                        },
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -364,11 +398,8 @@ fn unique_dir() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!(
-        "screencap_itest_{}_{}",
-        std::process::id(),
-        stamp
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("screencap_itest_{}_{}", std::process::id(), stamp));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -425,7 +456,11 @@ fn press_hotkey() {
                     ki: KEYBDINPUT {
                         wVk: vk,
                         wScan: 0,
-                        dwFlags: if up { KEYEVENTF_KEYUP } else { Default::default() },
+                        dwFlags: if up {
+                            KEYEVENTF_KEYUP
+                        } else {
+                            Default::default()
+                        },
                         time: 0,
                         dwExtraInfo: 0,
                     },
@@ -439,7 +474,14 @@ fn press_hotkey() {
 
 fn run_ffprobe(ffprobe: &Path, file: &Path) -> serde_json::Value {
     let output = Command::new(ffprobe)
-        .args(["-v", "error", "-show_streams", "-show_format", "-of", "json"])
+        .args([
+            "-v",
+            "error",
+            "-show_streams",
+            "-show_format",
+            "-of",
+            "json",
+        ])
         .arg(file)
         .output()
         .expect("ffprobe runs");

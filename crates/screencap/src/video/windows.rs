@@ -3,9 +3,9 @@
 //! configured rate (duplicating it on static screens). Session closes and
 //! frame-read failures are terminal errors.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -25,7 +25,7 @@ use windows_capture::settings::{
 };
 
 use crate::error::{CaptureError, RunError};
-use crate::util::{send_drop_oldest, RateLimiter};
+use crate::util::{RateLimiter, send_drop_oldest};
 use crate::video::{MonitorSpec, VideoBackend, VideoError, VideoFrame, VideoInfo, VideoSettings};
 
 /// Latest frame shared between the capture thread and the pacer.
@@ -56,9 +56,8 @@ impl WindowsVideoBackend {
             MonitorSpec::Primary => {
                 Monitor::primary().map_err(|e| VideoError::Monitor(format!("primary monitor: {e}")))
             }
-            MonitorSpec::Index(i) => Monitor::from_index(*i as usize).map_err(|e| {
-                VideoError::Monitor(format!("index:{i} (one-based): {e}"))
-            }),
+            MonitorSpec::Index(i) => Monitor::from_index(*i as usize)
+                .map_err(|e| VideoError::Monitor(format!("index:{i} (one-based): {e}"))),
         }
     }
 }
@@ -72,7 +71,11 @@ impl VideoBackend for WindowsVideoBackend {
         let height = monitor
             .height()
             .map_err(|e| VideoError::Capture(format!("cannot read monitor height: {e}")))?;
-        Ok(VideoInfo { width, height, fps: self.settings.fps })
+        Ok(VideoInfo {
+            width,
+            height,
+            fps: self.settings.fps,
+        })
     }
 
     fn spawn(
@@ -157,7 +160,13 @@ impl VideoBackend for WindowsVideoBackend {
                     }
                     if let Some(mut frame) = frame {
                         frame.pts = origin.elapsed();
-                        send_drop_oldest(&pacer_tx, &pacer_rx, frame.clone(), &mut limiter, "video");
+                        send_drop_oldest(
+                            &pacer_tx,
+                            &pacer_rx,
+                            frame.clone(),
+                            &mut limiter,
+                            "video",
+                        );
                         last = Some(frame);
                     }
                 }
@@ -198,11 +207,9 @@ impl VideoBackend for WindowsVideoBackend {
                 watcher_done.store(true, Ordering::SeqCst);
                 if let Err(e) = result {
                     if !watcher_stop.requested.load(Ordering::SeqCst) {
-                        let _ = watcher_err_tx.send(RunError::Capture(
-                            CaptureError::Video(VideoError::Capture(format!(
-                                "capture session ended with error: {e}"
-                            ))),
-                        ));
+                        let _ = watcher_err_tx.send(RunError::Capture(CaptureError::Video(
+                            VideoError::Capture(format!("capture session ended with error: {e}")),
+                        )));
                     }
                 }
             })
@@ -242,7 +249,9 @@ impl CaptureHandler {
     fn terminal(&mut self, message: String) {
         let _ = self
             .err_tx
-            .send(RunError::Capture(CaptureError::Video(VideoError::Capture(message))));
+            .send(RunError::Capture(CaptureError::Video(VideoError::Capture(
+                message,
+            ))));
     }
 
     /// Take a buffer of at least `len` bytes from the pool (reusing one the
@@ -312,7 +321,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
                 MipLevels: 1,
                 ArraySize: 1,
                 Format: src_desc.Format,
-                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
                 Usage: D3D11_USAGE_STAGING,
                 BindFlags: 0,
                 CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
@@ -342,7 +354,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
         let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
         unsafe {
             context.CopyResource(&staging, frame.as_raw_texture());
-            if context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)).is_err() {
+            if context
+                .Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+                .is_err()
+            {
                 self.terminal("capture frame readback failed".to_string());
                 capture_control.stop();
                 return Ok(());
@@ -380,8 +395,10 @@ impl GraphicsCaptureApiHandler for CaptureHandler {
 
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         if !self.stop.requested.load(Ordering::SeqCst) {
-            self.terminal("capture session closed unexpectedly (display removed or access revoked)"
-                .to_string());
+            self.terminal(
+                "capture session closed unexpectedly (display removed or access revoked)"
+                    .to_string(),
+            );
         }
         Ok(())
     }

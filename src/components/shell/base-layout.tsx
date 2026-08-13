@@ -48,10 +48,12 @@ function TitleBar() {
                         {index > 0 && <span className="text-muted-foreground select-none">/</span>}
                         {crumb.to ? (
                             <Link to={crumb.to} className="hover:underline">
-                                {crumb.label}
+                                {decodeURIComponent(crumb.label)}
                             </Link>
                         ) : (
-                            <span className="text-muted-foreground">{crumb.label}</span>
+                            <span className="text-muted-foreground">
+                                {decodeURIComponent(crumb.label)}
+                            </span>
                         )}
                     </span>
                 ))}
@@ -74,9 +76,12 @@ function TitleBar() {
 
 function useRouteCrumbs(pathname: string): { label: string; to?: string }[] {
     if (pathname === "/clips/edit") return [{ label: "Clips", to: "/" }, { label: "Editor" }];
-    if (pathname.startsWith("/games")) return [{ label: "Games", to: "/games" }, { label: "Game" }];
+    if (pathname === "/games") return [{ label: "Games" }];
+    if (pathname.startsWith("/games"))
+        return [{ label: "Games", to: "/games" }, { label: decodeURI(pathname.split("/")[2]) }];
+    if (pathname === "/groups") return [{ label: "Groups" }];
     if (pathname.startsWith("/groups"))
-        return [{ label: "Groups", to: "/groups" }, { label: "Group" }];
+        return [{ label: "Groups", to: "/groups" }, { label: decodeURI(pathname.split("/")[2]) }];
     const item = NAV_ITEMS.find((i) => i.to === pathname);
     return item ? [{ label: item.label }] : [{ label: "Clip Editor" }];
 }

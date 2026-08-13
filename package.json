@@ -1,7 +1,7 @@
 {
     "name": "clip-editor",
     "productName": "Clip Editor",
-    "version": "0.2.7",
+    "version": "0.3.0",
     "author": "Sn0w12",
     "license": "GPL-3.0-only",
     "type": "module",

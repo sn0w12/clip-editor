@@ -1,6 +1,6 @@
 [package]
 name = "clip-editor"
-version = "0.3.0"
+version = "0.3.1"
 description = "Clip Editor - game clip manager, editor, and replay buffer"
 edition = "2021"
 rust-version = "1.77.2"

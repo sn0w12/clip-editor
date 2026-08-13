@@ -195,7 +195,7 @@ export function useDragSelection<T>(
                     }
                 });
 
-                const prev = start.shift ? selectedRef.current : new Set<string>();
+                const prev = start.shift ? new Set(selectedRef.current) : new Set<string>();
                 if (start.shift && lastHit >= 0 && lastIndexRef.current >= 0) {
                     const [from, to] = [
                         Math.min(lastIndexRef.current, lastHit),

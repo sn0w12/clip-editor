@@ -1076,17 +1076,22 @@ function ShortcutSettings() {
 }
 
 /** Build the app shortcut string (`Ctrl+Shift+ARROWRIGHT`, `Space`, `F`, ...)
- * from a keydown. Returns null for modifier-only or unsupported presses. */
+ * from a keydown. Returns null for unsupported presses. Modifier-only presses
+ * (bare `Shift`, `Ctrl`, ...) are recorded for modifier-style settings such as
+ * "Continue selection"; key-based shortcuts simply ignore them at match time. */
 function formatShortcut(e: KeyboardEvent): string | null {
     if (e.key === "Escape") return null;
-    if (e.key === "Control" || e.key === "Shift" || e.key === "Alt" || e.key === "Meta") {
-        return null;
-    }
     const mods: string[] = [];
     if (e.ctrlKey) mods.push("Ctrl");
     if (e.shiftKey) mods.push("Shift");
     if (e.altKey) mods.push("Alt");
     if (e.metaKey) mods.push("Meta");
+    const isModifierKey =
+        e.key === "Control" || e.key === "Shift" || e.key === "Alt" || e.key === "Meta";
+    if (isModifierKey) {
+        if (mods.length === 0) return null;
+        return mods.join("+");
+    }
     const key = e.key === " " ? "Space" : e.key.toUpperCase();
     return [...mods, key].join("+");
 }

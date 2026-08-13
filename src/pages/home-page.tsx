@@ -22,6 +22,9 @@ import {
     ContextMenuContent,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuSub,
+    ContextMenuSubContent,
+    ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -45,7 +48,7 @@ import { dateKey } from "@/lib/utils";
 import { useClipsStore } from "@/stores/clips-store";
 import { filterClips, useFiltersStore } from "@/stores/filters-store";
 import { useGamesStore, resolveGameName } from "@/stores/games-store";
-import type { GameImage, SteamGame, VideoFile } from "@/types";
+import type { GameImage, SteamGame, VideoFile, VideoGroup } from "@/types";
 
 export type ViewMode = "list" | "grid";
 
@@ -307,6 +310,7 @@ export function HomePage() {
                         onRemoveFromGroup={(video, groupId) =>
                             void removeFromGroup([video.path], groupId)
                         }
+                        onCreateGroup={(name) => createGroup(name)}
                     />
                 </div>
             </div>
@@ -414,6 +418,7 @@ export function VideoContextMenu({
     onRename,
     onAddToGroup,
     onRemoveFromGroup,
+    onCreateGroup,
     children,
 }: {
     video: VideoFile & { rawGame?: string };
@@ -425,9 +430,11 @@ export function VideoContextMenu({
     onRename: (video: VideoFile) => void;
     onAddToGroup: (video: VideoFile, groupId: string) => void;
     onRemoveFromGroup: (video: VideoFile, groupId: string) => void;
+    onCreateGroup: (name: string) => Promise<VideoGroup>;
     children: React.ReactNode;
 }) {
     const [pickerMode, setPickerMode] = useState<"set" | "alias" | null>(null);
+    const [isNewGroupOpen, setIsNewGroupOpen] = useState(false);
     const unassigned = groups.filter((g) => !groupIds.includes(g.id));
     const assigned = groups.filter((g) => groupIds.includes(g.id));
 
@@ -449,51 +456,105 @@ export function VideoContextMenu({
         setPickerMode(null);
     };
 
+    const handleCreateGroup = async (name: string) => {
+        try {
+            const group = await toastManager.promise(onCreateGroup(name.trim()), {
+                loading: { title: "Creating group…" },
+                success: (g) => ({ title: `Created ${g.name}` }),
+                error: (e) => ({ title: `Failed to create group: ${String(e)}` }),
+            });
+            onAddToGroup(video, group.id);
+            setIsNewGroupOpen(false);
+        } catch {
+            // The error toast is handled by toastManager.promise.
+        }
+    };
+
     return (
         <ContextMenu>
             <ContextMenuTrigger>{children}</ContextMenuTrigger>
             <ContextMenuContent>
                 <ContextMenuItem onClick={() => onOpen(video)}>
-                    <ExternalLink className="mr-2 h-4 w-4" />
+                    <ExternalLink className="size-4" />
                     Open
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => onRename(video)}>
-                    <Pencil className="mr-2 h-4 w-4" />
+                    <Pencil className="size-4" />
                     Rename game
                 </ContextMenuItem>
                 <ContextMenuSeparator />
                 <ContextMenuItem onClick={() => setPickerMode("set")}>
-                    <Gamepad2Icon className="mr-2 h-4 w-4" />
+                    <Gamepad2Icon className="size-4" />
                     Set game to
                 </ContextMenuItem>
                 <ContextMenuItem onClick={() => setPickerMode("alias")}>
-                    <Link2Icon className="mr-2 h-4 w-4" />
+                    <Link2Icon className="size-4" />
                     Alias to game
                 </ContextMenuItem>
                 <ContextMenuSeparator />
-                {unassigned.map((group) => (
-                    <ContextMenuItem key={group.id} onClick={() => onAddToGroup(video, group.id)}>
-                        <FolderPlus className="mr-2 h-4 w-4" />
-                        Add to {group.name}
-                    </ContextMenuItem>
-                ))}
-                {assigned.map((group) => (
-                    <>
-                        <ContextMenuItem
-                            key={group.id}
-                            onClick={() => onRemoveFromGroup(video, group.id)}
-                        >
-                            <FolderX className="mr-2 h-4 w-4" />
-                            Remove from {group.name}
+                <ContextMenuSub>
+                    <ContextMenuSubTrigger>
+                        <FolderPlus className="mr-2 size-4" />
+                        Add to group
+                    </ContextMenuSubTrigger>
+                    <ContextMenuSubContent className="w-48">
+                        <ContextMenuItem onClick={() => setIsNewGroupOpen(true)}>
+                            <FolderPlus className="size-4" />
+                            New Group
                         </ContextMenuItem>
-                        <ContextMenuSeparator />
-                    </>
-                ))}
+                        {unassigned.length > 0 && <ContextMenuSeparator />}
+                        {unassigned.map((group) => (
+                            <ContextMenuItem
+                                key={group.id}
+                                onClick={() => onAddToGroup(video, group.id)}
+                            >
+                                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                                    <span
+                                        className="size-3 rounded-full"
+                                        style={{
+                                            backgroundColor: group.color ?? "var(--accent-color)",
+                                        }}
+                                    />
+                                </span>
+                                {group.name}
+                            </ContextMenuItem>
+                        ))}
+                    </ContextMenuSubContent>
+                </ContextMenuSub>
+                {assigned.length > 0 && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger>
+                            <FolderX className="mr-2 size-4" />
+                            Remove from group
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent className="w-48">
+                            {assigned.map((group) => (
+                                <ContextMenuItem
+                                    key={group.id}
+                                    variant="destructive"
+                                    onClick={() => onRemoveFromGroup(video, group.id)}
+                                >
+                                    <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                                        <span
+                                            className="size-3 rounded-full"
+                                            style={{
+                                                backgroundColor:
+                                                    group.color ?? "var(--accent-color)",
+                                            }}
+                                        />
+                                    </span>
+                                    {group.name}
+                                </ContextMenuItem>
+                            ))}
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                )}
+                <ContextMenuSeparator />
                 <ContextMenuItem
                     variant="destructive-no-confirm"
                     onClick={() => onDelete([video.path])}
                 >
-                    <Trash className="text-destructive mr-2 h-4 w-4" />
+                    <Trash className="text-destructive size-4" />
                     Delete
                 </ContextMenuItem>
             </ContextMenuContent>
@@ -506,7 +567,68 @@ export function VideoContextMenu({
                 games={games.games}
                 addCustomGame={games.addCustomGame}
             />
+            <NewGroupDialog
+                open={isNewGroupOpen}
+                onOpenChange={setIsNewGroupOpen}
+                onCreate={handleCreateGroup}
+            />
         </ContextMenu>
+    );
+}
+
+function NewGroupDialog({
+    open,
+    onOpenChange,
+    onCreate,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onCreate: (name: string) => Promise<void>;
+}) {
+    const [name, setName] = useState("");
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(next) => {
+                if (!next) setName("");
+                onOpenChange(next);
+            }}
+        >
+            <DialogPopup className="sm:max-w-sm">
+                <DialogHeader>
+                    <DialogTitle>New Group</DialogTitle>
+                    <DialogDescription>Create a group and add this clip to it.</DialogDescription>
+                </DialogHeader>
+                <Form
+                    className="contents"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!name.trim()) return;
+                        void onCreate(name.trim())
+                            .then(() => setName(""))
+                            .catch(() => {});
+                    }}
+                >
+                    <DialogPanel className="grid gap-4">
+                        <Field>
+                            <FieldLabel>Name</FieldLabel>
+                            <Input
+                                id="new-group-name"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="Favorites"
+                                autoFocus
+                            />
+                        </Field>
+                    </DialogPanel>
+                    <DialogFooter>
+                        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
+                        <Button type="submit">Create</Button>
+                    </DialogFooter>
+                </Form>
+            </DialogPopup>
+        </Dialog>
     );
 }
 

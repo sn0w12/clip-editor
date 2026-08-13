@@ -25,6 +25,7 @@ interface VideoGridProps {
     onRename: (video: VideoFile) => void;
     onAddToGroup: (video: VideoFile, groupId: string) => void;
     onRemoveFromGroup: (video: VideoFile, groupId: string) => void;
+    onCreateGroup: (name: string) => Promise<VideoGroup>;
 }
 
 export function VideoGrid({
@@ -42,6 +43,7 @@ export function VideoGrid({
     onRename,
     onAddToGroup,
     onRemoveFromGroup,
+    onCreateGroup,
 }: VideoGridProps) {
     const videosByDate = useMemo(() => {
         const grouped: Record<string, VideoFile[]> = {};
@@ -170,6 +172,7 @@ export function VideoGrid({
                                     onRename={onRename}
                                     onAddToGroup={onAddToGroup}
                                     onRemoveFromGroup={onRemoveFromGroup}
+                                    onCreateGroup={onCreateGroup}
                                 >
                                     {viewMode === "grid" ? (
                                         <VideoCard

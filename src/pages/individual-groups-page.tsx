@@ -141,6 +141,7 @@ export function GroupDetailPage(): React.ReactElement {
                             onRemoveFromGroup={(video, groupId) =>
                                 void store.removeFromGroup([video.path], groupId)
                             }
+                            onCreateGroup={(name) => store.createGroup(name)}
                         >
                             <VideoCard
                                 video={clip}

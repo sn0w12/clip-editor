@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import type { GameImage, VideoFile, VideoGroup, VideoMetadata } from "@/types";
 
 import { GameIcon } from "../game-icon";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
 function previewDuration(video: HTMLVideoElement | null, metadata?: VideoMetadata | null): number {
     const own = video?.duration;
@@ -267,30 +268,39 @@ export const VideoCard = memo(function VideoCard({
             </FramePanel>
             <FrameFooter className="flex flex-col gap-1 p-2">
                 <h3 className="group relative line-clamp-1 text-lg font-medium">{video.name}</h3>
-                {groupDots.length > 0 && (
-                    <div className="flex gap-1">
-                        {groupDots.map((group) => (
-                            <span
-                                key={group.id}
-                                className="h-3 w-3 rounded-full"
-                                style={{
-                                    backgroundColor: group.color ?? "var(--accent-color)",
-                                }}
-                            />
-                        ))}
-                        {groupIds.length > 3 && (
-                            <span className="text-muted-foreground text-xs">
-                                +{groupIds.length - 3}
-                            </span>
-                        )}
-                    </div>
-                )}
-                {video.game && (
-                    <p className="bg-muted text-muted-foreground flex h-5 w-fit items-center gap-1 rounded py-0.5 pr-1 pl-0.5 text-xs">
-                        <GameIcon game={video.game} gameImage={gameImage} />
-                        {video.game}
-                    </p>
-                )}
+                <div className="flex items-center gap-1">
+                    {groupDots.length > 0 && (
+                        <div className="flex gap-1">
+                            {groupDots.map((group) => (
+                                <Tooltip key={group.id}>
+                                    <TooltipTrigger
+                                        render={
+                                            <span
+                                                className="h-3 w-3 rounded-full"
+                                                style={{
+                                                    backgroundColor:
+                                                        group.color ?? "var(--accent-color)",
+                                                }}
+                                            />
+                                        }
+                                    />
+                                    <TooltipContent>{group.name}</TooltipContent>
+                                </Tooltip>
+                            ))}
+                            {groupIds.length > 3 && (
+                                <span className="text-muted-foreground text-xs">
+                                    +{groupIds.length - 3}
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {video.game && (
+                        <p className="bg-muted text-muted-foreground flex h-5 w-fit items-center gap-1 rounded py-0.5 pr-1 pl-0.5 text-xs">
+                            <GameIcon game={video.game} gameImage={gameImage} />
+                            {video.game}
+                        </p>
+                    )}
+                </div>
                 <div className="flex flex-wrap justify-between gap-1">
                     <p className="text-muted-foreground text-sm">
                         {(video.size / (1024 * 1024)).toFixed(1)} MB

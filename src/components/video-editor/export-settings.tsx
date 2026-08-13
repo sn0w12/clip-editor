@@ -1,5 +1,9 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
     Select,
     SelectContent,
@@ -7,23 +11,31 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-    Cut,
-    ExportedClip,
-    ExportOptions,
-    TimeRange,
-    VideoMetadata,
-} from "@/types/video-editor";
-import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
-import { Checkbox } from "@/components/ui/checkbox";
-import { getSetting } from "@/utils/settings";
-import { ExportButton } from "./export-button";
-import { formatTime } from "@/utils/format";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PreviousExports } from "@/components/video-editor/previous-exports";
+import { useSetting } from "@/lib/settings";
+import { getPreviousExports } from "@/lib/tauri";
+import type { Cut, ExportedClip, ExportOptions, TimeRange, VideoMetadata } from "@/types";
+
+import { ScrollArea } from "../ui/scroll-area";
+import { formatTime } from "./clip-video-player";
+import { ExportButton } from "./export-button";
+
+const QUALITY_PRESETS = [
+    { label: "High (4000kbps)", value: "high" },
+    { label: "Medium (2500kbps)", value: "medium" },
+    { label: "Low (1000kbps)", value: "low" },
+];
+
+const OUTPUT_FORMATS = [
+    { label: "MP4", value: "mp4" },
+    { label: "WebM", value: "webm" },
+    { label: "MOV", value: "mov" },
+    { label: "MKV", value: "mkv" },
+    { label: "GIF", value: "gif" },
+];
 
 interface ExportSettingsProps {
     videoMetadata: VideoMetadata | null;
@@ -32,10 +44,7 @@ interface ExportSettingsProps {
     isExporting: boolean;
     audioTracks?: { index: number; label: string }[];
     videoPath: string;
-    onSelectClip: (
-        clipPath: string | null,
-        clipDuration: number | null,
-    ) => void;
+    onSelectClip: (clipPath: string | null, clipDuration: number | null) => void;
     selectedClipPath: string | null;
     cuts: Cut[];
 }
@@ -52,39 +61,27 @@ export function ExportSettings({
     cuts = [],
 }: ExportSettingsProps) {
     const [outputFormat, setOutputFormat] = useState<string>(
-        getSetting("defaultExportFormat") || "mp4",
+        useSetting<string>("defaultExportFormat") ?? "mp4",
     );
     const [quality, setQuality] = useState<string>(
-        getSetting("defaultExportQuality") || "medium",
+        useSetting<string>("defaultExportQuality") ?? "medium",
     );
-    const [qualityMode, setQualityMode] = useState<"preset" | "targetSize">(
-        "preset",
-    );
+    const [qualityMode, setQualityMode] = useState<"preset" | "targetSize">("preset");
     const [targetSize, setTargetSize] = useState<number>(10);
     const [resolutionPercent, setResolutionPercent] = useState<number>(100);
-    const [estimatedFileSize, setEstimatedFileSize] = useState<string>("0 MB");
-    const [estimatedBitrate, setEstimatedBitrate] = useState<string>("0 kbps");
-    const [width, setWidth] = useState<number | undefined>(
-        videoMetadata?.width,
-    );
-    const [height, setHeight] = useState<number | undefined>(
-        videoMetadata?.height,
-    );
-    const [fps, setFps] = useState<number | undefined>(videoMetadata?.fps);
     const [audioBitrate, setAudioBitrate] = useState<number>(128);
-    const [selectedAudioTracks, setSelectedAudioTracks] = useState<number[]>(
-        [],
-    );
+    const [trackOverrides, setTrackOverrides] = useState<number[] | null>(null);
+    const [fpsOverride, setFpsOverride] = useState<number | undefined>(undefined);
     const [activeTab, setActiveTab] = useState<string>("settings");
     const [exports, setExports] = useState<ExportedClip[]>([]);
     const [isClipsLoading, setIsClipsLoading] = useState(true);
+    const defaultAudioTrackSetting = useSetting<string>("defaultAudioTrack");
 
     useEffect(() => {
         async function fetchExports() {
             setIsClipsLoading(true);
             try {
-                const result =
-                    await window.videoEditor.getPreviousExports(videoPath);
+                const result = await getPreviousExports(videoPath);
                 setExports(result || []);
             } catch (error) {
                 console.error("Error fetching exports:", error);
@@ -94,73 +91,60 @@ export function ExportSettings({
         }
 
         if (videoPath) {
-            fetchExports();
+            void fetchExports();
         }
 
-        window.addEventListener("video-exported", () => {
-            fetchExports();
-        });
+        const handleVideoExported = () => {
+            void fetchExports();
+        };
+
+        window.addEventListener("video-exported", handleVideoExported);
+        return () => {
+            window.removeEventListener("video-exported", handleVideoExported);
+        };
     }, [videoPath]);
 
-    // Initialize selected audio tracks with all tracks selected
-    useEffect(() => {
-        if (audioTracks.length > 0) {
-            const defaultAudioTrack = parseInt(
-                getSetting("defaultAudioTrack") || "0",
-                10,
-            );
-            if (audioTracks.length >= defaultAudioTrack) {
-                setSelectedAudioTracks([defaultAudioTrack]);
-            } else {
-                setSelectedAudioTracks([0]);
-            }
-        }
-    }, [audioTracks]);
+    // Everything below is derived during render (no effect-driven state sync).
+    const width = videoMetadata
+        ? Math.round(videoMetadata.width * (resolutionPercent / 100))
+        : undefined;
+    const height = videoMetadata
+        ? Math.round(videoMetadata.height * (resolutionPercent / 100))
+        : undefined;
+    const fps = fpsOverride ?? videoMetadata?.fps;
 
-    // Handle audio track selection
+    // Default audio-track selection applies until the user overrides it.
+    const defaultAudioTrackIndex =
+        audioTracks.length > 0
+            ? Math.min(
+                  Math.max(Number.parseInt(defaultAudioTrackSetting ?? "0", 10) || 0, 0),
+                  audioTracks.length - 1,
+              )
+            : 0;
+    const selectedAudioTracks = useMemo(
+        () => (audioTracks.length === 0 ? [] : (trackOverrides ?? [defaultAudioTrackIndex])),
+        [audioTracks.length, trackOverrides, defaultAudioTrackIndex],
+    );
+
     const handleAudioTrackChange = (trackIndex: number, checked: boolean) => {
-        setSelectedAudioTracks((prevTracks) => {
-            if (checked) {
-                return [...prevTracks, trackIndex];
-            } else {
-                return prevTracks.filter((index) => index !== trackIndex);
-            }
-        });
+        const current = selectedAudioTracks;
+        setTrackOverrides(
+            checked ? [...current, trackIndex] : current.filter((index) => index !== trackIndex),
+        );
     };
 
-    useEffect(() => {
-        if (videoMetadata) {
-            setWidth(videoMetadata.width);
-            setHeight(videoMetadata.height);
-            setFps(videoMetadata.fps);
-        }
-    }, [videoMetadata]);
     const clipDuration = timeRange.end - timeRange.start;
 
-    useEffect(() => {
-        if (videoMetadata) {
-            const newWidth = Math.round(
-                videoMetadata.width * (resolutionPercent / 100),
-            );
-            const newHeight = Math.round(
-                videoMetadata.height * (resolutionPercent / 100),
-            );
-            setWidth(newWidth);
-            setHeight(newHeight);
+    // Estimate file size from duration, quality mode, and resolution.
+    const { estimatedFileSize, estimatedBitrate } = useMemo(() => {
+        if (!videoMetadata) {
+            return { estimatedFileSize: "0 MB", estimatedBitrate: "0 kbps" };
         }
-    }, [resolutionPercent, videoMetadata]);
 
-    // Calculate estimated file size based on duration, quality, and resolution
-    useEffect(() => {
-        if (!videoMetadata) return;
-
-        // Calculate duration in seconds
         let duration = clipDuration;
 
         if (cuts && cuts.length > 0) {
-            // Calculate total duration of cut segments
             const cutDuration = cuts.reduce((total, cut) => {
-                // Ensure cut times are within the clip range
                 const cutStart = Math.max(cut.start, timeRange.start);
                 const cutEnd = Math.min(cut.end, timeRange.end);
 
@@ -177,31 +161,22 @@ export function ExportSettings({
         let videoBitrate = 0;
 
         if (qualityMode === "preset") {
-            // Base bitrates in bits per second
-            const bitrates = {
+            const bitrates: Record<string, number> = {
                 high: 4000000, // 4000kbps
                 medium: 2500000, // 2500kbps
                 low: 1000000, // 1000kbps
             };
 
-            // Get the selected bitrate
-            videoBitrate = bitrates[quality as keyof typeof bitrates];
+            videoBitrate = bitrates[quality] ?? 2500000;
         } else {
-            // Calculate bitrate from target size
-            // Convert target size from MB to bits
             const targetSizeInBits = targetSize * 8 * 1024 * 1024;
-            // Subtract audio size if audio is included
             const hasAudio = selectedAudioTracks.length > 0;
             const audioBitrateToUse = hasAudio ? audioBitrate * 1000 : 0;
-            const availableBitsForVideo =
-                targetSizeInBits - audioBitrateToUse * duration;
-            // Calculate video bitrate
+            const availableBitsForVideo = targetSizeInBits - audioBitrateToUse * duration;
             videoBitrate = availableBitsForVideo / duration;
-            // Set a minimum bitrate to avoid extremely low quality
             videoBitrate = Math.max(videoBitrate, 500000);
         }
 
-        // Adjust for resolution if custom size is enabled
         let resolutionFactor = 1;
         if (width && height && videoMetadata.width && videoMetadata.height) {
             const originalPixels = videoMetadata.width * videoMetadata.height;
@@ -209,19 +184,17 @@ export function ExportSettings({
             resolutionFactor = newPixels / originalPixels;
         }
 
-        // Audio bitrate - only if audio tracks are selected
         const hasAudio = selectedAudioTracks.length > 0;
-        const audioBitrateValue = hasAudio ? audioBitrate * 1000 : 0; // Convert kbps to bps
+        const audioBitrateValue = hasAudio ? audioBitrate * 1000 : 0;
 
-        // Calculate size in bytes: (video bitrate + audio bitrate) * duration / 8
-        const totalBitrate =
-            videoBitrate * resolutionFactor + audioBitrateValue;
+        const totalBitrate = videoBitrate * resolutionFactor + audioBitrateValue;
         const sizeInBytes = (totalBitrate * duration) / 8;
 
-        // Convert to MB for display
-        const sizeInMB = sizeInBytes / (1024 * 1024); // Format to 2 decimal places
-        setEstimatedFileSize(`${sizeInMB.toFixed(2)} MB`);
-        setEstimatedBitrate(`${Math.floor(videoBitrate / 1000)} kbps`);
+        const sizeInMB = sizeInBytes / (1024 * 1024);
+        return {
+            estimatedFileSize: `${sizeInMB.toFixed(2)} MB`,
+            estimatedBitrate: `${Math.floor(videoBitrate / 1000)} kbps`,
+        };
     }, [
         timeRange,
         quality,
@@ -252,37 +225,23 @@ export function ExportSettings({
         };
 
         if (partialOptions) {
-            if (
-                partialOptions.outputFormat &&
-                partialOptions.outputFormat !== outputFormat
-            ) {
+            if (partialOptions.outputFormat && partialOptions.outputFormat !== outputFormat) {
                 setOutputFormat(partialOptions.outputFormat);
             }
-            if (
-                partialOptions.qualityMode &&
-                partialOptions.qualityMode !== qualityMode
-            ) {
-                setQualityMode(
-                    partialOptions.qualityMode as "preset" | "targetSize",
-                );
+            if (partialOptions.qualityMode && partialOptions.qualityMode !== qualityMode) {
+                setQualityMode(partialOptions.qualityMode);
             }
             if (partialOptions.quality && partialOptions.quality !== quality) {
                 setQuality(partialOptions.quality);
             }
-            if (
-                partialOptions.targetSize &&
-                partialOptions.targetSize !== targetSize
-            ) {
+            if (partialOptions.targetSize && partialOptions.targetSize !== targetSize) {
                 setTargetSize(partialOptions.targetSize);
             }
 
-            // Merge options
-            const mergedOptions = {
+            onExport({
                 ...baseOptions,
                 ...partialOptions,
-            };
-
-            onExport(mergedOptions);
+            });
         } else {
             onExport(baseOptions);
         }
@@ -290,335 +249,315 @@ export function ExportSettings({
 
     return (
         <Card className="flex h-full flex-col pt-2 transition-none">
-            <Tabs
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="flex flex-1 flex-col"
-            >
-                <div className="px-4 py-2">
-                    <TabsList className="w-full">
-                        <TabsTrigger
-                            value="settings"
-                            className="flex-1"
-                            disabled={selectedClipPath !== null}
-                        >
-                            Export Settings
-                        </TabsTrigger>
-                        <TabsTrigger value="previous" className="flex-1">
-                            Previous Exports
-                        </TabsTrigger>
-                    </TabsList>
-                </div>
-                <TabsContent value="settings" className="flex flex-1 flex-col">
-                    <CardContent className="flex-grow overflow-auto px-4 pb-0">
-                        <div className="space-y-6">
-                            {/* Clip info */}
-                            <div className="bg-muted/30 grid grid-cols-2 gap-4 rounded-md p-3 xl:grid-cols-4">
-                                <div className="space-y-1">
-                                    <Label className="text-muted-foreground text-xs">
-                                        Start Time
-                                    </Label>
-                                    <div className="font-mono text-sm">
-                                        {formatTime(timeRange.start)}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-muted-foreground text-xs">
-                                        End Time
-                                    </Label>
-                                    <div className="font-mono text-sm">
-                                        {formatTime(timeRange.end)}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-muted-foreground text-xs">
-                                        Duration
-                                    </Label>
-                                    <div className="font-mono text-sm">
-                                        {formatTime(clipDuration)}
-                                    </div>
-                                </div>
-                                <div className="space-y-1">
-                                    <Label className="text-muted-foreground text-xs">
-                                        Resolution
-                                    </Label>
-                                    <div className="font-mono text-sm">
-                                        {videoMetadata
-                                            ? `${videoMetadata.width}x${videoMetadata.height}`
-                                            : "Unknown"}
-                                    </div>
-                                </div>
-                            </div>
-                            {/* Separator */}
-                            <Separator />
-                            {/* Quality mode selector using Tabs */}
+            <ScrollArea fill>
+                <Tabs
+                    value={activeTab}
+                    onValueChange={(value) => {
+                        setActiveTab(value);
+                        // Returning to export settings de-selects any
+                        // collected previous export so the settings apply to
+                        // the original video again.
+                        if (value === "settings" && selectedClipPath !== null) {
+                            onSelectClip(null, null);
+                        }
+                    }}
+                    className="flex h-full flex-1 flex-col gap-0"
+                >
+                    <div className="px-4 py-2">
+                        <TabsList className="w-full">
+                            <TabsTrigger value="settings" className="flex-1">
+                                Export Settings
+                            </TabsTrigger>
+                            <TabsTrigger value="previous" className="flex-1">
+                                Previous Exports
+                            </TabsTrigger>
+                        </TabsList>
+                    </div>
+                    <TabsContent value="settings" className="flex h-full flex-1 flex-col">
+                        <CardContent className="flex h-full flex-grow flex-col justify-between overflow-hidden">
                             <div className="space-y-2">
-                                <Tabs
-                                    defaultValue={qualityMode}
-                                    onValueChange={(value) =>
-                                        setQualityMode(
-                                            value as "preset" | "targetSize",
-                                        )
-                                    }
-                                    value={qualityMode}
-                                >
-                                    <TabsList className="w-full">
-                                        <TabsTrigger
-                                            value="preset"
-                                            className="flex-1"
-                                        >
-                                            Quality Preset
-                                        </TabsTrigger>
-                                        <TabsTrigger
-                                            value="targetSize"
-                                            className="flex-1"
-                                        >
-                                            Target Size
-                                        </TabsTrigger>
-                                    </TabsList>
-                                    <TabsContent value="preset">
-                                        <div className="space-y-2 pt-2">
-                                            <Label htmlFor="quality">
-                                                Quality Preset
-                                            </Label>
-                                            <Select
-                                                value={quality}
-                                                onValueChange={setQuality}
-                                            >
-                                                <SelectTrigger id="quality">
-                                                    <SelectValue placeholder="Select quality" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="high">
-                                                        High (4000kbps)
-                                                    </SelectItem>
-                                                    <SelectItem value="medium">
-                                                        Medium (2500kbps)
-                                                    </SelectItem>
-                                                    <SelectItem value="low">
-                                                        Low (1000kbps)
-                                                    </SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                <div className="bg-muted/30 grid grid-cols-2 gap-4 rounded-md p-3 xl:grid-cols-4">
+                                    <div className="space-y-1">
+                                        <Label className="text-muted-foreground text-xs">
+                                            Start Time
+                                        </Label>
+                                        <div className="font-mono text-sm">
+                                            {formatTime(timeRange.start)}
                                         </div>
-                                    </TabsContent>
-                                    <TabsContent value="targetSize">
-                                        <div className="space-y-4 pt-2">
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between">
-                                                    <Label htmlFor="targetSize">
-                                                        Target Size (MB)
-                                                    </Label>
-                                                    <span className="font-mono">
-                                                        {estimatedBitrate}{" "}
-                                                        {targetSize.toFixed(1)}{" "}
-                                                        MB
-                                                    </span>
-                                                </div>
-                                                <Slider
-                                                    id="targetSize"
-                                                    min={1}
-                                                    max={100}
-                                                    step={0.1}
-                                                    value={[targetSize]}
-                                                    onValueChange={(value) =>
-                                                        setTargetSize(value[0])
-                                                    }
-                                                />
-                                            </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-muted-foreground text-xs">
+                                            End Time
+                                        </Label>
+                                        <div className="font-mono text-sm">
+                                            {formatTime(timeRange.end)}
                                         </div>
-                                    </TabsContent>
-                                </Tabs>
-                            </div>
-                            {/* Estimated file size */}
-                            <div className="space-y-1">
-                                <Label>Estimated Size</Label>
-                                <div className="bg-muted/30 rounded-md p-2 font-mono text-sm">
-                                    {estimatedFileSize}
-                                </div>
-                            </div>
-                            {/* Separator */}
-                            <Separator />
-                            {/* Resolution percentage */}
-                            <div className="space-y-2">
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <Label htmlFor="resolutionPercent">
-                                                Resolution Scale
-                                            </Label>
-                                            <span className="font-mono">
-                                                {width}x{height}{" "}
-                                                {resolutionPercent}%
-                                            </span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-muted-foreground text-xs">
+                                            Duration
+                                        </Label>
+                                        <div className="font-mono text-sm">
+                                            {formatTime(clipDuration)}
                                         </div>
-                                        <Slider
-                                            id="resolutionPercent"
-                                            min={10}
-                                            max={100}
-                                            step={5}
-                                            value={[resolutionPercent]}
-                                            onValueChange={(value) =>
-                                                setResolutionPercent(value[0])
-                                            }
-                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <Label className="text-muted-foreground text-xs">
+                                            Resolution
+                                        </Label>
+                                        <div className="font-mono text-sm">
+                                            {videoMetadata
+                                                ? `${videoMetadata.width}x${videoMetadata.height}`
+                                                : "Unknown"}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            {/* Frame Rate */}
-                            <div className="grid grid-cols-2 gap-2">
+
+                                <Separator />
+
                                 <div className="space-y-2">
-                                    <Label htmlFor="fps">
-                                        Frame Rate (FPS)
-                                    </Label>
-                                    <Input
-                                        id="fps"
-                                        type="number"
-                                        value={fps}
-                                        onChange={(e) =>
-                                            setFps(parseInt(e.target.value))
+                                    <Tabs
+                                        value={qualityMode}
+                                        onValueChange={(value) =>
+                                            setQualityMode(value as "preset" | "targetSize")
                                         }
-                                        max={60}
-                                        min={1}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="format">
-                                        Output Format
-                                    </Label>
-                                    <Select
-                                        value={outputFormat}
-                                        onValueChange={setOutputFormat}
                                     >
-                                        <SelectTrigger
-                                            id="format"
-                                            className="w-full"
-                                        >
-                                            <SelectValue placeholder="Select format" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="mp4">
-                                                MP4
-                                            </SelectItem>
-                                            <SelectItem value="webm">
-                                                WebM
-                                            </SelectItem>
-                                            <SelectItem value="mov">
-                                                MOV
-                                            </SelectItem>
-                                            <SelectItem value="mkv">
-                                                MKV
-                                            </SelectItem>
-                                            <SelectItem value="gif">
-                                                GIF
-                                            </SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-                            {/* Separator */}
-                            <Separator />
-                            {/* Audio settings */}
-                            <div className="space-y-4">
-                                {/* Audio Track Selection */}
-                                {audioTracks.length > 0 && (
-                                    <div className="space-y-2">
-                                        <Label>Audio Tracks</Label>
-                                        <p className="text-muted-foreground mb-2 text-xs">
-                                            Selected tracks will be consolidated
-                                            into a single audio track.
-                                        </p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            {audioTracks.map((track) => (
-                                                <div
-                                                    key={track.index}
-                                                    className="flex items-center space-x-2"
+                                        <TabsList className="w-full">
+                                            <TabsTrigger value="preset" className="flex-1">
+                                                Quality Preset
+                                            </TabsTrigger>
+                                            <TabsTrigger value="targetSize" className="flex-1">
+                                                Target Size
+                                            </TabsTrigger>
+                                        </TabsList>
+                                        <TabsContent value="preset">
+                                            <div className="space-y-2 pt-2">
+                                                <Label htmlFor="quality">Quality Preset</Label>
+                                                <Select
+                                                    value={quality}
+                                                    items={QUALITY_PRESETS}
+                                                    onValueChange={(value) => {
+                                                        if (value !== null) setQuality(value);
+                                                    }}
                                                 >
-                                                    <Checkbox
-                                                        id={`track-${track.index}`}
-                                                        checked={selectedAudioTracks.includes(
-                                                            track.index,
-                                                        )}
-                                                        onCheckedChange={(
-                                                            checked,
-                                                        ) =>
-                                                            handleAudioTrackChange(
-                                                                track.index,
-                                                                checked as boolean,
+                                                    <SelectTrigger id="quality">
+                                                        <SelectValue placeholder="Select quality" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {QUALITY_PRESETS.map(({ label, value }) => (
+                                                            <SelectItem key={value} value={value}>
+                                                                {label}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </TabsContent>
+                                        <TabsContent value="targetSize">
+                                            <div className="space-y-4 pt-2">
+                                                <div className="space-y-2">
+                                                    <div className="flex justify-between">
+                                                        <Label htmlFor="targetSize">
+                                                            Target Size (MB)
+                                                        </Label>
+                                                        <span className="font-mono">
+                                                            {estimatedBitrate}{" "}
+                                                            {targetSize.toFixed(1)} MB
+                                                        </span>
+                                                    </div>
+                                                    <Slider
+                                                        id="targetSize"
+                                                        min={1}
+                                                        max={100}
+                                                        step={0.1}
+                                                        value={[targetSize]}
+                                                        onValueChange={(value) =>
+                                                            setTargetSize(
+                                                                Array.isArray(value)
+                                                                    ? value[0]
+                                                                    : value,
                                                             )
                                                         }
                                                     />
-                                                    <Label
-                                                        htmlFor={`track-${track.index}`}
-                                                        className="text-sm"
-                                                    >
-                                                        {track.label}
-                                                    </Label>
                                                 </div>
-                                            ))}
+                                            </div>
+                                        </TabsContent>
+                                    </Tabs>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <Label>Estimated Size</Label>
+                                    <div className="bg-muted/30 rounded-md p-2 font-mono text-sm">
+                                        {estimatedFileSize}
+                                    </div>
+                                </div>
+
+                                <Separator />
+
+                                <div className="space-y-2">
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between">
+                                                <Label htmlFor="resolutionPercent">
+                                                    Resolution Scale
+                                                </Label>
+                                                <span className="font-mono">
+                                                    {width}x{height} {resolutionPercent}%
+                                                </span>
+                                            </div>
+                                            <Slider
+                                                id="resolutionPercent"
+                                                min={10}
+                                                max={100}
+                                                step={5}
+                                                value={[resolutionPercent]}
+                                                onValueChange={(value) =>
+                                                    setResolutionPercent(
+                                                        Array.isArray(value) ? value[0] : value,
+                                                    )
+                                                }
+                                            />
                                         </div>
                                     </div>
-                                )}
+                                </div>
 
-                                {selectedAudioTracks.length > 0 && (
+                                <div className="grid grid-cols-2 gap-2">
                                     <div className="space-y-2">
-                                        <div className="flex justify-between">
-                                            <Label htmlFor="audioBitrate">
-                                                Audio Quality (kbps)
-                                            </Label>
-                                            <span className="font-mono">
-                                                {audioBitrate} kbps
-                                            </span>
-                                        </div>
-                                        <Slider
-                                            id="audioBitrate"
-                                            min={64}
-                                            max={320}
-                                            step={16}
-                                            value={[audioBitrate]}
-                                            onValueChange={(value) =>
-                                                setAudioBitrate(value[0])
+                                        <Label htmlFor="fps">Frame Rate (FPS)</Label>
+                                        <Input
+                                            id="fps"
+                                            type="number"
+                                            value={fps}
+                                            onChange={(e) =>
+                                                setFpsOverride(
+                                                    e.target.value
+                                                        ? Number.parseInt(e.target.value, 10)
+                                                        : undefined,
+                                                )
                                             }
+                                            max={60}
+                                            defaultValue={60}
+                                            min={1}
                                         />
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    </CardContent>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="format">Output Format</Label>
+                                        <Select
+                                            value={outputFormat}
+                                            items={OUTPUT_FORMATS}
+                                            onValueChange={(value) => {
+                                                if (value !== null) setOutputFormat(value);
+                                            }}
+                                        >
+                                            <SelectTrigger id="format" className="w-full">
+                                                <SelectValue placeholder="Select format" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {OUTPUT_FORMATS.map(({ label, value }) => (
+                                                    <SelectItem key={value} value={value}>
+                                                        {label}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
 
-                    <div className="mt-auto p-6 py-0">
-                        <ExportButton
-                            onExport={handleExport}
-                            isExporting={isExporting}
-                            baseOptions={{
-                                startTime: timeRange.start,
-                                endTime: timeRange.end,
-                                outputFormat,
-                                qualityMode,
-                                width,
-                                height,
-                                ...(qualityMode === "preset"
-                                    ? { quality }
-                                    : { targetSize }),
-                                fps,
-                                ...(selectedAudioTracks.length > 0
-                                    ? { audioBitrate }
-                                    : {}),
-                                audioTracks: selectedAudioTracks,
-                            }}
+                                <Separator />
+
+                                <div className="mb-4 space-y-4">
+                                    {audioTracks.length > 0 && (
+                                        <div className="space-y-2">
+                                            <Label>Audio Tracks</Label>
+                                            <p className="text-muted-foreground mb-2 text-xs">
+                                                Selected tracks will be consolidated into a single
+                                                audio track.
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {audioTracks.map((track) => (
+                                                    <div
+                                                        key={track.index}
+                                                        className="flex items-center space-x-2"
+                                                    >
+                                                        <Checkbox
+                                                            id={`track-${track.index}`}
+                                                            checked={selectedAudioTracks.includes(
+                                                                track.index,
+                                                            )}
+                                                            onCheckedChange={(checked) =>
+                                                                handleAudioTrackChange(
+                                                                    track.index,
+                                                                    checked === true,
+                                                                )
+                                                            }
+                                                        />
+                                                        <Label
+                                                            htmlFor={`track-${track.index}`}
+                                                            className="text-sm"
+                                                        >
+                                                            {track.label}
+                                                        </Label>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {selectedAudioTracks.length > 0 && (
+                                        <div className="space-y-2">
+                                            <div className="flex justify-between">
+                                                <Label htmlFor="audioBitrate">
+                                                    Audio Quality (kbps)
+                                                </Label>
+                                                <span className="font-mono">
+                                                    {audioBitrate} kbps
+                                                </span>
+                                            </div>
+                                            <Slider
+                                                id="audioBitrate"
+                                                min={64}
+                                                max={320}
+                                                step={16}
+                                                value={[audioBitrate]}
+                                                onValueChange={(value) =>
+                                                    setAudioBitrate(
+                                                        Array.isArray(value) ? value[0] : value,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <ExportButton
+                                onExport={handleExport}
+                                isExporting={isExporting}
+                                baseOptions={{
+                                    startTime: timeRange.start,
+                                    endTime: timeRange.end,
+                                    outputFormat,
+                                    qualityMode,
+                                    width,
+                                    height,
+                                    ...(qualityMode === "preset" ? { quality } : { targetSize }),
+                                    fps,
+                                    ...(selectedAudioTracks.length > 0 ? { audioBitrate } : {}),
+                                    audioTracks: selectedAudioTracks,
+                                }}
+                            />
+                        </CardContent>
+                    </TabsContent>
+                    <TabsContent value="previous">
+                        <PreviousExports
+                            exports={exports}
+                            setExports={setExports}
+                            isLoading={isClipsLoading}
+                            onSelectClip={onSelectClip}
+                            selectedClipPath={selectedClipPath}
                         />
-                    </div>
-                </TabsContent>
-                <TabsContent value="previous">
-                    <PreviousExports
-                        exports={exports}
-                        setExports={setExports}
-                        isLoading={isClipsLoading}
-                        onSelectClip={onSelectClip}
-                        selectedClipPath={selectedClipPath}
-                    />
-                </TabsContent>
-            </Tabs>
+                    </TabsContent>
+                </Tabs>
+            </ScrollArea>
         </Card>
     );
 }

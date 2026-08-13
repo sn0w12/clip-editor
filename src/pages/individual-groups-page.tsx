@@ -1,182 +1,172 @@
-import React, { useEffect, useMemo } from "react";
-import { useVideoStore } from "@/contexts/video-store-context";
-import { useParams, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { ArrowLeftIcon } from "lucide-react";
+import { useMemo } from "react";
+
+import { EmptyState } from "@/components/empty-state";
 import { VideoCard } from "@/components/home/video-card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Clock, Calendar, LayoutGrid } from "lucide-react";
-import { Label } from "@/components/ui/label";
-import { useBadge } from "@/contexts/badge-context";
-import { formatTime } from "@/utils/format";
+import { toastManager } from "@/components/ui/toast";
+import { useConfirm } from "@/contexts/confirm-context";
+import { useSelection } from "@/hooks/use-selection";
+import { formatDuration } from "@/lib/utils";
+import { VideoContextMenu } from "@/pages/home-page";
+import { useClipsStore } from "@/stores/clips-store";
+import { useGamesStore, gameImageFor, resolveGameName } from "@/stores/games-store";
+import type { VideoFile } from "@/types";
 
-export default function GroupDetailPage() {
+export function GroupDetailPage(): React.ReactElement {
     const { groupId } = useParams({ from: "/groups/$groupId" });
+    const store = useClipsStore();
+    const games = useGamesStore();
+    const confirm = useConfirm();
     const navigate = useNavigate();
-    const {
-        videos,
-        thumbnails,
-        videoMetadata,
-        groups,
-        videoGroupMap,
-        videoGroupAssignments,
-        isLoading,
-    } = useVideoStore();
-    const { setBadgeContent, setBadgeVisible } = useBadge();
 
-    // Find the current group
-    const currentGroup = useMemo(() => {
-        return groups.find((group) => group.id === groupId);
-    }, [groupId, groups]);
+    const group = useMemo(
+        () => store.groups.find((g) => g.id === groupId),
+        [store.groups, groupId],
+    );
 
-    // Get videos for this group
-    const groupVideos = useMemo(() => {
-        // Get all video paths for this group
-        const videoPaths = videoGroupAssignments
-            .filter((assignment) => assignment.groupId === groupId)
-            .map((assignment) => assignment.videoPath);
+    const groupClips = useMemo(
+        () => store.clips.filter((c) => c.groupIds.includes(groupId)),
+        [store.clips, groupId],
+    );
 
-        // Return the video objects for these paths
-        return videos
-            .filter((video) => videoPaths.includes(video.path))
-            .sort((a, b) => {
-                if (!a.lastModified) return 1;
-                if (!b.lastModified) return -1;
+    // Cards show the resolved display name (raw name kept for the context menu's
+    // "Alias to game" action), matching the home page.
+    const displayClips = useMemo(
+        () =>
+            groupClips.map((clip) => ({
+                ...clip,
+                game: resolveGameName(games.games, games.aliases, clip.game),
+                rawGame: clip.game,
+            })),
+        [groupClips, games.games, games.aliases],
+    );
 
-                return (
-                    new Date(b.lastModified).getTime() -
-                    new Date(a.lastModified).getTime()
-                );
-            });
-    }, [videos, videoGroupAssignments, groupId]);
-
-    // Calculate total duration using videoMetadata
-    const totalDuration = useMemo(() => {
-        return groupVideos.reduce((total, video) => {
-            const metadata = videoMetadata[video.path];
-            return total + (metadata?.duration || 0);
-        }, 0);
-    }, [groupVideos, videoMetadata]);
-
-    // Get earliest and latest dates
-    const dateRange = useMemo(() => {
-        if (!groupVideos.length) return null;
-
-        const dates = groupVideos
-            .map((v) => (v.lastModified ? new Date(v.lastModified) : null))
-            .filter(Boolean) as Date[];
-
-        if (!dates.length) return null;
-
+    const stats = useMemo(() => {
+        const totalDuration = groupClips.reduce((sum, c) => sum + (c.metadata?.duration ?? 0), 0);
+        const dates = groupClips.map((c) => c.lastModified).sort();
         return {
-            earliest: new Date(Math.min(...dates.map((d) => d.getTime()))),
-            latest: new Date(Math.max(...dates.map((d) => d.getTime()))),
+            count: groupClips.length,
+            totalDuration,
+            first: dates[0],
+            last: dates[dates.length - 1],
         };
-    }, [groupVideos]);
+    }, [groupClips]);
 
-    const handleBackClick = () => {
-        navigate({ to: "/groups" });
+    const selection = useSelection(groupClips, (v) => v.path);
+
+    const openEditor = (video: VideoFile) => {
+        void navigate({
+            to: "/clips/edit",
+            search: { videoPath: video.path, videoName: video.name },
+        });
     };
 
-    useEffect(() => {
-        setBadgeContent(
-            <div className="flex items-center gap-1">
-                <span
-                    className="h-4 w-4 rounded-full"
-                    style={{ backgroundColor: currentGroup?.color }}
-                />
-                <span className="text-sm">{currentGroup?.name}</span>
-            </div>,
-        );
-        setBadgeVisible(true);
-        return () => setBadgeVisible(false);
-    }, [setBadgeContent]);
+    const handleDelete = async (paths: string[]) => {
+        const ok = await confirm({
+            title: `Delete ${paths.length} clip(s)?`,
+            description: "The files will be permanently deleted from disk.",
+            confirmText: "Delete",
+            variant: "destructive",
+        });
+        if (!ok) return;
+        const result = await store.deleteClips(paths);
+        toastManager.add({
+            title:
+                result.failed.length > 0
+                    ? `Failed to delete ${result.failed.length} file(s)`
+                    : `Deleted ${paths.length} clip(s)`,
+            type: result.failed.length > 0 ? "error" : "success",
+        });
+    };
 
-    if (isLoading) {
+    if (!group) {
         return (
-            <div className="flex flex-col p-4">
-                <Skeleton className="mb-4 h-10 w-48" />
-                <Skeleton className="mb-6 h-6 w-96" />
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                    {Array.from({ length: 6 }).map((_, i) => (
-                        <Skeleton
-                            key={i}
-                            className="h-[180px] w-full rounded"
-                        />
-                    ))}
-                </div>
-            </div>
-        );
-    }
-
-    if (!currentGroup) {
-        return (
-            <div className="flex h-full flex-col items-center justify-center p-4">
-                <p className="text-muted-foreground mb-4">Group not found</p>
-                <Button onClick={handleBackClick}>
-                    <ChevronLeft className="mr-1 h-4 w-4" />
-                    Back to Groups
-                </Button>
+            <div className="flex h-full items-center justify-center p-6">
+                <EmptyState title="Group not found" description="This group may have been deleted.">
+                    <Button render={<Link to="/groups" />}>
+                        <ArrowLeftIcon /> All groups
+                    </Button>
+                </EmptyState>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col p-4 px-6 pr-4">
-            <div className="bg-background sticky top-0 z-10">
-                <div className="flex items-center">
+        <div className="flex h-full flex-col gap-4 p-6">
+            <div>
+                <Button variant="ghost" size="sm" render={<Link to="/groups" />}>
+                    <ArrowLeftIcon /> Groups
+                </Button>
+                <h1 className="mt-2 flex items-center gap-2 text-xl font-semibold">
                     <span
-                        className="mr-3 inline-block h-6 w-6 rounded-full"
-                        style={{ backgroundColor: currentGroup.color }}
+                        className="size-3 rounded-full"
+                        style={{ backgroundColor: group.color ?? "var(--accent-color)" }}
                     />
-                    <h1 className="text-3xl font-bold">{currentGroup.name}</h1>
-                </div>
-
-                <div className="text-muted-foreground mt-2 flex flex-wrap gap-4">
-                    <div className="flex items-center gap-1">
-                        <LayoutGrid className="h-4 w-4" />
-                        <Label>{groupVideos.length} clips</Label>
-                    </div>
-
-                    {totalDuration > 0 && (
-                        <div className="flex items-center gap-1">
-                            <Clock className="h-4 w-4" />
-                            <Label>{formatTime(totalDuration)}</Label>
-                        </div>
-                    )}
-
-                    {dateRange && (
-                        <div className="flex items-center gap-1">
-                            <Calendar className="h-4 w-4" />
-                            <Label>
-                                {dateRange.earliest.toLocaleDateString()} -{" "}
-                                {dateRange.latest.toLocaleDateString()}
-                            </Label>
-                        </div>
+                    {group.name}
+                </h1>
+                <div className="mt-2 flex gap-2">
+                    <Badge variant="secondary">{stats.count} clip(s)</Badge>
+                    <Badge variant="secondary">{formatDuration(stats.totalDuration)} total</Badge>
+                    {stats.first && (
+                        <Badge variant="secondary">
+                            {formatDate(stats.first)} – {formatDate(stats.last ?? stats.first)}
+                        </Badge>
                     )}
                 </div>
             </div>
 
-            {/* Video grid */}
-            <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {groupVideos.map((video) => (
-                    <VideoCard
-                        key={video.path}
-                        video={video}
-                        thumbnailUrl={`${thumbnails[video.path]}?full=true`}
-                        isSelected={false}
-                        videoGroupMap={videoGroupMap}
-                        groups={groups}
-                    />
-                ))}
-            </div>
-
-            {groupVideos.length === 0 && (
-                <div className="mt-8 flex h-40 flex-col items-center justify-center rounded-lg border border-dashed">
-                    <p className="text-muted-foreground">
-                        No clips in this group
-                    </p>
+            {groupClips.length === 0 ? (
+                <EmptyState
+                    title="No clips in this group"
+                    description="Right-click a clip and choose Add to group."
+                />
+            ) : (
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {displayClips.map((clip) => (
+                        <VideoContextMenu
+                            key={clip.path}
+                            video={clip}
+                            groupIds={clip.groupIds}
+                            groups={store.groups}
+                            games={games}
+                            onOpen={openEditor}
+                            onDelete={(paths) => void handleDelete(paths)}
+                            onRename={() => undefined}
+                            onAddToGroup={(video, groupId) =>
+                                void store.assignToGroup([video.path], groupId)
+                            }
+                            onRemoveFromGroup={(video, groupId) =>
+                                void store.removeFromGroup([video.path], groupId)
+                            }
+                        >
+                            <VideoCard
+                                video={clip}
+                                isSelected={selection.selected.has(clip.path)}
+                                groups={store.groups}
+                                groupIds={clip.groupIds}
+                                gameImage={gameImageFor(
+                                    games.games,
+                                    games.aliases,
+                                    clip.rawGame ?? clip.game,
+                                )}
+                            />
+                        </VideoContextMenu>
+                    ))}
                 </div>
             )}
         </div>
     );
+}
+
+function formatDate(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+    }).format(date);
 }

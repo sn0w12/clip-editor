@@ -1,347 +1,312 @@
-import React, { useMemo, useState } from "react";
-import { useVideoStore } from "@/contexts/video-store-context";
 import { useNavigate } from "@tanstack/react-router";
+import { ArrowDownIcon, ArrowUpIcon, FolderPlusIcon, Trash2Icon } from "lucide-react";
+import { useMemo, useState } from "react";
+
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogClose,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogPanel,
+    DialogPopup,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Form } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-    Tag,
-    Plus,
-    Video,
-    ArrowUpDown,
-    Clock,
-    Calendar,
-    Trash2,
-    ChevronUp,
-    ChevronDown,
-} from "lucide-react";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+import { toastManager } from "@/components/ui/toast";
 import { useConfirm } from "@/contexts/confirm-context";
-import { CreateGroupDialog } from "@/components/home/create-group-dialog";
-import { formatTime } from "@/utils/format";
+import { formatDuration, cn } from "@/lib/utils";
+import { useClipsStore } from "@/stores/clips-store";
+import type { VideoGroup } from "@/types";
 
-export default function GroupsPage() {
-    const {
-        groups,
-        videoGroupMap,
-        isLoading,
-        isCreateGroupDialogOpen,
-        setIsCreateGroupDialogOpen,
-        handleCreateGroup,
-        videoMetadata,
-        videos,
-        handleDeleteGroup,
-    } = useVideoStore();
+type SortKey = "name" | "videoCount" | "totalDuration";
+
+interface GroupStats {
+    group: VideoGroup;
+    videoCount: number;
+    totalDuration: number;
+    firstDate?: string;
+    lastDate?: string;
+}
+
+function SortHeader({
+    label,
+    sort,
+    sortKey,
+    sortDirection,
+    onSort,
+}: {
+    label: string;
+    sort: SortKey;
+    sortKey: SortKey;
+    sortDirection: "asc" | "desc";
+    onSort: (key: SortKey) => void;
+}): React.ReactElement {
+    return (
+        <th className="px-3 py-2 text-left font-medium">
+            <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => onSort(sort)}
+                className={cn(sortKey === sort && "text-primary")}
+            >
+                {label}
+                {sortKey === sort &&
+                    (sortDirection === "asc" ? <ArrowUpIcon /> : <ArrowDownIcon />)}
+            </Button>
+        </th>
+    );
+}
+
+export function GroupsPage(): React.ReactElement {
+    const store = useClipsStore();
+    const confirm = useConfirm();
     const navigate = useNavigate();
-    const { confirm } = useConfirm();
 
-    // Add sorting state
-    const [sortColumn, setSortColumn] = useState<
-        "name" | "videoCount" | "totalDuration"
-    >("videoCount");
-    const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+    const [sortKey, setSortKey] = useState<SortKey>("name");
+    const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [name, setName] = useState("");
 
-    // Calculate group details
-    const groupData = useMemo(() => {
-        return groups
-            .map((group) => {
-                // Count videos in this group
-                const videoPaths = Object.entries(videoGroupMap)
-                    .filter(([, groupIds]) => groupIds.includes(group.id))
-                    .map(([path]) => path);
-
-                const videoCount = videoPaths.length;
-
-                // Calculate total duration from metadata
-                const totalDuration = videoPaths.reduce((total, path) => {
-                    const metadata = videoMetadata[path];
-                    return total + (metadata?.duration || 0);
-                }, 0);
-
-                // Get earliest and latest dates
-                let earliestDate: Date | null = null;
-                let latestDate: Date | null = null;
-
-                videoPaths.forEach((path) => {
-                    const video = videos.find((v) => v.path === path);
-                    if (video?.lastModified) {
-                        const date = new Date(video.lastModified);
-                        if (!earliestDate || date < earliestDate) {
-                            earliestDate = date;
-                        }
-                        if (!latestDate || date > latestDate) {
-                            latestDate = date;
-                        }
-                    }
-                });
-
-                return {
-                    ...group,
-                    videoCount,
-                    totalDuration,
-                    earliestDate,
-                    latestDate,
-                };
-            })
-            .sort((a, b) => b.videoCount - a.videoCount); // Default sort by video count
-    }, [groups, videoGroupMap, videoMetadata, videos]);
-
-    // Add sorting functionality
-    const sortData = useMemo(() => {
-        return [...groupData].sort((a, b) => {
-            if (sortColumn === "name") {
-                return sortDirection === "asc"
-                    ? a.name.localeCompare(b.name)
-                    : b.name.localeCompare(a.name);
-            } else if (sortColumn === "videoCount") {
-                return sortDirection === "asc"
-                    ? a.videoCount - b.videoCount
-                    : b.videoCount - a.videoCount;
-            } else if (sortColumn === "totalDuration") {
-                return sortDirection === "asc"
-                    ? a.totalDuration - b.totalDuration
-                    : b.totalDuration - a.totalDuration;
+    const stats: GroupStats[] = useMemo(() => {
+        const byGroup = new Map<string, { count: number; duration: number; dates: string[] }>();
+        for (const clip of store.clips) {
+            for (const groupId of clip.groupIds) {
+                const entry = byGroup.get(groupId) ?? { count: 0, duration: 0, dates: [] };
+                entry.count += 1;
+                entry.duration += clip.metadata?.duration ?? 0;
+                entry.dates.push(clip.lastModified);
+                byGroup.set(groupId, entry);
             }
-            return 0;
+        }
+        return store.groups.map((group) => {
+            const entry = byGroup.get(group.id) ?? { count: 0, duration: 0, dates: [] };
+            const sorted = [...entry.dates].sort();
+            return {
+                group,
+                videoCount: entry.count,
+                totalDuration: entry.duration,
+                firstDate: sorted[0],
+                lastDate: sorted[sorted.length - 1],
+            };
         });
-    }, [groupData, sortColumn, sortDirection]);
+    }, [store.clips, store.groups]);
 
-    // Handle sorting
-    const handleSort = (column: "name" | "videoCount" | "totalDuration") => {
-        if (sortColumn === column) {
-            // Toggle direction if clicking the same column
-            setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    const sorted = useMemo(() => {
+        const list = [...stats];
+        const direction = sortDirection === "asc" ? 1 : -1;
+        list.sort((a, b) => {
+            switch (sortKey) {
+                case "videoCount":
+                    return (a.videoCount - b.videoCount) * direction;
+                case "totalDuration":
+                    return (a.totalDuration - b.totalDuration) * direction;
+                default:
+                    return a.group.name.localeCompare(b.group.name) * direction;
+            }
+        });
+        return list;
+    }, [stats, sortKey, sortDirection]);
+
+    const toggleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
         } else {
-            // Set new column and default to descending
-            setSortColumn(column);
-            setSortDirection("desc");
+            setSortKey(key);
+            setSortDirection("asc");
         }
     };
 
-    const deleteGroup = async (groupId: string, groupName: string) => {
-        const confirmed = await confirm({
-            title: "Delete Group",
-            description: `Are you sure you want to delete the group "${groupName}"? This action cannot be undone.`,
+    const handleDelete = async (group: VideoGroup) => {
+        const ok = await confirm({
+            title: `Delete ${group.name}?`,
+            description: "Clips stay on disk; only the group is removed.",
             confirmText: "Delete",
-            cancelText: "Cancel",
             variant: "destructive",
         });
-
-        if (confirmed) {
-            handleDeleteGroup(groupId);
+        if (ok) {
+            await toastManager
+                .promise(store.deleteGroup(group.id), {
+                    loading: { title: "Deleting group…" },
+                    success: { title: "Group deleted" },
+                    error: (e) => ({ title: `Failed to delete group: ${String(e)}` }),
+                })
+                .catch(() => {});
         }
-    };
-
-    // Loading state
-    if (isLoading) {
-        return (
-            <div className="p-4">
-                <div className="space-y-2">
-                    <Skeleton className="h-8 w-48" />
-                    <Skeleton className="h-4 w-32" />
-                </div>
-                <div className="mt-6">
-                    <div className="rounded-md border">
-                        <div className="bg-muted/50 h-10 border-b px-4">
-                            <Skeleton className="mt-2.5 h-5 w-full" />
-                        </div>
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <div
-                                key={i}
-                                className="border-b px-4 py-3 last:border-b-0"
-                            >
-                                <Skeleton className="h-5 w-full" />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // Empty state
-    if (groupData.length === 0) {
-        return (
-            <div className="flex h-64 flex-col items-center justify-center p-4">
-                <Tag
-                    size={48}
-                    className="text-muted-foreground mb-4 opacity-40"
-                />
-                <p className="text-muted-foreground mb-4">
-                    No groups created yet.
-                </p>
-                <Button onClick={() => setIsCreateGroupDialogOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Group
-                </Button>
-                <CreateGroupDialog
-                    open={isCreateGroupDialogOpen}
-                    onOpenChange={setIsCreateGroupDialogOpen}
-                    onCreateGroup={handleCreateGroup}
-                />
-            </div>
-        );
-    }
-
-    // Render sort indicator icon
-    const renderSortIcon = (
-        column: "name" | "videoCount" | "totalDuration",
-    ) => {
-        if (sortColumn !== column) {
-            return (
-                <ArrowUpDown className="text-muted-foreground ml-1 h-3 w-3" />
-            );
-        }
-        return sortDirection === "asc" ? (
-            <ChevronUp className="ml-1 h-3 w-3" />
-        ) : (
-            <ChevronDown className="ml-1 h-3 w-3" />
-        );
     };
 
     return (
-        <div className="flex flex-col p-4 px-6 pr-4">
+        <div className="flex h-full flex-col gap-2 p-6">
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold">Groups</h1>
-                    <p className="text-muted-foreground mt-1">
-                        {groupData.length}{" "}
-                        {groupData.length === 1 ? "group" : "groups"} of clips
-                    </p>
+                    <p className="text-muted-foreground text-sm">{store.groups.length} group(s)</p>
                 </div>
-                <Button onClick={() => setIsCreateGroupDialogOpen(true)}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Create Group
+                <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+                    <FolderPlusIcon /> New group
                 </Button>
             </div>
 
-            <div className="mt-4 rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead className="w-12"></TableHead>
-                            <TableHead>
-                                <div
-                                    className="flex cursor-pointer items-center"
-                                    onClick={() => handleSort("name")}
-                                >
-                                    Name
-                                    {renderSortIcon("name")}
-                                </div>
-                            </TableHead>
-                            <TableHead>
-                                <div
-                                    className="flex cursor-pointer items-center"
-                                    onClick={() => handleSort("videoCount")}
-                                >
-                                    Clips
-                                    {renderSortIcon("videoCount")}
-                                </div>
-                            </TableHead>
-                            <TableHead>
-                                <div
-                                    className="flex cursor-pointer items-center"
-                                    onClick={() => handleSort("totalDuration")}
-                                >
-                                    Duration
-                                    {renderSortIcon("totalDuration")}
-                                </div>
-                            </TableHead>
-                            <TableHead>Date Range</TableHead>
-                            <TableHead className="text-accent-negative text-right">
-                                Delete
-                            </TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {sortData.map((group) => (
-                            <TableRow
-                                key={group.id}
-                                className="cursor-pointer"
-                                onClick={() =>
-                                    navigate({
-                                        to: "/groups/$groupId",
-                                        params: { groupId: group.id },
-                                    })
-                                }
-                            >
-                                <TableCell className="text-center">
-                                    <span
-                                        className="inline-block h-4 w-4 rounded-full align-middle"
-                                        style={{ backgroundColor: group.color }}
-                                    />
-                                </TableCell>
-                                <TableCell className="font-medium">
-                                    {group.name}
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex items-center">
-                                        <Video className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
-                                        <span>
-                                            {group.videoCount}{" "}
-                                            {group.videoCount === 1
-                                                ? "clip"
-                                                : "clips"}
-                                        </span>
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    <div className="flex items-center">
-                                        <Clock className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
-                                        <span>
-                                            {formatTime(group.totalDuration)}
-                                        </span>
-                                    </div>
-                                </TableCell>
-                                <TableCell>
-                                    {group.earliestDate && group.latestDate ? (
-                                        <div className="flex items-center">
-                                            <Calendar className="text-muted-foreground mr-1.5 h-3.5 w-3.5" />
-                                            <span>
-                                                {(
-                                                    group.earliestDate as Date
-                                                ).toLocaleDateString()}{" "}
-                                                -{" "}
-                                                {(
-                                                    group.latestDate as Date
-                                                ).toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <span className="text-muted-foreground">
-                                            No date info
-                                        </span>
-                                    )}
-                                </TableCell>
-                                <TableCell className="text-right">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-destructive hover:text-destructive"
-                                        onClick={(e) => {
-                                            e.stopPropagation(); // Prevent row click
-                                            deleteGroup(group.id, group.name);
-                                        }}
+            {store.loading ? (
+                <div className="space-y-2">
+                    {Array.from({ length: 5 }, (_, i) => (
+                        <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                </div>
+            ) : sorted.length === 0 ? (
+                <EmptyState
+                    title="No groups yet"
+                    description="Create a group and assign clips to it from the clip context menu."
+                >
+                    <Button onClick={() => setIsCreateOpen(true)}>
+                        <FolderPlusIcon /> New group
+                    </Button>
+                </EmptyState>
+            ) : (
+                <div className="min-h-0 flex-1 rounded-lg border">
+                    <table className="w-full text-sm">
+                        <thead className="bg-muted/40">
+                            <tr>
+                                <SortHeader
+                                    label="Name"
+                                    sort="name"
+                                    sortKey={sortKey}
+                                    sortDirection={sortDirection}
+                                    onSort={toggleSort}
+                                />
+                                <SortHeader
+                                    label="Clips"
+                                    sort="videoCount"
+                                    sortKey={sortKey}
+                                    sortDirection={sortDirection}
+                                    onSort={toggleSort}
+                                />
+                                <SortHeader
+                                    label="Duration"
+                                    sort="totalDuration"
+                                    sortKey={sortKey}
+                                    sortDirection={sortDirection}
+                                    onSort={toggleSort}
+                                />
+                                <th className="px-3 py-2 text-left font-medium">Date range</th>
+                                <th className="w-16" />
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sorted.map(
+                                ({ group, videoCount, totalDuration, firstDate, lastDate }) => (
+                                    <tr
+                                        key={group.id}
+                                        className="hover:bg-accent/30 cursor-pointer border-t transition-colors"
+                                        onClick={() =>
+                                            void navigate({
+                                                to: "/groups/$groupId",
+                                                params: { groupId: group.id },
+                                            })
+                                        }
                                     >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </div>
-            <CreateGroupDialog
-                open={isCreateGroupDialogOpen}
-                onOpenChange={setIsCreateGroupDialogOpen}
-                onCreateGroup={handleCreateGroup}
-            />
+                                        <td className="px-3 py-2">
+                                            <span className="flex items-center gap-2 font-medium">
+                                                <span
+                                                    className="size-2.5 shrink-0 rounded-full"
+                                                    style={{
+                                                        backgroundColor:
+                                                            group.color ?? "var(--accent-color)",
+                                                    }}
+                                                />
+                                                {group.name}
+                                            </span>
+                                        </td>
+                                        <td className="text-muted-foreground px-3 py-2">
+                                            {videoCount}
+                                        </td>
+                                        <td className="text-muted-foreground px-3 py-2">
+                                            {formatDuration(totalDuration)}
+                                        </td>
+                                        <td className="text-muted-foreground px-3 py-2">
+                                            {firstDate
+                                                ? `${formatDate(firstDate)} – ${formatDate(lastDate ?? firstDate)}`
+                                                : "—"}
+                                        </td>
+                                        <td className="px-3 py-2 text-right">
+                                            <Button
+                                                size="icon-sm"
+                                                variant="ghost"
+                                                aria-label={`Delete ${group.name}`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void handleDelete(group);
+                                                }}
+                                            >
+                                                <Trash2Icon />
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ),
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                <DialogPopup className="sm:max-w-sm">
+                    <DialogHeader>
+                        <DialogTitle>New group</DialogTitle>
+                        <DialogDescription>
+                            Group clips together for quick filtering.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <Form
+                        className="contents"
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!name.trim()) return;
+                            void toastManager
+                                .promise(store.createGroup(name.trim()), {
+                                    loading: { title: "Creating group…" },
+                                    success: (group) => ({ title: `Created ${group.name}` }),
+                                    error: (e) => ({
+                                        title: `Failed to create group: ${String(e)}`,
+                                    }),
+                                })
+                                .then(() => {
+                                    setName("");
+                                    setIsCreateOpen(false);
+                                })
+                                .catch(() => {});
+                        }}
+                    >
+                        <DialogPanel className="grid gap-4">
+                            <Field>
+                                <FieldLabel>Name</FieldLabel>
+                                <Input
+                                    id="group-name"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    autoFocus
+                                    placeholder="Favorites"
+                                />
+                            </Field>
+                        </DialogPanel>
+                        <DialogFooter>
+                            <DialogClose render={<Button variant="ghost">Cancel</Button>} />
+                            <Button type="submit">Create</Button>
+                        </DialogFooter>
+                    </Form>
+                </DialogPopup>
+            </Dialog>
         </div>
     );
+}
+
+function formatDate(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }

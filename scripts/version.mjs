@@ -12,15 +12,9 @@ if (!version || !SEMVER.test(version)) {
     process.exit(1);
 }
 
-const jsonRe = (replacement) => [
-    /"version"\s*:\s*"[^"]+"/,
-    `"version": "${replacement}"`,
-];
+const jsonRe = (replacement) => [/"version"\s*:\s*"[^"]+"/, `"version": "${replacement}"`];
 
-const cargoTomlRe = (replacement) => [
-    /^version = "[^"]+"/m,
-    `version = "${replacement}"`,
-];
+const cargoTomlRe = (replacement) => [/^version = "[^"]+"/m, `version = "${replacement}"`];
 
 const cargoLockRe = (replacement) => [
     /name = "clip-editor"\nversion = "[^"]+"/,
@@ -53,7 +47,7 @@ for (const { file, source, re } of files) {
 }
 
 let changed = 0;
-for (const { file, path, source, re } of files) {
+for (const { path, source, re } of files) {
     const updated = source.replace(re[0], re[1]);
     if (updated !== source) {
         writeFileSync(path, updated);

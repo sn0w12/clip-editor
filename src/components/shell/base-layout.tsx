@@ -147,6 +147,7 @@ function SidebarNavigation() {
 }
 
 export function BaseLayout() {
+    const pathname = useRouterState({ select: (s) => s.location.pathname });
     return (
         <BadgeProvider>
             <SidebarProvider>
@@ -157,7 +158,7 @@ export function BaseLayout() {
                             <SidebarNavigation />
                         </Sidebar>
                         <main className="bg-background min-h-0 min-w-0 flex-1 overflow-hidden md:rounded-tl-xl md:border-t md:border-l">
-                            <ScrollArea fill overflowX={false}>
+                            <ScrollArea fill overflowX={false} key={pathname}>
                                 <Outlet />
                             </ScrollArea>
                         </main>

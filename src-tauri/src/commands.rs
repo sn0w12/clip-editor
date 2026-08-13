@@ -847,16 +847,21 @@ pub async fn reset_settings(
     Ok(())
 }
 
-pub fn sync_autostart(app: &tauri::AppHandle, enabled: bool) {
-    use tauri_plugin_autostart::ManagerExt;
-    let manager = app.autolaunch();
-    let result = if enabled {
-        manager.enable()
-    } else {
-        manager.disable()
-    };
-    if let Err(e) = result {
-        eprintln!("[autostart] sync failed: {e}");
+pub fn sync_autostart(_app: &tauri::AppHandle, _enabled: bool) {
+    // Dev builds never register autostart (the plugin is release-only), so
+    // this is intentionally a no-op there.
+    #[cfg(not(debug_assertions))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        let manager = _app.autolaunch();
+        let result = if _enabled {
+            manager.enable()
+        } else {
+            manager.disable()
+        };
+        if let Err(e) = result {
+            eprintln!("[autostart] sync failed: {e}");
+        }
     }
 }
 

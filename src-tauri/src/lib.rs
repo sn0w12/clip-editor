@@ -62,13 +62,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(prevent_default())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(
-            tauri_plugin_autostart::Builder::new()
-                .args([AUTOSTART_ARG])
-                .app_name("Clip Editor")
-                .build(),
-        )
+        .plugin(tauri_plugin_updater::Builder::new().build());
+
+    // Autostart is release-only: dev builds must never register a Run key,
+    // otherwise a debug exe can hijack the OS autostart entry.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(
+        tauri_plugin_autostart::Builder::new()
+            .args([AUTOSTART_ARG])
+            .app_name("Clip Editor")
+            .build(),
+    );
+
+    let builder = builder
         .setup(|app| {
             // Everything lives under `%APPDATA%\clip-editor`: the database and
             // all caches (thumbnails, waveforms, playable remuxes, artwork).

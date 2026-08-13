@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { GameIcon } from "@/components/game-icon";
-import { FilterHeader } from "@/components/home/filter-header";
+import { FilterHeader, FilterHeaderControls } from "@/components/home/filter-header";
 import { SelectionOverlay, useDragSelection } from "@/components/home/selection";
 import { VideoGrid } from "@/components/home/video-grid";
 import { Alert } from "@/components/ui/alert";
@@ -249,7 +249,7 @@ export function HomePage() {
     }
 
     return (
-        <div ref={containerRef} className="relative flex h-full flex-col gap-2 p-6">
+        <div ref={containerRef} className="relative flex min-h-full flex-col gap-2 p-6">
             <SelectionOverlay box={selection.box} />
 
             {storeError && (
@@ -261,47 +261,55 @@ export function HomePage() {
                 </Alert>
             )}
 
-            <FilterHeader
-                directoryPath={roots[0] ?? "No directory"}
-                filteredCount={filtered.length}
-                totalCount={clips.length}
-                totalSize={totalSize}
-                groups={groups}
-                selectedGroupIds={selectedGroupIds}
-                selectedGames={selectedGames}
-                games={gameNames}
-                steamGames={games.games}
-                clipCountByDate={clipCountByDate}
-                viewMode={viewMode}
-                startDate={dateRange.start}
-                endDate={dateRange.end}
-                onSelectGroup={setSelectedGroupIds}
-                onGameSelect={setSelectedGames}
-                onDateRangeChange={(from, to) => setDateRange({ start: from, end: to })}
-                onClearFilters={clearFilters}
-                onChangeDirectory={() => selectDirectory()}
-                onSetViewMode={setViewModePersisted}
-            />
-
-            <VideoGrid
-                isLoading={loading}
-                filteredVideos={displayClips}
-                selectedVideos={[...selection.selected]}
-                groups={groups}
-                videoGroupMap={videoGroupMap}
-                gameImages={resolvedGameImages}
-                games={games}
-                viewMode={viewMode}
-                onSelectDirectory={() => selectDirectory()}
-                onOpen={openEditor}
-                onDelete={(paths) => void handleDelete(paths)}
-                onRename={(video) => {
-                    setRenaming(video);
-                    setRenameValue(video.game);
-                }}
-                onAddToGroup={(video, groupId) => void assignToGroup([video.path], groupId)}
-                onRemoveFromGroup={(video, groupId) => void removeFromGroup([video.path], groupId)}
-            />
+            <div className="grid grid-cols-[1fr_auto] items-start gap-x-4 gap-y-2">
+                <FilterHeader
+                    directoryPath={roots[0] ?? "No directory"}
+                    filteredCount={filtered.length}
+                    totalCount={clips.length}
+                    totalSize={totalSize}
+                />
+                <FilterHeaderControls
+                    className="bg-background sticky top-1 z-20"
+                    groups={groups}
+                    selectedGroupIds={selectedGroupIds}
+                    selectedGames={selectedGames}
+                    games={gameNames}
+                    steamGames={games.games}
+                    clipCountByDate={clipCountByDate}
+                    viewMode={viewMode}
+                    startDate={dateRange.start}
+                    endDate={dateRange.end}
+                    onSelectGroup={setSelectedGroupIds}
+                    onGameSelect={setSelectedGames}
+                    onDateRangeChange={(from, to) => setDateRange({ start: from, end: to })}
+                    onClearFilters={clearFilters}
+                    onChangeDirectory={() => selectDirectory()}
+                    onSetViewMode={setViewModePersisted}
+                />
+                <div className="col-span-2">
+                    <VideoGrid
+                        isLoading={loading}
+                        filteredVideos={displayClips}
+                        selectedVideos={[...selection.selected]}
+                        groups={groups}
+                        videoGroupMap={videoGroupMap}
+                        gameImages={resolvedGameImages}
+                        games={games}
+                        viewMode={viewMode}
+                        onSelectDirectory={() => selectDirectory()}
+                        onOpen={openEditor}
+                        onDelete={(paths) => void handleDelete(paths)}
+                        onRename={(video) => {
+                            setRenaming(video);
+                            setRenameValue(video.game);
+                        }}
+                        onAddToGroup={(video, groupId) => void assignToGroup([video.path], groupId)}
+                        onRemoveFromGroup={(video, groupId) =>
+                            void removeFromGroup([video.path], groupId)
+                        }
+                    />
+                </div>
+            </div>
 
             <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
                 <DialogPopup className="sm:max-w-md">

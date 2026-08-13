@@ -13,7 +13,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { displayPath } from "@/lib/utils";
+import { cn, displayPath } from "@/lib/utils";
 import type { ViewMode } from "@/pages/home-page";
 import type { GameImage } from "@/types";
 import type { VideoGroup } from "@/types";
@@ -25,6 +25,36 @@ export interface FilterHeaderProps {
     filteredCount: number;
     totalCount: number;
     totalSize?: number;
+}
+
+export function FilterHeader({
+    directoryPath,
+    filteredCount,
+    totalCount,
+    totalSize,
+}: FilterHeaderProps): React.ReactElement {
+    return (
+        <div className="min-w-0">
+            <h1 className="text-3xl font-bold">Clips</h1>
+            <div className="mt-1 flex items-center gap-2">
+                <p className="text-muted-foreground truncate text-sm">
+                    {displayPath(directoryPath)}
+                </p>
+                {totalSize !== undefined && totalSize > 0 && (
+                    <span className="text-muted-foreground text-sm">({formatSize(totalSize)})</span>
+                )}
+                {filteredCount !== totalCount && (
+                    <Badge variant="secondary" className="shrink-0">
+                        Showing {filteredCount} of {totalCount} videos
+                    </Badge>
+                )}
+            </div>
+        </div>
+    );
+}
+
+export interface FilterHeaderControlsProps {
+    className?: string;
     groups: VideoGroup[];
     selectedGroupIds: string[];
     selectedGames: string[];
@@ -43,11 +73,8 @@ export interface FilterHeaderProps {
     onSetViewMode: (mode: ViewMode) => void;
 }
 
-export function FilterHeader({
-    directoryPath,
-    filteredCount,
-    totalCount,
-    totalSize,
+export function FilterHeaderControls({
+    className,
     groups,
     selectedGroupIds,
     selectedGames,
@@ -63,7 +90,7 @@ export function FilterHeader({
     onClearFilters,
     onChangeDirectory,
     onSetViewMode,
-}: FilterHeaderProps): React.ReactElement {
+}: FilterHeaderControlsProps): React.ReactElement {
     const gameOptions = useMemo(
         () =>
             games.map((game) => {
@@ -79,67 +106,42 @@ export function FilterHeader({
         (selectedGroupIds.length > 0 ? 1 : 0);
 
     return (
-        <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-                <h1 className="text-3xl font-bold">Clips</h1>
-                <div className="mt-1 flex items-center gap-2">
-                    <p className="text-muted-foreground truncate text-sm">
-                        {displayPath(directoryPath)}
-                    </p>
-                    {totalSize !== undefined && totalSize > 0 && (
-                        <span className="text-muted-foreground text-sm">
-                            ({formatSize(totalSize)})
-                        </span>
-                    )}
-                    {filteredCount !== totalCount && (
-                        <Badge variant="secondary" className="shrink-0">
-                            Showing {filteredCount} of {totalCount} videos
-                        </Badge>
-                    )}
-                </div>
-            </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-                <Button
-                    size="icon"
-                    variant={viewMode === "list" ? "default" : "secondary"}
-                    onClick={() => onSetViewMode("list")}
-                    aria-label="List view"
-                >
-                    <ListIcon className="size-4" />
-                </Button>
-                <Button
-                    size="icon"
-                    variant={viewMode === "grid" ? "default" : "secondary"}
-                    onClick={() => onSetViewMode("grid")}
-                    aria-label="Grid view"
-                >
-                    <Grid2X2Icon className="size-4" />
-                </Button>
-                <Separator orientation="vertical" className="h-9!" />
-                <FilterPanel
-                    games={gameOptions}
-                    selectedGames={selectedGames}
-                    groups={groups}
-                    selectedGroupIds={selectedGroupIds}
-                    startDate={startDate}
-                    endDate={endDate}
-                    clipCountByDate={clipCountByDate}
-                    activeFilterCount={activeFilterCount}
-                    onGameSelect={onGameSelect}
-                    onGroupSelect={onSelectGroup}
-                    onDateRangeChange={onDateRangeChange}
-                    onClearFilters={onClearFilters}
-                />
-                <Button
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => void onChangeDirectory()}
-                >
-                    <FolderOpenIcon className="size-4" />
-                    Change Directory
-                </Button>
-            </div>
+        <div className={cn("flex shrink-0 items-center gap-2", className)}>
+            <Button
+                size="icon"
+                variant={viewMode === "list" ? "default" : "secondary"}
+                onClick={() => onSetViewMode("list")}
+                aria-label="List view"
+            >
+                <ListIcon className="size-4" />
+            </Button>
+            <Button
+                size="icon"
+                variant={viewMode === "grid" ? "default" : "secondary"}
+                onClick={() => onSetViewMode("grid")}
+                aria-label="Grid view"
+            >
+                <Grid2X2Icon className="size-4" />
+            </Button>
+            <Separator orientation="vertical" className="h-9!" />
+            <FilterPanel
+                games={gameOptions}
+                selectedGames={selectedGames}
+                groups={groups}
+                selectedGroupIds={selectedGroupIds}
+                startDate={startDate}
+                endDate={endDate}
+                clipCountByDate={clipCountByDate}
+                activeFilterCount={activeFilterCount}
+                onGameSelect={onGameSelect}
+                onGroupSelect={onSelectGroup}
+                onDateRangeChange={onDateRangeChange}
+                onClearFilters={onClearFilters}
+            />
+            <Button variant="outline" className="gap-2" onClick={() => void onChangeDirectory()}>
+                <FolderOpenIcon className="size-4" />
+                Change Directory
+            </Button>
         </div>
     );
 }

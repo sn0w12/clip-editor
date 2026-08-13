@@ -133,7 +133,7 @@ export function VideoGrid({
                         <h3 className="pr-2 text-lg font-medium text-nowrap">
                             {dateGroup.formattedDate}
                         </h3>
-                        <Separator className="from-border bg-gradient-to-r to-transparent" />
+                        <Separator className="from-border via-border/20 bg-gradient-to-r to-transparent" />
                         <svg
                             className="pointer-events-none absolute top-full left-0 size-3"
                             viewBox="0 0 12 12"

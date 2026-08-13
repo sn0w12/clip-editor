@@ -15,7 +15,8 @@
         "lint:fix": "oxlint --fix",
         "format": "oxfmt",
         "format:check": "oxfmt --check",
-        "format:all": "node scripts/format-all.mjs"
+        "format:all": "node scripts/format-all.mjs",
+        "set-version": "node scripts/version.mjs"
     },
     "dependencies": {
         "@base-ui/react": "^1.7.0",

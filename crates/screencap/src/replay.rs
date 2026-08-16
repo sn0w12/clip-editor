@@ -140,7 +140,9 @@ impl ReplayController {
             let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(16);
             let (event_tx, event_rx) = crossbeam_channel::bounded(500);
             let handle = thread_builder("replay-supervisor")
-                .spawn(move || supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx)))?;
+                .spawn(move || {
+                    supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx))
+                })?;
             Ok(Self {
                 cmd_tx,
                 event_rx,
@@ -173,9 +175,12 @@ impl ReplayController {
     }
 
     /// Block until the supervisor exits on its own (Ctrl-C or a terminal
-    /// worker error) without sending Stop. Used by the CLI.
+    /// worker error) without sending Stop. Used by the CLI. The command
+    /// sender is deliberately kept alive: `supervise_inner`'s select must
+    /// block on `cmd_rx` rather than see a permanently-ready disconnected
+    /// channel, which would spin the supervisor loop at 100% of one core for
+    /// the whole run (a real input-lag source on a busy desktop).
     pub fn wait(mut self) -> Result<(), RunError> {
-        drop(self.cmd_tx);
         let join = self.join.take().expect("controller join handle");
         join.join()
             .map_err(|_| RunError::media("replay supervisor thread panicked"))?
@@ -276,8 +281,9 @@ fn supervise_inner(
     // a moment later is never treated as late by the mixer.
     let origin = Instant::now();
 
-    // Channels.
-    let (video_tx, video_rx) = crossbeam_channel::bounded(60 * 2);
+    // Channels. The video queue is bounded to two frames so end-to-end frame
+    // age stays at most two frame intervals (see VIDEO_QUEUE_CAPACITY).
+    let (video_tx, video_rx) = crossbeam_channel::bounded(crate::video::VIDEO_QUEUE_CAPACITY);
     let (event_tx, event_rx) = crossbeam_channel::bounded(500);
     let (hotkey_tx, hotkey_rx) = crossbeam_channel::bounded(16);
     let (err_tx, err_rx) = crossbeam_channel::bounded(16);
@@ -384,6 +390,7 @@ fn supervise_inner(
             keep: Duration::from_secs(
                 config.replay.duration_seconds as u64 + config.replay.segment_seconds as u64,
             ),
+            capture_origin: origin,
         },
         store.clone(),
         video_rx,
@@ -791,10 +798,11 @@ mod save_window_test {
         let store = Arc::new(SegmentStore::new(buffer_dir.clone()));
         store.prepare().unwrap();
 
-        let (video_tx, video_rx) = crossbeam_channel::bounded(60 * 2);
+        let (video_tx, video_rx) = crossbeam_channel::bounded(crate::video::VIDEO_QUEUE_CAPACITY);
         let pacer_rx = video_rx.clone();
         let (shutdown_tx, shutdown_rx) = crossbeam_channel::bounded(64);
         let (err_tx, err_rx) = crossbeam_channel::bounded(16);
+        let origin = Instant::now();
 
         let done = crate::media::segmenter::spawn_segmenter(
             SegmenterParams {
@@ -808,6 +816,7 @@ mod save_window_test {
                 segment_seconds,
                 buffer_dir: buffer_dir.clone(),
                 keep: Duration::from_secs(120),
+                capture_origin: origin,
             },
             store.clone(),
             video_rx,
@@ -830,10 +839,8 @@ mod save_window_test {
             }
         });
 
-        let origin = Instant::now();
         let pacer_tx = video_tx.clone();
-        let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(1);
-        let pacer = std::thread::spawn(move || {
+        let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(1);        let pacer = std::thread::spawn(move || {
             let mut next_tick = origin;
             let interval = Duration::from_micros(1_000_000 / fps as u64);
             loop {
@@ -939,6 +946,37 @@ mod save_window_test {
         total as f64 / 4.0 / 2.0 / 48000.0
     }
 
+    /// Probe each stream's first packet start time (seconds) from the saved
+    /// file with the bundled ffprobe. Used to bound the first A/V packet
+    /// offset: the mixer emits one block per window, so a clip whose audio
+    /// starts more than one block after (or before) its video has drifted.
+    fn stream_start_times(ffprobe: &PathBuf, path: &PathBuf) -> std::collections::HashMap<String, f64> {
+        let output = std::process::Command::new(ffprobe)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-show_entries",
+                "stream=codec_type,start_time",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(path)
+            .output()
+            .expect("ffprobe runs");
+        let mut map = std::collections::HashMap::new();
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            // csv: codec_type,start_time
+            let mut it = line.split(',');
+            if let (Some(codec), Some(start)) = (it.next(), it.next()) {
+                if let Ok(v) = start.trim().parse::<f64>() {
+                    map.insert(codec.trim().to_string(), v);
+                }
+            }
+        }
+        map
+    }
+
     /// The production save path includes live audio tracks. Reproduce that
     /// here (video + one audio track fed over the real pipes) and verify the
     /// saved clip's video AND audio both reach the save request moment.
@@ -955,7 +993,9 @@ mod save_window_test {
         let segment_seconds: u32 = 4;
         let frame_bytes = width as usize * height as usize * 4;
         let rate: u32 = 48000;
-        let block_ms: u32 = 100;
+        // Production mixer block cadence (config default); the first A/V
+        // packet offset must stay within one block.
+        let block_ms: u32 = 20;
         let block_frames = (block_ms as u64 * rate as u64 / 1000) as usize;
 
         let work = std::env::temp_dir().join(format!("screencap_swa_{}", std::process::id()));
@@ -968,12 +1008,13 @@ mod save_window_test {
         let store = Arc::new(SegmentStore::new(buffer_dir.clone()));
         store.prepare().unwrap();
 
-        let (video_tx, video_rx) = crossbeam_channel::bounded(60 * 2);
+        let (video_tx, video_rx) = crossbeam_channel::bounded(crate::video::VIDEO_QUEUE_CAPACITY);
         let pacer_rx = video_rx.clone();
         let (track_tx, track_rx) = crossbeam_channel::bounded(1200);
         let (shutdown_tx, shutdown_rx) = crossbeam_channel::bounded(64);
         let (err_tx, err_rx) = crossbeam_channel::bounded(16);
         let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(2);
+        let origin = Instant::now();
 
         let done = crate::media::segmenter::spawn_segmenter(
             SegmenterParams {
@@ -992,6 +1033,7 @@ mod save_window_test {
                 segment_seconds,
                 buffer_dir: buffer_dir.clone(),
                 keep: Duration::from_secs(120),
+                capture_origin: origin,
             },
             store.clone(),
             video_rx,
@@ -1014,7 +1056,6 @@ mod save_window_test {
             }
         });
 
-        let origin = Instant::now();
         let pacer_tx = video_tx.clone();
         let track_stop_rx = stop_rx.clone();
         let pacer = std::thread::spawn(move || {
@@ -1120,6 +1161,33 @@ mod save_window_test {
         assert!(
             audio_seconds >= request_stream - 1.0,
             "saved clip audio ends before the save request (audio {audio_seconds:.1}s, video {video_seconds:.1}s, request at {request_stream:.1}s)"
+        );
+
+        // The first A/V packet start offset must stay within one mixer block:
+        // the new readback worker and low-latency encoder path must not trade
+        // queue freshness for A/V drift.
+        let ffprobe = ffmpeg().with_file_name("ffprobe.exe");
+        assert!(
+            ffprobe.exists(),
+            "ffprobe.exe must sit at {}",
+            ffprobe.display()
+        );
+        let starts = stream_start_times(&ffprobe, &saved);
+        let video_start = starts
+            .get("video")
+            .copied()
+            .expect("saved clip has a video stream start time");
+        let audio_start = starts
+            .get("audio")
+            .copied()
+            .expect("saved clip has an audio stream start time");
+        let offset_ms = (video_start - audio_start).abs() * 1000.0;
+        println!(
+            "SAVE-WINDOW-AUDIO: video_start={video_start:.3}s audio_start={audio_start:.3}s offset={offset_ms:.1}ms block={block_ms}ms"
+        );
+        assert!(
+            offset_ms <= block_ms as f64 + 5.0,
+            "first A/V packet offset {offset_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
         );
 
         let _ = std::fs::remove_dir_all(&work);

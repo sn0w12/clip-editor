@@ -4,11 +4,56 @@
 //! type.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
 
 use crate::error::RunError;
+
+/// The producer-to-segmenter video channel holds at most this many frames.
+/// Two frames bound end-to-end frame age: a frame in flight to the encoder
+/// plus one waiting, so a queued frame can never sit more than two frame
+/// intervals before FFmpeg reads it. This public constant is the single
+/// queue-capacity contract shared by the supervisor, its tests, and the
+/// segmenter throughput harness.
+pub const VIDEO_QUEUE_CAPACITY: usize = 2;
+
+/// Capture statistics shared with the rate-limited capture log and the
+/// benchmarks (`capbench`). The WGC callback and the readback worker update
+/// these via atomics; benchmarks use them to prove that static-screen capture
+/// stops doing readback work while the pacer keeps delivering the configured
+/// FPS.
+#[derive(Debug, Default)]
+pub struct CaptureStats {
+    /// Frames delivered by the WGC callback.
+    pub callbacks: AtomicU64,
+    /// Tasks dropped before GPU readback because the readback queue was full.
+    pub pre_readback_drops: AtomicU64,
+    /// Full-frame staging copies performed by the readback worker.
+    pub full_copies: AtomicU64,
+    /// Dirty-region partial copies performed by the readback worker.
+    pub partial_copies: AtomicU64,
+    /// Tasks skipped with empty damage after the first published frame
+    /// (the pacer re-sends the last frame, so no readback work is needed).
+    pub skipped_empty_damage: AtomicU64,
+    /// Dirty-region query or GPU readback failures (fall back to a full copy).
+    pub readback_errors: AtomicU64,
+}
+
+impl CaptureStats {
+    pub fn snapshot(&self) -> (u64, u64, u64, u64, u64, u64) {
+        let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        (
+            load(&self.callbacks),
+            load(&self.pre_readback_drops),
+            load(&self.full_copies),
+            load(&self.partial_copies),
+            load(&self.skipped_empty_damage),
+            load(&self.readback_errors),
+        )
+    }
+}
 
 /// One captured frame, tightly packed BGRA8 (`width * height * 4` bytes).
 ///
@@ -131,6 +176,13 @@ pub trait VideoBackend: Send {
         err_tx: Sender<RunError>,
         shutdown: Receiver<()>,
     ) -> Result<(), VideoError>;
+
+    /// Optional producer statistics (the Windows backend exposes readback
+    /// counters); other backends return `None`. Benchmarks use this to prove
+    /// that static-screen capture performs no readback work.
+    fn stats(&self) -> Option<Arc<CaptureStats>> {
+        None
+    }
 }
 
 /// Construct the platform backend. On non-Windows this returns

@@ -167,7 +167,7 @@ position aligned with the configured numbering. A track list with no gaps
 ## Saving
 
 The hotkey samples the foreground window title at press time, so the file is
-always `<base> <date> <time>_<sanitized-title>.mkv` (e.g. `Replay 2026-08-09 20-22-45_My_Game_Clip.mkv`, time dashes because colons are invalid in Windows filenames) regardless of later focus changes.
+always `<base> <date> <time>_<sanitized-title>.mp4` (e.g. `Replay 2026-08-09 20-22-45_My_Game_Clip.mp4`, time dashes because colons are invalid in Windows filenames) regardless of later focus changes.
 Windows-invalid characters become `_`, trailing spaces/periods are trimmed,
 empty titles become `UnknownWindow`, and repeated saves with the same title get
 `_001`, `_002`, ... suffixes. A save concatenates the newest whole segments
@@ -206,6 +206,8 @@ cargo bench                         # router mix, resample, f32le write, config,
 
 The integration test needs an interactive desktop session: it starts the app
 with a 3-second buffer, synthesizes the configured hotkey with `SendInput`, and
-verifies the saved Matroska (one video + five audio streams with
-`screencap_track` 1/2/3/4/5, where 4 is the silent placeholder) with the
-bundled ffprobe.
+verifies the saved clip (one video + five audio streams in dense track order,
+where 4 is the silent placeholder, and titles matching the configured track
+names) with the bundled ffprobe. The rolling segment files additionally carry
+the `screencap_track` stream metadata, which the MP4 save container cannot
+represent.

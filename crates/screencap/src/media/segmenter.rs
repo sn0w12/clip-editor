@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ffmpeg_sidecar::command::FfmpegCommand;
@@ -59,6 +59,10 @@ pub struct SegmenterParams {
     pub segment_seconds: u32,
     pub buffer_dir: PathBuf,
     pub keep: Duration,
+    /// Supervisor-wide start instant, the same timeline producers stamp PTS
+    /// on. The video writer measures frame age as
+    /// `capture_origin.elapsed() - frame.pts` to bound end-to-end latency.
+    pub capture_origin: Instant,
 }
 
 struct StoreInner {
@@ -513,17 +517,35 @@ pub fn spawn_segmenter(
     match params.codec {
         VideoCodec::LibX264 => {
             // Cap frame threads: x264 auto-threading on many-core CPUs is
-            // counterproductive for 1080p.
+            // counterproductive for 1080p. `zerolatency` + zero lookahead +
+            // no B-frames remove the encoder's internal reordering/buffering
+            // so a captured frame is encoded as soon as it is written; the
+            // rolling buffer stays current instead of lagging by the encoder
+            // delay. Note: newer FFmpeg builds removed the wrapper-level
+            // `-sync-lookahead` option, so the explicit sync-lookahead=0 is
+            // passed through `-x264opts` (same value, accepted by the bundled
+            // binary).
             cmd.arg("-threads").arg("4");
             cmd.arg("-preset").arg("veryfast");
+            cmd.arg("-tune").arg("zerolatency");
+            cmd.arg("-rc-lookahead").arg("0");
+            cmd.arg("-x264opts").arg("sync-lookahead=0");
+            cmd.arg("-bf").arg("0");
             cmd.arg("-crf").arg(params.quality.to_string());
         }
         VideoCodec::H264Nvenc => {
             // `p1` is the fastest NVENC preset: the dedicated encoder silicon
             // does the work, so the slower presets only add rate-control
             // tuning cost (and a hair of GPU scheduling pressure) without any
-            // benefit for a rolling 60fps buffer.
+            // benefit for a rolling 60fps buffer. `tune ull` + `zerolatency`
+            // + `delay 0` + `rc-lookahead 0` + `bf 0` remove NVENC's lookahead
+            // and reordering delay so the buffer stays current.
             cmd.arg("-preset").arg("p1");
+            cmd.arg("-tune").arg("ull");
+            cmd.arg("-rc-lookahead").arg("0");
+            cmd.arg("-zerolatency").arg("1");
+            cmd.arg("-delay").arg("0");
+            cmd.arg("-bf").arg("0");
             cmd.arg("-cq").arg(params.quality.to_string());
         }
         VideoCodec::H264Amf => {
@@ -614,6 +636,9 @@ pub fn spawn_segmenter(
     // Video writer: connects the video pipe (one write per frame), drains
     // frames; on shutdown writes `q` to ffmpeg stdin so it finalizes the
     // current segment (stdin is no longer an input, so ffmpeg reads commands).
+    // Frames are written one per iteration — never drained in a batch — so
+    // fixed-rate FFmpeg timestamps and A/V timing stay unchanged.
+    let capture_origin = params.capture_origin;
     let writer_shutdown = shutdown.clone();
     let writer_flag = shutdown_flag.clone();
     let writer_err = err_tx.clone();
@@ -629,13 +654,41 @@ pub fn spawn_segmenter(
             }
             let mut stdin = stdin;
             let mut last_write = std::time::Instant::now();
+            // Delivery metrics: consumed count, maximum queue depth, and
+            // maximum end-to-end frame age (capture time → write time).
+            // Emitted every five seconds and on shutdown so short runs still
+            // report; a high age or depth means the encoder is falling behind
+            // and the buffer is going stale.
+            let mut consumed: u64 = 0;
+            let mut max_depth: usize = 0;
+            let mut max_age: Duration = Duration::ZERO;
+            let mut last_report = std::time::Instant::now();
+            let report = |consumed: u64, max_depth: usize, max_age: Duration| {
+                info!(
+                    consumed = consumed,
+                    max_queue_depth = max_depth,
+                    max_frame_age_ms = max_age.as_millis() as u64,
+                    "segmenter-video delivery"
+                );
+            };
             loop {
+                max_depth = max_depth.max(video_rx.len());
                 match video_rx.recv_timeout(Duration::from_millis(250)) {
                     Ok(frame) => {
+                        consumed += 1;
+                        let age = capture_origin.elapsed().saturating_sub(frame.pts);
+                        max_age = max_age.max(age);
                         if writer.write_all(&frame.bgra).is_err() {
                             break; // ffmpeg closed the pipe; monitor reports exit
                         }
                         last_write = std::time::Instant::now();
+                        if last_report.elapsed() >= Duration::from_secs(5) {
+                            report(consumed, max_depth, max_age);
+                            consumed = 0;
+                            max_depth = 0;
+                            max_age = Duration::ZERO;
+                            last_report = std::time::Instant::now();
+                        }
                     }
                     Err(RecvTimeoutError::Timeout) => {
                         if writer_shutdown.try_recv().is_ok() {
@@ -668,6 +721,8 @@ pub fn spawn_segmenter(
                     }
                 }
             }
+            // Final report on shutdown so the delivery metrics are observable.
+            report(consumed, max_depth, max_age);
         })
         .map_err(|e| MediaError::General(format!("cannot spawn video writer: {e}")))?;
 

@@ -179,6 +179,9 @@ fn main() {
     if readahead > 0 {
         cmd.arg("-read_ahead_limit").arg(readahead.to_string());
     }
+    // Flush each output packet like the production segmenter, so segment
+    // files fill continuously instead of sitting at zero bytes.
+    cmd.args(["-flush_packets", "1"]);
     cmd.args([
         "-f",
         "rawvideo",
@@ -192,12 +195,39 @@ fn main() {
         &url,
     ]);
     cmd.arg("-c:v").arg(&codec);
+    // Mirror the exact production encoder options (segmenter.rs) so this
+    // benchmark measures the optimized pipeline, not an older command.
     if codec == "libx264" {
         cmd.arg("-threads")
             .arg("4")
             .arg("-preset")
             .arg("veryfast")
+            .arg("-tune")
+            .arg("zerolatency")
+            .arg("-rc-lookahead")
+            .arg("0")
+            // Newer FFmpeg builds removed the wrapper-level `-sync-lookahead`;
+            // the explicit value goes through `-x264opts` (see segmenter.rs).
+            .arg("-x264opts")
+            .arg("sync-lookahead=0")
+            .arg("-bf")
+            .arg("0")
             .arg("-crf")
+            .arg(q.to_string());
+    } else if codec == "h264_nvenc" {
+        cmd.arg("-preset")
+            .arg("p1")
+            .arg("-tune")
+            .arg("ull")
+            .arg("-rc-lookahead")
+            .arg("0")
+            .arg("-zerolatency")
+            .arg("1")
+            .arg("-delay")
+            .arg("0")
+            .arg("-bf")
+            .arg("0")
+            .arg("-cq")
             .arg(q.to_string());
     } else {
         cmd.arg("-cq").arg(q.to_string());
@@ -210,6 +240,12 @@ fn main() {
             "1",
             "-reset_timestamps",
             "1",
+            // Mirror the production interleave settings: packets are written
+            // as soon as they are produced.
+            "-max_interleave_delta",
+            "0",
+            "-segment_format_options",
+            "max_interleave_delta=0",
             "-segment_list_type",
             "csv",
             "-segment_list",

@@ -38,30 +38,34 @@ impl RateLimiter {
 /// callback: when the channel is full, the oldest queued item is dropped and
 /// the new item is pushed. A rate-limited warning names the dropped end of the
 /// pipeline. Disconnected receivers are treated as shutdown.
+///
+/// Returns `true` only when an old item was removed from a full queue (a
+/// stale-frame drop) — callers use this to count drops and keep the stream
+/// fresh instead of building stale backlog.
 pub fn send_drop_oldest<T>(
     tx: &Sender<T>,
     rx: &Receiver<T>,
     item: T,
     limiter: &mut RateLimiter,
     what: &str,
-) {
+) -> bool {
     match tx.try_send(item) {
-        Ok(()) => {}
+        Ok(()) => false,
         Err(TrySendError::Full(item)) => {
             // crossbeam channels are FIFO: dropping the head drops the oldest.
-            let _ = rx.try_recv();
+            let removed = rx.try_recv().is_ok();
             if limiter.should_emit() {
                 warn!(component = %what, "channel full; dropped oldest queued item");
             }
             let _ = tx.try_send(item);
+            removed
         }
-        Err(TrySendError::Disconnected(_)) => {}
+        Err(TrySendError::Disconnected(_)) => false,
     }
 }
 
 /// Write interleaved `f32` samples as little-endian bytes.
-pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::io::Result<()> {
-    #[cfg(target_endian = "little")]
+pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::io::Result<()> {    #[cfg(target_endian = "little")]
     {
         // SAFETY: on little-endian targets an f32's memory image is its LE
         // encoding; a single write beats per-sample `to_le_bytes` calls.

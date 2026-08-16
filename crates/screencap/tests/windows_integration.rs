@@ -2,11 +2,12 @@
 //!
 //! Starts the built `screencap` binary with a 3-second fixture configuration,
 //! waits for the buffer to fill, synthesizes the configured global hotkey with
-//! `SendInput`, waits for the saved Matroska, and verifies it with the bundled
-//! ffprobe: one video stream, five audio streams whose `screencap_track`
-//! metadata is 1/2/3/4/5 (track 4 is the silent placeholder for the missing
-//! configured number), stream titles matching the configured names, and a
-//! duration within one segment of 3 seconds.
+//! `SendInput`, waits for the saved clip, and verifies it with the bundled
+//! ffprobe: one video stream, five audio streams (track 4 is the silent
+//! placeholder for the missing configured number, in dense slot order), stream
+//! titles matching the configured names, and a duration within one segment of
+//! 3 seconds. The segment files additionally carry `screencap_track` stream
+//! metadata, which the MP4 save container cannot represent.
 //!
 //! Gated behind `SCREENCAP_ITEST=1` because it needs an interactive desktop
 //! session (screen capture, microphone access, and a global hotkey). On
@@ -154,14 +155,14 @@ fn end_to_end_save_via_hotkey() {
     let saved = if failed.is_none() {
         let mut saved = None;
         for _ in 0..6 {
-            if let Some(p) = newest_mkv(&out) {
+            if let Some(p) = newest_saved(&out) {
                 saved = Some(p);
                 break;
             }
             press_hotkey();
             std::thread::sleep(Duration::from_secs(5));
         }
-        saved.or_else(|| newest_mkv(&out))
+        saved.or_else(|| newest_saved(&out))
     } else {
         None
     };
@@ -204,23 +205,10 @@ fn end_to_end_save_via_hotkey() {
         5,
         "five audio streams (track 4 is the silent placeholder)"
     );
-
-    let mut track_numbers: Vec<u32> = audio
-        .iter()
-        .map(|s| {
-            // Matroska stores custom tag names uppercase (SCREENCAP_TRACK).
-            tag_of(s, "screencap_track")
-                .parse::<u32>()
-                .unwrap_or_else(|e| panic!("screencap_track metadata missing/invalid: {e}"))
-        })
-        .collect();
-    track_numbers.sort_unstable();
-    assert_eq!(
-        track_numbers,
-        vec![1, 2, 3, 4, 5],
-        "screencap_track metadata 1/2/3/4/5"
-    );
-
+    // Track identity in the saved MP4: the segmenter maps slot `i` (track
+    // number i+1) to audio stream `i`, and the MP4 container preserves each
+    // track's title (as `name`). The segment files additionally carry the
+    // `screencap_track` metadata, which the MP4 container cannot represent.
     let mut titles: Vec<String> = audio.iter().map(|s| tag_of(s, "title")).collect();
     titles.sort();
     let mut expected = vec!["discord", "mic", "non_muted", "other", "silent"];
@@ -291,14 +279,14 @@ fn menu_key_hotkey_saves_clip() {
     let saved = if failed.is_none() {
         let mut saved = None;
         for _ in 0..6 {
-            if let Some(p) = newest_mkv(&out) {
+            if let Some(p) = newest_saved(&out) {
                 saved = Some(p);
                 break;
             }
             send_menu_key();
             std::thread::sleep(Duration::from_secs(5));
         }
-        saved.or_else(|| newest_mkv(&out))
+        saved.or_else(|| newest_saved(&out))
     } else {
         None
     };
@@ -324,44 +312,59 @@ fn hotkey_recording_writes_config() {
     }
     let work = unique_dir();
     let cfg = work.join("config.toml");
-    std::fs::write(
-        &cfg,
-        "[replay]\nhotkey = \"ctrl+shift+KeyQ\"\n[video]\ncodec = \"auto\"\n",
-    )
-    .unwrap();
-    let out_log = work.join("rec.log");
-    let log = std::fs::File::create(&out_log).unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_screencap"))
-        .args(["hotkey", "--config"])
-        .arg(&cfg)
-        .stdout(Stdio::from(log.try_clone().unwrap()))
-        .stderr(Stdio::from(log))
-        .spawn()
-        .expect("spawn hotkey recorder");
+    // The recorder's low-level hook captures the first key pressed after it
+    // installs. Real user input (e.g. a game in the foreground) can land in
+    // that window, so retry up to three times: each attempt re-runs the
+    // recorder, gives the hook time to install on a loaded desktop, and
+    // presses the Menu key. The assertion stays strict — the Menu key must be
+    // recordable through the extended path.
+    let mut cfg_text = String::new();
+    let mut recorded = false;
+    for _attempt in 0..3 {
+        std::fs::write(
+            &cfg,
+            "[replay]\nhotkey = \"ctrl+shift+KeyQ\"\n[video]\ncodec = \"auto\"\n",
+        )
+        .unwrap();
+        let out_log = work.join("rec.log");
+        let log = std::fs::File::create(&out_log).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_screencap"))
+            .args(["hotkey", "--config"])
+            .arg(&cfg)
+            .stdout(Stdio::from(log.try_clone().unwrap()))
+            .stderr(Stdio::from(log))
+            .spawn()
+            .expect("spawn hotkey recorder");
 
-    // Give the keyboard hook time to install, then press the Menu key.
-    std::thread::sleep(Duration::from_millis(600));
-    send_menu_key();
+        // Give the keyboard hook time to install, then press the Menu key.
+        std::thread::sleep(Duration::from_millis(1200));
+        send_menu_key();
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let status = loop {
-        if let Some(s) = child.try_wait().expect("recorder exits") {
-            break s;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let status = loop {
+            if let Some(s) = child.try_wait().expect("recorder exits") {
+                break s;
+            }
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                panic!(
+                    "hotkey recorder did not exit; log:\n{}",
+                    std::fs::read_to_string(&out_log).unwrap_or_default()
+                );
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        };
+        assert!(status.success(), "recorder exited cleanly");
+
+        cfg_text = std::fs::read_to_string(&cfg).unwrap();
+        if cfg_text.contains("hotkey = \"ContextMenu\"") {
+            recorded = true;
+            break;
         }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            panic!(
-                "hotkey recorder did not exit; log:\n{}",
-                std::fs::read_to_string(&out_log).unwrap_or_default()
-            );
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    };
-    assert!(status.success(), "recorder exited cleanly");
-
-    let cfg_text = std::fs::read_to_string(&cfg).unwrap();
+        // A stray real keypress was captured; retry.
+    }
     assert!(
-        cfg_text.contains("hotkey = \"ContextMenu\""),
+        recorded,
         "recorded hotkey written to config: {cfg_text}"
     );
     let _ = std::fs::remove_dir_all(&work);
@@ -417,13 +420,17 @@ fn wait_for(log: &Path, needle: &str, timeout: Duration) -> bool {
     false
 }
 
-/// The newest `.mkv` in `out`, if any.
-fn newest_mkv(out: &Path) -> Option<PathBuf> {
+/// The newest saved clip in `out` (the product format is `.mp4`, see
+/// `save_replay`; `.mkv` is accepted for robustness).
+fn newest_saved(out: &Path) -> Option<PathBuf> {
     let mut newest: Option<PathBuf> = None;
     if let Ok(entries) = std::fs::read_dir(out) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|e| e == "mkv") {
+            if path
+                .extension()
+                .is_some_and(|e| e == "mp4" || e == "mkv")
+            {
                 match &newest {
                     Some(prev) if prev < &path => newest = Some(path),
                     None => newest = Some(path),
@@ -489,13 +496,17 @@ fn run_ffprobe(ffprobe: &Path, file: &Path) -> serde_json::Value {
     serde_json::from_slice(&output.stdout).expect("ffprobe json parses")
 }
 
-/// Case-insensitive tag lookup (Matroska normalizes tag names to uppercase).
+/// Case-insensitive tag lookup. MP4 stores the stream title under `name`
+/// (the mov muxer maps `title` → `name`), so both keys are accepted; Matroska
+/// normalizes tag names to uppercase.
 fn tag_of(stream: &serde_json::Value, name: &str) -> String {
     let tags = stream["tags"].as_object().expect("stream tags object");
-    let upper = name.to_uppercase();
-    for (key, value) in tags {
-        if key.eq_ignore_ascii_case(name) || key.eq_ignore_ascii_case(&upper) {
-            return value.as_str().unwrap_or_default().to_string();
+    for key in ["title", "name"] {
+        let upper = key.to_uppercase();
+        for (k, value) in tags {
+            if k.eq_ignore_ascii_case(key) || k.eq_ignore_ascii_case(&upper) {
+                return value.as_str().unwrap_or_default().to_string();
+            }
         }
     }
     panic!("tag `{name}` missing from {tags:?}");

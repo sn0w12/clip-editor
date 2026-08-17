@@ -25,6 +25,7 @@ windows = { version = "0.62", features = [
     "Wdk_System_SystemServices",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Media_Audio",
     "Win32_Storage_FileSystem",
@@ -52,6 +53,10 @@ harness = false
 
 [[bench]]
 name = "resample"
+harness = false
+
+[[bench]]
+name = "video"
 harness = false
 
 [[bench]]

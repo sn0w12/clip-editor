@@ -1,9 +1,11 @@
-//! Capture-path benchmark: runs the real Windows Graphics Capture backend
+//! Capture-path benchmark: runs the real DXGI Desktop Duplication backend
 //! (as `replay.rs` does) for a few seconds and reports the delivered frame
 //! rate and per-thread CPU time, so the capture's overhead is measured in
 //! isolation from the encoder/segmenter. The readback-worker counters prove
 //! the capture stops doing GPU/CPU readback work on a static screen while the
-//! pacer keeps delivering the configured FPS.
+//! pacer keeps delivering the configured FPS. The result line distinguishes
+//! DXGI frames acquired, frames read back, pre-readback drops, cursor blends,
+//! and pacer-delivered frames.
 //!
 //! Usage: `cargo run --release --example capbench -- <seconds> [fps=<n>] [cursor=true|false]`
 
@@ -107,12 +109,15 @@ fn main() {
     let _ = err_rx.try_recv();
 
     let wall = origin.elapsed().as_secs_f64();
-    let (callbacks, pre_readback_drops, full, partial, skipped, errors) = stats
+    let (callbacks, pre_readback_drops, full, partial, skipped, errors, cursor_blends) = stats
         .as_ref()
         .map(|s| s.snapshot())
-        .unwrap_or((0, 0, 0, 0, 0, 0));
+        .unwrap_or((0, 0, 0, 0, 0, 0, 0));
+    // DXGI delivered a changed frame for every readback plus every frame
+    // dropped before readback; timeouts (no desktop change) are not acquires.
+    let acquired = callbacks + pre_readback_drops;
     println!(
-        "RESULT wall={wall:.1}s frames={frames} rate={:.1}fps non_zero_frames={non_zero} varied_frames={varied} callbacks={callbacks} pre_readback_drops={pre_readback_drops} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
+        "RESULT wall={wall:.1}s pacer_delivered={frames} rate={:.1}fps acquired={acquired} readback={callbacks} pre_readback_drops={pre_readback_drops} cursor_blends={cursor_blends} non_zero_frames={non_zero} varied_frames={varied} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
         frames as f64 / wall
     );
 }

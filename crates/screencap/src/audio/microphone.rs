@@ -9,7 +9,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
 
-use crate::audio::resample::{StreamingResampler, convert_channels};
+use crate::audio::resample::{StreamingResampler, convert_channels_into};
 use crate::audio::{AudioBlock, AudioError, AudioEvent, SourceKey};
 use crate::config::InputRule;
 use crate::error::RunError;
@@ -94,17 +94,29 @@ pub fn spawn_microphone(
                 let key = key.clone();
                 let event_tx = event_tx_thread.clone();
                 let event_rx = event_rx_thread.clone();
+                // Reused decode/conversion scratch: the callback allocates
+                // nothing in steady state.
+                let mut samples: Vec<f32> = Vec::new();
+                let mut converted: Vec<f32> = Vec::new();
                 move |data: &cpal::Data, _info: &cpal::InputCallbackInfo| {
-                    let mut samples = decode_to_f32(data);
-                    if device_channels != channels {
-                        samples = convert_channels(samples, device_channels, channels);
-                    }
+                    decode_to_f32_into(data, &mut samples);
+                    let source: &[f32] = if device_channels != channels {
+                        convert_channels_into(
+                            &samples,
+                            device_channels,
+                            channels,
+                            &mut converted,
+                        );
+                        &converted
+                    } else {
+                        &samples
+                    };
                     match resampler.as_mut() {
                         Some(r) => {
-                            r.push(&samples);
+                            r.push(source);
                             pending.extend_from_slice(&r.take_output());
                         }
-                        None => pending.extend_from_slice(&samples),
+                        None => pending.extend_from_slice(source),
                     }
                     while pending.len() >= block_frames * channels as usize {
                         let block: Vec<f32> =
@@ -165,15 +177,15 @@ pub fn spawn_microphone(
     Ok(())
 }
 
-/// Decode a raw CPAL data buffer to interleaved `f32` samples.
-fn decode_to_f32(data: &cpal::Data) -> Vec<f32> {
+/// Decode a raw CPAL data buffer to interleaved `f32` samples in `out`
+/// (cleared first; reused across callbacks).
+fn decode_to_f32_into(data: &cpal::Data, out: &mut Vec<f32>) {
+    out.clear();
     let bytes = data.bytes();
     match data.sample_format() {
         cpal::SampleFormat::F32 => {
-            let bytes = data.bytes();
             #[cfg(target_endian = "little")]
             if bytes.as_ptr() as usize % 4 == 0 && bytes.len() % 4 == 0 {
-                let mut out = Vec::with_capacity(bytes.len() / 4);
                 // SAFETY: aligned f32-sized region; LE bytes are the encoding.
                 unsafe {
                     out.extend_from_slice(std::slice::from_raw_parts(
@@ -181,58 +193,67 @@ fn decode_to_f32(data: &cpal::Data) -> Vec<f32> {
                         bytes.len() / 4,
                     ));
                 }
-                return out;
+                return;
             }
-            bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect()
+            for c in bytes.chunks_exact(4) {
+                out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+            }
         }
-        cpal::SampleFormat::I16 => bytes
-            .chunks_exact(2)
-            .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
-            .collect(),
-        cpal::SampleFormat::I32 => bytes
-            .chunks_exact(4)
-            .map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2147483648.0)
-            .collect(),
-        cpal::SampleFormat::I64 => bytes
-            .chunks_exact(8)
-            .map(|c| {
-                i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32
-                    / 9223372036854775808.0
-            })
-            .collect(),
-        cpal::SampleFormat::I8 => bytes.iter().map(|&b| b as i8 as f32 / 128.0).collect(),
-        cpal::SampleFormat::U8 => bytes.iter().map(|&b| (b as f32 - 128.0) / 128.0).collect(),
-        cpal::SampleFormat::U16 => bytes
-            .chunks_exact(2)
-            .map(|c| (u16::from_le_bytes([c[0], c[1]]) as f32 - 32768.0) / 32768.0)
-            .collect(),
-        cpal::SampleFormat::F64 => bytes
-            .chunks_exact(8)
-            .map(|c| f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32)
-            .collect(),
+        cpal::SampleFormat::I16 => {
+            for c in bytes.chunks_exact(2) {
+                out.push(i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0);
+            }
+        }
+        cpal::SampleFormat::I32 => {
+            for c in bytes.chunks_exact(4) {
+                out.push(i32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f32 / 2147483648.0);
+            }
+        }
+        cpal::SampleFormat::I64 => {
+            for c in bytes.chunks_exact(8) {
+                out.push(
+                    i64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32
+                        / 9223372036854775808.0,
+                );
+            }
+        }
+        cpal::SampleFormat::I8 => {
+            for &b in bytes.iter() {
+                out.push(b as i8 as f32 / 128.0);
+            }
+        }
+        cpal::SampleFormat::U8 => {
+            for &b in bytes.iter() {
+                out.push((b as f32 - 128.0) / 128.0);
+            }
+        }
+        cpal::SampleFormat::U16 => {
+            for c in bytes.chunks_exact(2) {
+                out.push((u16::from_le_bytes([c[0], c[1]]) as f32 - 32768.0) / 32768.0);
+            }
+        }
+        cpal::SampleFormat::F64 => {
+            for c in bytes.chunks_exact(8) {
+                out.push(f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
+                    as f32);
+            }
+        }
         cpal::SampleFormat::I24 => {
             // 24-bit samples stored in 4 bytes (little endian, sign-extended).
-            bytes
-                .chunks_exact(4)
-                .map(|c| {
-                    let raw = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    (raw >> 8) as f32 / 8388608.0
-                })
-                .collect()
+            for c in bytes.chunks_exact(4) {
+                let raw = i32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                out.push((raw >> 8) as f32 / 8388608.0);
+            }
         }
-        cpal::SampleFormat::U24 => bytes
-            .chunks_exact(4)
-            .map(|c| {
+        cpal::SampleFormat::U24 => {
+            for c in bytes.chunks_exact(4) {
                 let raw = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                ((raw >> 8) as f32 - 8388608.0) / 8388608.0
-            })
-            .collect(),
+                out.push(((raw >> 8) as f32 - 8388608.0) / 8388608.0);
+            }
+        }
         other => {
             debug!(format = ?other, "unsupported device sample format; treating as silence");
-            vec![0.0; bytes.len()]
+            out.resize(bytes.len(), 0.0);
         }
     }
 }

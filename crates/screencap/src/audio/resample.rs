@@ -4,17 +4,19 @@
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{Fft, FixedSync, Resampler};
 
-/// Convert interleaved samples from `from` channels to `to` channels
-/// deterministically: mono→stereo duplicates, multi→mono averages, otherwise
-/// channels cycle. Identity conversions return the input untouched.
-pub fn convert_channels(samples: Vec<f32>, from: u16, to: u16) -> Vec<f32> {
+/// Convert interleaved samples from `from` channels to `to` channels into
+/// `out` (cleared first): mono→stereo duplicates, multi→mono averages,
+/// otherwise channels cycle. Identity conversions copy no data — callers
+/// pass the source slice straight through instead.
+pub fn convert_channels_into(samples: &[f32], from: u16, to: u16, out: &mut Vec<f32>) {
     if from == to {
-        return samples;
+        return;
     }
     let from = from.max(1) as usize;
     let to = to.max(1) as usize;
     let frames = samples.len() / from;
-    let mut out = Vec::with_capacity(frames * to);
+    out.clear();
+    out.reserve(frames * to);
     for frame in 0..frames {
         for ch in 0..to {
             let src = if to == 1 {
@@ -27,7 +29,6 @@ pub fn convert_channels(samples: Vec<f32>, from: u16, to: u16) -> Vec<f32> {
             out.push(src);
         }
     }
-    out
 }
 
 /// A resampler that accepts arbitrary-length interleaved input chunks and
@@ -143,28 +144,41 @@ mod tests {
     #[test]
     fn channel_conversion_mono_to_stereo() {
         let mono = vec![0.25f32, -0.5];
-        let stereo = convert_channels(mono, 1, 2);
-        assert_eq!(stereo, vec![0.25, 0.25, -0.5, -0.5]);
+        let mut out = Vec::new();
+        convert_channels_into(&mono, 1, 2, &mut out);
+        assert_eq!(out, vec![0.25, 0.25, -0.5, -0.5]);
     }
 
     #[test]
     fn channel_conversion_stereo_to_mono() {
         let stereo = vec![0.25f32, 0.75, -0.5, 0.5];
-        let mono = convert_channels(stereo, 2, 1);
-        assert_eq!(mono, vec![0.5, 0.0]);
+        let mut out = Vec::new();
+        convert_channels_into(&stereo, 2, 1, &mut out);
+        assert_eq!(out, vec![0.5, 0.0]);
     }
 
     #[test]
     fn channel_conversion_stereo_to_four() {
         let stereo = vec![0.1f32, 0.2];
-        let quad = convert_channels(stereo, 2, 4);
-        assert_eq!(quad, vec![0.1, 0.2, 0.1, 0.2]);
+        let mut out = Vec::new();
+        convert_channels_into(&stereo, 2, 4, &mut out);
+        assert_eq!(out, vec![0.1, 0.2, 0.1, 0.2]);
     }
 
     #[test]
     fn channel_conversion_same_is_identity() {
+        // Identity conversions copy no data; callers pass the source slice.
         let s = vec![0.1f32, 0.2, 0.3, 0.4];
-        assert_eq!(convert_channels(s.clone(), 2, 2), s);
+        let mut out = vec![9.9; 4];
+        convert_channels_into(&s, 2, 2, &mut out);
+        assert_eq!(out, vec![9.9; 4], "identity must not touch `out`");
+    }
+
+    #[test]
+    fn channel_conversion_reuses_out_capacity() {
+        let mut out = vec![7.0; 64];
+        convert_channels_into(&[0.25f32, -0.5], 1, 2, &mut out);
+        assert_eq!(out, vec![0.25, 0.25, -0.5, -0.5], "out is cleared before filling");
     }
 
     #[test]

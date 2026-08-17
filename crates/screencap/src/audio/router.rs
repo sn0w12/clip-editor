@@ -21,6 +21,9 @@ pub struct AudioRouter {
     queues: HashMap<SourceKey, VecDeque<AudioBlock>>,
     /// Reused per-source window buffers to avoid per-mix allocation.
     scratch: HashMap<SourceKey, Vec<f32>>,
+    /// Cached per-track route decision per source, recomputed on
+    /// registration so the 20 ms mix loop does no selector work.
+    routes: HashMap<SourceKey, Vec<bool>>,
     mix_index: u64,
     late_drop: RateLimiter,
     mismatch_drop: RateLimiter,
@@ -45,6 +48,7 @@ impl AudioRouter {
             sources: HashMap::new(),
             queues: HashMap::new(),
             scratch: HashMap::new(),
+            routes: HashMap::new(),
             mix_index: 0,
             late_drop: RateLimiter::new(Duration::from_secs(5)),
             mismatch_drop: RateLimiter::new(Duration::from_secs(5)),
@@ -64,7 +68,17 @@ impl AudioRouter {
         }
         self.sources.insert(key.clone(), info);
         self.queues.entry(key.clone()).or_default();
-        self.scratch.entry(key).or_default();
+        self.scratch.entry(key.clone()).or_default();
+        // Precompute the per-track route at registration so the 20 ms mix
+        // loop does no selector traversal.
+        let info = self.sources.get(&key).expect("source just registered");
+        self.routes.insert(
+            key,
+            self.tracks
+                .iter()
+                .map(|t| Self::track_includes(t, info))
+                .collect(),
+        );
     }
 
     /// Apply an event from the audio workers.
@@ -75,6 +89,7 @@ impl AudioRouter {
             AudioEvent::SourceRemoved(key) => {
                 self.queues.remove(&key);
                 self.scratch.remove(&key);
+                self.routes.remove(&key);
                 self.sources.remove(&key);
             }
         }
@@ -227,12 +242,30 @@ impl AudioRouter {
             }
         }
 
-        // Sum selected sources into each track and clamp.
+        // Sum selected sources into each track and clamp. The per-track
+        // route is cached per source (see `register_source`); a defensive
+        // recompute covers any source registered without a cache entry
+        // instead of silently excluding it.
         let mut output = Vec::with_capacity(self.tracks.len());
-        for track in &self.tracks {
+        for (track_index, track) in self.tracks.iter().enumerate() {
             let mut buf = vec![0.0f32; sample_count];
-            for (key, info) in self.sources.iter() {
-                if !Self::track_includes(track, info) {
+            for key in self.sources.keys() {
+                let included = match self.routes.get(key) {
+                    Some(routes) => routes[track_index],
+                    None => {
+                        let info = self.sources.get(key).expect("source exists");
+                        let routes: Vec<bool> = self
+                            .tracks
+                            .iter()
+                            .map(|t| Self::track_includes(t, info))
+                            .collect();
+                        self.routes.insert(key.clone(), routes);
+                        self.routes
+                            .get(key)
+                            .expect("route just cached")[track_index]
+                    }
+                };
+                if !included {
                     continue;
                 }
                 let scratch = self.scratch.get(key).expect("scratch exists");

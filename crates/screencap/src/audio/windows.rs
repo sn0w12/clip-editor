@@ -24,7 +24,7 @@ use wasapi::{
     AudioClient, DeviceEnumerator, Direction, SampleType, StreamMode, WaveFormat, initialize_mta,
 };
 
-use crate::audio::resample::{StreamingResampler, convert_channels};
+use crate::audio::resample::{StreamingResampler, convert_channels_into};
 use crate::audio::{AudioBlock, AudioError, AudioEvent, SourceInfo, SourceKey, SourceKind};
 use crate::config::ProcessRule;
 use crate::error::RunError;
@@ -118,7 +118,9 @@ impl Manager {
     fn run(&self) {
         let _ = initialize_mta();
         let mut workers: HashMap<SourceKey, Worker> = HashMap::new();
-        let mut system = System::new_all();
+        // `new()` loads no process data; the poll below performs a targeted
+        // refresh and only needs executable names and parents.
+        let mut system = System::new();
         let mut last_warn: RateLimiter = RateLimiter::new(Duration::from_secs(5));
 
         loop {
@@ -233,10 +235,9 @@ impl Manager {
     }
 
     fn match_rule(&self, exe: &str) -> Option<&ProcessRule> {
-        let lower = exe.to_lowercase();
         self.rules
             .iter()
-            .find(|r| r.executable.to_lowercase() == lower)
+            .find(|r| r.executable.eq_ignore_ascii_case(exe))
     }
 
     fn spawn_worker(
@@ -465,6 +466,10 @@ fn run_worker(
     let buffer_frames = client.get_buffer_size().unwrap_or(48_000) as usize;
     let bytes_per_frame = format.get_blockalign() as usize;
     let mut read_buf = vec![0u8; buffer_frames * bytes_per_frame];
+    // Reused decode/conversion scratch: the steady-state packet path
+    // allocates nothing per read.
+    let mut samples: Vec<f32> = Vec::new();
+    let mut converted: Vec<f32> = Vec::new();
     let mut out: Vec<f32> = Vec::new();
     let mut resampler = StreamingResampler::new(LOOPBACK_RATE, sample_rate, channels, 960);
     let block_frames = (sample_rate as u64 * 20 / 1000) as usize; // 20 ms default blocks
@@ -492,16 +497,24 @@ fn run_worker(
                 Ok(Some(_frames)) => match capture.read_from_device(&mut read_buf) {
                     Ok((read, _info)) => {
                         let bytes = read as usize * bytes_per_frame;
-                        let mut samples = f32s_from_le(&read_buf[..bytes]);
-                        if channels != LOOPBACK_CHANNELS {
-                            samples = convert_channels(samples, LOOPBACK_CHANNELS, channels);
-                        }
+                        f32s_from_le_into(&read_buf[..bytes], &mut samples);
+                        let source: &[f32] = if channels != LOOPBACK_CHANNELS {
+                            convert_channels_into(
+                                &samples,
+                                LOOPBACK_CHANNELS,
+                                channels,
+                                &mut converted,
+                            );
+                            &converted
+                        } else {
+                            &samples
+                        };
                         match resampler.as_mut() {
                             Some(r) => {
-                                r.push(&samples);
+                                r.push(source);
                                 out.extend_from_slice(&r.take_output());
                             }
-                            None => out.extend_from_slice(&samples),
+                            None => out.extend_from_slice(source),
                         }
                         while out.len() >= block_frames * channels as usize {
                             let block: Vec<f32> =
@@ -544,12 +557,14 @@ fn run_worker(
     let _ = client.stop_stream();
 }
 
-/// Convert little-endian f32le bytes to samples.
-fn f32s_from_le(bytes: &[u8]) -> Vec<f32> {
+/// Decode little-endian f32le bytes into `out`, clearing it first. `out` is
+/// reused across packets so the steady-state read path allocates nothing.
+#[doc(hidden)]
+pub fn f32s_from_le_into(bytes: &[u8], out: &mut Vec<f32>) {
+    out.clear();
     #[cfg(target_endian = "little")]
     {
         if bytes.as_ptr() as usize % 4 == 0 && bytes.len() % 4 == 0 {
-            let mut out = Vec::with_capacity(bytes.len() / 4);
             // SAFETY: aligned f32-sized region; on little-endian the bytes
             // are the LE encoding.
             unsafe {
@@ -558,13 +573,12 @@ fn f32s_from_le(bytes: &[u8]) -> Vec<f32> {
                     bytes.len() / 4,
                 ));
             }
-            return out;
+            return;
         }
     }
-    bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect()
+    for c in bytes.chunks_exact(4) {
+        out.push(f32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+    }
 }
 
 #[cfg(test)]

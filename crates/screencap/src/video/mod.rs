@@ -4,12 +4,128 @@
 //! type.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 
+use parking_lot::Mutex;
+use tracing::info;
+
 use crate::error::RunError;
+use crate::util::{RateLimiter, send_drop_oldest};
+
+/// Latest frame shared between the capture producer and the pacer.
+#[derive(Default)]
+pub(crate) struct Latest {
+    pub(crate) frame: Option<VideoFrame>,
+}
+
+/// Shared shutdown bookkeeping: the shutdown channel is consumed by whichever
+/// thread notices it first, so a shared flag records that shutdown was
+/// requested.
+#[derive(Default)]
+pub(crate) struct StopState {
+    pub(crate) requested: AtomicBool,
+}
+
+/// Spawn the fixed-rate pacer thread shared by the Windows capture backends.
+/// It re-sends the latest published frame at `info.fps`, seeding the timeline
+/// with a black frame at `origin` so the stream's t=0 lands at the recorder
+/// start even before the first captured frame arrives (the pre-capture gap is
+/// pruned away with the rolling buffer). A full video channel drops the
+/// oldest queued frame instead of building a stale backlog.
+#[cfg(windows)]
+pub(crate) fn spawn_pacer(
+    info: VideoInfo,
+    origin: Instant,
+    tx: Sender<VideoFrame>,
+    rx: Receiver<VideoFrame>,
+    shutdown: Receiver<()>,
+    latest: Arc<Mutex<Latest>>,
+    stop: Arc<StopState>,
+    pacer_done: Arc<AtomicBool>,
+) -> Result<(), VideoError> {
+    let interval = Duration::from_micros(1_000_000 / info.fps as u64);
+    let pacer_shutdown = shutdown;
+    let pacer_tx = tx;
+    let pacer_rx = rx;
+    let pacer_stop = stop;
+    let pacer_latest = latest;
+    let pacer_done_join = pacer_done;
+    thread::Builder::new()
+        .name("video-pacer".to_string())
+        .spawn(move || {
+            let mut limiter = RateLimiter::new(Duration::from_secs(5));
+            let mut last: Option<VideoFrame> = None;
+            let mut next_tick = origin;
+            // Pre-encoder drops: a full video channel means the encoder is
+            // behind; dropping the oldest queued frame keeps the stream
+            // fresh instead of building a stale backlog. Counted and
+            // rate-limit-logged so a chronic backlog is visible.
+            let mut encoder_drops: u64 = 0;
+            let mut last_drops_log = Instant::now();
+            let mut stream_seeded = false;
+            let (seed_w, seed_h) = (info.width, info.height);
+            loop {
+                if pacer_stop.requested.load(Ordering::SeqCst)
+                    || pacer_done_join.load(Ordering::SeqCst)
+                {
+                    break;
+                }
+                if pacer_shutdown.try_recv().is_ok() {
+                    pacer_stop.requested.store(true, Ordering::SeqCst);
+                    break;
+                }
+                let now = Instant::now();
+                if now < next_tick {
+                    let _ = pacer_shutdown
+                        .recv_timeout((next_tick - now).min(Duration::from_millis(50)));
+                    continue;
+                }
+                next_tick += interval;
+                if next_tick < now {
+                    // Fell behind; resync rather than burst-sending.
+                    next_tick = now + interval;
+                }
+                let frame = {
+                    let mut guard = pacer_latest.lock();
+                    guard.frame.take().or_else(|| last.clone())
+                };
+                if !stream_seeded {
+                    let seed = VideoFrame::new(
+                        origin.elapsed(),
+                        seed_w,
+                        seed_h,
+                        vec![0u8; seed_w as usize * seed_h as usize * 4],
+                    );
+                    send_drop_oldest(&pacer_tx, &pacer_rx, seed.clone(), &mut limiter, "video");
+                    last = Some(seed);
+                    stream_seeded = true;
+                }
+                if let Some(mut frame) = frame {
+                    frame.pts = origin.elapsed();
+                    if send_drop_oldest(
+                        &pacer_tx,
+                        &pacer_rx,
+                        frame.clone(),
+                        &mut limiter,
+                        "video",
+                    ) {
+                        encoder_drops += 1;
+                    }
+                    last = Some(frame);
+                }
+                if last_drops_log.elapsed() >= Duration::from_secs(5) {
+                    info!(pre_encoder_drops = encoder_drops, "video pacer");
+                    last_drops_log = Instant::now();
+                }
+            }
+        })
+        .map_err(|e| VideoError::Capture(format!("cannot spawn pacer thread: {e}")))?;
+    Ok(())
+}
 
 /// The producer-to-segmenter video channel holds at most this many frames.
 /// Two frames bound end-to-end frame age: a frame in flight to the encoder
@@ -20,29 +136,32 @@ use crate::error::RunError;
 pub const VIDEO_QUEUE_CAPACITY: usize = 2;
 
 /// Capture statistics shared with the rate-limited capture log and the
-/// benchmarks (`capbench`). The WGC callback and the readback worker update
-/// these via atomics; benchmarks use them to prove that static-screen capture
-/// stops doing readback work while the pacer keeps delivering the configured
-/// FPS.
+/// benchmarks (`capbench`). The capture thread updates these via atomics;
+/// benchmarks use them to prove that static-screen capture stops doing
+/// readback work while the pacer keeps delivering the configured FPS.
 #[derive(Debug, Default)]
 pub struct CaptureStats {
-    /// Frames delivered by the WGC callback.
+    /// Frames read back and published by the capture thread.
     pub callbacks: AtomicU64,
-    /// Tasks dropped before GPU readback because the readback queue was full.
+    /// Frames dropped before GPU readback because they were superseded before
+    /// the next stream interval.
     pub pre_readback_drops: AtomicU64,
-    /// Full-frame staging copies performed by the readback worker.
+    /// Full-frame staging copies performed by the capture thread.
     pub full_copies: AtomicU64,
-    /// Dirty-region partial copies performed by the readback worker.
+    /// Dirty-region partial copies (the DXGI duplication delivers only
+    /// changed frames, so partial copies are unused; kept for parity).
     pub partial_copies: AtomicU64,
-    /// Tasks skipped with empty damage after the first published frame
-    /// (the pacer re-sends the last frame, so no readback work is needed).
+    /// Frames with no desktop change (the pacer re-sends the last frame, so
+    /// no readback work is needed).
     pub skipped_empty_damage: AtomicU64,
-    /// Dirty-region query or GPU readback failures (fall back to a full copy).
+    /// GPU readback failures (the capture falls back to retrying).
     pub readback_errors: AtomicU64,
+    /// Frames where a cursor shape was alpha-blended into the frame.
+    pub cursor_blends: AtomicU64,
 }
 
 impl CaptureStats {
-    pub fn snapshot(&self) -> (u64, u64, u64, u64, u64, u64) {
+    pub fn snapshot(&self) -> (u64, u64, u64, u64, u64, u64, u64) {
         let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
         (
             load(&self.callbacks),
@@ -51,6 +170,7 @@ impl CaptureStats {
             load(&self.partial_copies),
             load(&self.skipped_empty_damage),
             load(&self.readback_errors),
+            load(&self.cursor_blends),
         )
     }
 }
@@ -192,16 +312,20 @@ pub trait VideoBackend: Send {
 pub fn create_backend(settings: &VideoSettings) -> Result<Box<dyn VideoBackend>, VideoError> {
     #[cfg(windows)]
     {
-        windows::WindowsVideoBackend::new(settings.clone())
+        // DXGI Desktop Duplication is the only Windows capture path. WGC was
+        // removed: a WGC capture session forces the software cursor on
+        // system-wide (robmikh/Win32CaptureSample#34), which causes cursor and
+        // input lag everywhere; DXGI duplication does not.
+        windows_dxgi::WindowsDxgiVideoBackend::new(settings.clone())
     }
     #[cfg(not(windows))]
     {
         let _ = settings;
         Err(VideoError::PlatformUnsupported(
-            "video capture requires Windows (Windows.Graphics.Capture)".to_string(),
+            "video capture requires Windows (DXGI Desktop Duplication)".to_string(),
         ))
     }
 }
 
 #[cfg(windows)]
-pub mod windows;
+pub mod windows_dxgi;

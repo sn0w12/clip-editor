@@ -260,9 +260,7 @@ impl AudioRouter {
                             .map(|t| Self::track_includes(t, info))
                             .collect();
                         self.routes.insert(key.clone(), routes);
-                        self.routes
-                            .get(key)
-                            .expect("route just cached")[track_index]
+                        self.routes.get(key).expect("route just cached")[track_index]
                     }
                 };
                 if !included {

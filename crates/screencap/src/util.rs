@@ -65,7 +65,8 @@ pub fn send_drop_oldest<T>(
 }
 
 /// Write interleaved `f32` samples as little-endian bytes.
-pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::io::Result<()> {    #[cfg(target_endian = "little")]
+pub fn write_f32le<W: std::io::Write>(writer: &mut W, samples: &[f32]) -> std::io::Result<()> {
+    #[cfg(target_endian = "little")]
     {
         // SAFETY: on little-endian targets an f32's memory image is its LE
         // encoding; a single write beats per-sample `to_le_bytes` calls.

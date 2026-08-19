@@ -219,8 +219,12 @@ fn run_capture(
                             MiscFlags: 0,
                         };
                         let mut tex = None;
-                        if unsafe { frame.device().CreateTexture2D(&new_desc, None, Some(&mut tex)) }
-                            .is_err()
+                        if unsafe {
+                            frame
+                                .device()
+                                .CreateTexture2D(&new_desc, None, Some(&mut tex))
+                        }
+                        .is_err()
                         {
                             return Err("cannot create capture staging texture".to_string());
                         }
@@ -235,8 +239,8 @@ fn run_capture(
                     // The helper returned a uniquely-owned Arc, so the
                     // readback writes the mapping in place (no per-frame
                     // full-frame copy).
-                    let data = Arc::get_mut(&mut buffer)
-                        .expect("recycled buffer is uniquely owned");
+                    let data =
+                        Arc::get_mut(&mut buffer).expect("recycled buffer is uniquely owned");
                     let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
                     unsafe {
                         context.CopyResource(&staging_tex, frame.texture());
@@ -352,16 +356,18 @@ pub fn take_buffer_arc(pool: &mut Vec<Arc<Vec<u8>>>, len: usize) -> Arc<Vec<u8>>
 mod cursor_blend_tests {
     use super::*;
 
-    fn shape_info(width: u32, height: u32, hot_x: i32, hot_y: i32) -> DXGI_OUTDUPL_POINTER_SHAPE_INFO {
+    fn shape_info(
+        width: u32,
+        height: u32,
+        hot_x: i32,
+        hot_y: i32,
+    ) -> DXGI_OUTDUPL_POINTER_SHAPE_INFO {
         DXGI_OUTDUPL_POINTER_SHAPE_INFO {
             Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
             Width: width,
             Height: height,
             Pitch: width * 4,
-            HotSpot: windows::Win32::Foundation::POINT {
-                x: hot_x,
-                y: hot_y,
-            },
+            HotSpot: windows::Win32::Foundation::POINT { x: hot_x, y: hot_y },
         }
     }
 
@@ -371,7 +377,11 @@ mod cursor_blend_tests {
         let mut frame = vec![0u8; 4];
         let shape = [0, 0, 255, 255]; // BGRA: red, alpha 255
         blend_cursor(&mut frame, 1, 1, &shape, shape_info(1, 1, 0, 0), 0, 0);
-        assert_eq!(frame, [0, 0, 255, 255], "opaque cursor pixel replaces the frame (alpha copied)");
+        assert_eq!(
+            frame,
+            [0, 0, 255, 255],
+            "opaque cursor pixel replaces the frame (alpha copied)"
+        );
     }
 
     #[test]
@@ -379,7 +389,11 @@ mod cursor_blend_tests {
         let mut frame = [100u8, 100, 100, 255];
         let shape = [0, 0, 255, 0]; // alpha 0
         blend_cursor(&mut frame, 1, 1, &shape, shape_info(1, 1, 0, 0), 0, 0);
-        assert_eq!(frame, [100, 100, 100, 255], "alpha-0 pixels leave the frame untouched");
+        assert_eq!(
+            frame,
+            [100, 100, 100, 255],
+            "alpha-0 pixels leave the frame untouched"
+        );
     }
 
     #[test]
@@ -399,9 +413,21 @@ mod cursor_blend_tests {
         let shape = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 1, 1, 1, 255];
         blend_cursor(&mut frame, 2, 2, &shape, shape_info(2, 2, 0, 0), 0, 0);
         assert_eq!(frame[0..4], [255, 0, 0, 255], "top-left cursor pixel drawn");
-        assert_eq!(frame[4..8], [0, 255, 0, 255], "top-right cursor pixel drawn");
-        assert_eq!(frame[8..12], [0, 0, 255, 255], "bottom-left cursor pixel drawn");
-        assert_eq!(frame[12..16], [1, 1, 1, 255], "in-frame pixel after the clipped row (opaque copy carries alpha)");
+        assert_eq!(
+            frame[4..8],
+            [0, 255, 0, 255],
+            "top-right cursor pixel drawn"
+        );
+        assert_eq!(
+            frame[8..12],
+            [0, 0, 255, 255],
+            "bottom-left cursor pixel drawn"
+        );
+        assert_eq!(
+            frame[12..16],
+            [1, 1, 1, 255],
+            "in-frame pixel after the clipped row (opaque copy carries alpha)"
+        );
     }
 
     #[test]

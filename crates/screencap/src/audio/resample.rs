@@ -178,7 +178,11 @@ mod tests {
     fn channel_conversion_reuses_out_capacity() {
         let mut out = vec![7.0; 64];
         convert_channels_into(&[0.25f32, -0.5], 1, 2, &mut out);
-        assert_eq!(out, vec![0.25, 0.25, -0.5, -0.5], "out is cleared before filling");
+        assert_eq!(
+            out,
+            vec![0.25, 0.25, -0.5, -0.5],
+            "out is cleared before filling"
+        );
     }
 
     #[test]

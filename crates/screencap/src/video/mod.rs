@@ -106,13 +106,8 @@ pub(crate) fn spawn_pacer(
                 }
                 if let Some(mut frame) = frame {
                     frame.pts = origin.elapsed();
-                    if send_drop_oldest(
-                        &pacer_tx,
-                        &pacer_rx,
-                        frame.clone(),
-                        &mut limiter,
-                        "video",
-                    ) {
+                    if send_drop_oldest(&pacer_tx, &pacer_rx, frame.clone(), &mut limiter, "video")
+                    {
                         encoder_drops += 1;
                     }
                     last = Some(frame);

@@ -363,10 +363,7 @@ fn hotkey_recording_writes_config() {
         }
         // A stray real keypress was captured; retry.
     }
-    assert!(
-        recorded,
-        "recorded hotkey written to config: {cfg_text}"
-    );
+    assert!(recorded, "recorded hotkey written to config: {cfg_text}");
     let _ = std::fs::remove_dir_all(&work);
 }
 
@@ -427,10 +424,7 @@ fn newest_saved(out: &Path) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(out) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path
-                .extension()
-                .is_some_and(|e| e == "mp4" || e == "mkv")
-            {
+            if path.extension().is_some_and(|e| e == "mp4" || e == "mkv") {
                 match &newest {
                     Some(prev) if prev < &path => newest = Some(path),
                     None => newest = Some(path),

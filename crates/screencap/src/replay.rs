@@ -140,9 +140,7 @@ impl ReplayController {
             let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(16);
             let (event_tx, event_rx) = crossbeam_channel::bounded(500);
             let handle = thread_builder("replay-supervisor")
-                .spawn(move || {
-                    supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx))
-                })?;
+                .spawn(move || supervise(config, ffmpeg_dir, cmd_rx, Some(event_tx)))?;
             Ok(Self {
                 cmd_tx,
                 event_rx,
@@ -840,7 +838,8 @@ mod save_window_test {
         });
 
         let pacer_tx = video_tx.clone();
-        let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(1);        let pacer = std::thread::spawn(move || {
+        let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(1);
+        let pacer = std::thread::spawn(move || {
             let mut next_tick = origin;
             let interval = Duration::from_micros(1_000_000 / fps as u64);
             loop {
@@ -950,7 +949,10 @@ mod save_window_test {
     /// file with the bundled ffprobe. Used to bound the first A/V packet
     /// offset: the mixer emits one block per window, so a clip whose audio
     /// starts more than one block after (or before) its video has drifted.
-    fn stream_start_times(ffprobe: &PathBuf, path: &PathBuf) -> std::collections::HashMap<String, f64> {
+    fn stream_start_times(
+        ffprobe: &PathBuf,
+        path: &PathBuf,
+    ) -> std::collections::HashMap<String, f64> {
         let output = std::process::Command::new(ffprobe)
             .args([
                 "-hide_banner",

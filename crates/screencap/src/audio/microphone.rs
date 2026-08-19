@@ -101,12 +101,7 @@ pub fn spawn_microphone(
                 move |data: &cpal::Data, _info: &cpal::InputCallbackInfo| {
                     decode_to_f32_into(data, &mut samples);
                     let source: &[f32] = if device_channels != channels {
-                        convert_channels_into(
-                            &samples,
-                            device_channels,
-                            channels,
-                            &mut converted,
-                        );
+                        convert_channels_into(&samples, device_channels, channels, &mut converted);
                         &converted
                     } else {
                         &samples
@@ -234,8 +229,9 @@ fn decode_to_f32_into(data: &cpal::Data, out: &mut Vec<f32>) {
         }
         cpal::SampleFormat::F64 => {
             for c in bytes.chunks_exact(8) {
-                out.push(f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]])
-                    as f32);
+                out.push(
+                    f64::from_le_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]) as f32,
+                );
             }
         }
         cpal::SampleFormat::I24 => {

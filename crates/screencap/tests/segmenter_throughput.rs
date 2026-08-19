@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
 use screencap::media::segmenter::{SegmentStore, SegmenterParams};
-use screencap::video::{VideoFrame, VideoInfo, VIDEO_QUEUE_CAPACITY};
+use screencap::video::{VIDEO_QUEUE_CAPACITY, VideoFrame, VideoInfo};
 
 fn ffmpeg() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -101,7 +101,9 @@ fn parse_delivery(log: &str) -> (u64, usize, u64, usize) {
 fn segmenter_keeps_pace_with_the_wall() {
     let delivery = std::env::var("SCREENCAP_DELIVERY").as_deref() == Ok("1");
     if !delivery && std::env::var("SCREENCAP_THROUGHPUT").as_deref() != Ok("1") {
-        eprintln!("SKIP: set SCREENCAP_THROUGHPUT=1 or SCREENCAP_DELIVERY=1 to run the segmenter throughput test");
+        eprintln!(
+            "SKIP: set SCREENCAP_THROUGHPUT=1 or SCREENCAP_DELIVERY=1 to run the segmenter throughput test"
+        );
         return;
     }
     let seconds: u64 = std::env::var("THROUGHPUT_SECONDS")

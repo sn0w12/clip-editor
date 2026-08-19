@@ -23,10 +23,7 @@ fn main() {
         .try_init();
 
     let args: Vec<String> = std::env::args().collect();
-    let seconds: u64 = args
-        .get(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10);
+    let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(10);
     let mut fps: u32 = 60;
     let mut cursor = false;
     for a in args.iter().skip(2) {
@@ -48,7 +45,10 @@ fn main() {
         let backend = screencap::video::create_backend(&settings).expect("backend");
         backend.resolve().expect("resolve")
     };
-    println!("geometry: {}x{} @ {}fps cursor={cursor}", info.width, info.height, info.fps);
+    println!(
+        "geometry: {}x{} @ {}fps cursor={cursor}",
+        info.width, info.height, info.fps
+    );
 
     let (tx, rx): (Sender<VideoFrame>, Receiver<VideoFrame>) = crossbeam_channel::bounded(64);
     let rx2 = rx.clone();

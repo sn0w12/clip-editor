@@ -178,7 +178,9 @@ fn bench_cursor_blend(c: &mut Criterion) {
     // Fully off-screen: the loop must walk the shape without writing.
     group.bench_function("blend_64x64_offscreen", |b| {
         b.iter(|| {
-            let drew = blend_cursor(&mut frame, W as u32, H as u32, &shape, info, W as i32, H as i32);
+            let drew = blend_cursor(
+                &mut frame, W as u32, H as u32, &shape, info, W as i32, H as i32,
+            );
             std::hint::black_box(drew);
         });
     });

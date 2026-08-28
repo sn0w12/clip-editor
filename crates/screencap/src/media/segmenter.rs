@@ -605,6 +605,10 @@ pub fn spawn_segmenter(
         "0",
         "-segment_time",
         &params.segment_seconds.to_string(),
+        // Each segment is an independent concat input. Reset timestamps at
+        // every boundary so the concat demuxer measures each segment's real
+        // duration instead of carrying the capture-origin clock into the
+        // output timeline.
         "-reset_timestamps",
         "1",
         // Mirror the option into the per-segment mkv muxer (which wraps each

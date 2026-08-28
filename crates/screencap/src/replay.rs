@@ -945,38 +945,46 @@ mod save_window_test {
         total as f64 / 4.0 / 2.0 / 48000.0
     }
 
-    /// Probe each stream's first packet start time (seconds) from the saved
-    /// file with the bundled ffprobe. Used to bound the first A/V packet
-    /// offset: the mixer emits one block per window, so a clip whose audio
-    /// starts more than one block after (or before) its video has drifted.
-    fn stream_start_times(
+    /// Probe each stream's first packet timestamp and last packet timestamp.
+    /// Packet timestamps are the definitive A/V clock: comparing only stream
+    /// headers can miss drift introduced by concat or muxing.
+    fn stream_packet_bounds(
         ffprobe: &PathBuf,
         path: &PathBuf,
-    ) -> std::collections::HashMap<String, f64> {
+    ) -> std::collections::HashMap<String, (f64, f64)> {
         let output = std::process::Command::new(ffprobe)
             .args([
                 "-hide_banner",
                 "-loglevel",
                 "error",
+                "-select_streams",
+                "v:0,a:0",
                 "-show_entries",
-                "stream=codec_type,start_time",
+                "packet=codec_type,pts_time,duration_time",
                 "-of",
                 "csv=p=0",
             ])
             .arg(path)
             .output()
             .expect("ffprobe runs");
-        let mut map = std::collections::HashMap::new();
+        let mut bounds = std::collections::HashMap::new();
         for line in String::from_utf8_lossy(&output.stdout).lines() {
-            // csv: codec_type,start_time
-            let mut it = line.split(',');
-            if let (Some(codec), Some(start)) = (it.next(), it.next()) {
-                if let Ok(v) = start.trim().parse::<f64>() {
-                    map.insert(codec.trim().to_string(), v);
-                }
-            }
+            let mut fields = line.split(',');
+            let (Some(codec), Some(pts), Some(duration)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            let (Ok(pts), Ok(duration)) = (pts.parse::<f64>(), duration.parse::<f64>()) else {
+                continue;
+            };
+            let entry = bounds
+                .entry(codec.trim().to_string())
+                .or_insert((pts, pts + duration));
+            entry.0 = entry.0.min(pts);
+            entry.1 = entry.1.max(pts + duration);
         }
-        map
+        bounds
     }
 
     /// The production save path includes live audio tracks. Reproduce that
@@ -1174,22 +1182,33 @@ mod save_window_test {
             "ffprobe.exe must sit at {}",
             ffprobe.display()
         );
-        let starts = stream_start_times(&ffprobe, &saved);
-        let video_start = starts
+        let bounds = stream_packet_bounds(&ffprobe, &saved);
+        let (video_start, video_end) = bounds
             .get("video")
             .copied()
-            .expect("saved clip has a video stream start time");
-        let audio_start = starts
+            .expect("saved clip has video packet bounds");
+        let (audio_start, audio_end) = bounds
             .get("audio")
             .copied()
-            .expect("saved clip has an audio stream start time");
-        let offset_ms = (video_start - audio_start).abs() * 1000.0;
+            .expect("saved clip has audio packet bounds");
+        let start_offset_ms = (video_start - audio_start).abs() * 1000.0;
+        let end_offset_ms = (video_end - audio_end).abs() * 1000.0;
+        let duration_drift_ms =
+            ((video_end - video_start) - (audio_end - audio_start)).abs() * 1000.0;
         println!(
-            "SAVE-WINDOW-AUDIO: video_start={video_start:.3}s audio_start={audio_start:.3}s offset={offset_ms:.1}ms block={block_ms}ms"
+            "SAVE-WINDOW-AUDIO: video=[{video_start:.3},{video_end:.3}] audio=[{audio_start:.3},{audio_end:.3}] start_offset={start_offset_ms:.1}ms end_offset={end_offset_ms:.1}ms duration_drift={duration_drift_ms:.1}ms block={block_ms}ms"
         );
         assert!(
-            offset_ms <= block_ms as f64 + 5.0,
-            "first A/V packet offset {offset_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
+            start_offset_ms <= block_ms as f64 + 5.0,
+            "first A/V packet offset {start_offset_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
+        );
+        assert!(
+            end_offset_ms <= block_ms as f64 + 5.0,
+            "last A/V packet offset {end_offset_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
+        );
+        assert!(
+            duration_drift_ms <= block_ms as f64 + 5.0,
+            "A/V duration drift {duration_drift_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
         );
 
         let _ = std::fs::remove_dir_all(&work);

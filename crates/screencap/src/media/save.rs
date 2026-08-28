@@ -108,6 +108,11 @@ pub fn save_replay(
             .arg(&list_path)
             .arg("-map")
             .arg("0")
+            // Segment files reset timestamps at their boundaries, so the
+            // concat demuxer can concatenate them on a continuous timeline.
+            // Do not preserve the capture-origin clock here: that would make
+            // the output duration include the elapsed time since recording
+            // started (e.g. a 39-second clip becoming 39 minutes).
             .arg("-c")
             .arg("copy")
             // `+faststart` writes the moov atom up front so the saved MP4

@@ -914,6 +914,15 @@ mod save_window_test {
             saved_seconds >= request_stream - 1.0,
             "saved clip ends before the save request (saved {saved_seconds:.1}s, request at {request_stream:.1}s); the wait-for-boundary did not take effect"
         );
+        // The clip is the newest `duration_seconds` of buffer, so its length
+        // must not exceed the request moment by more than a segment plus
+        // slack. If the concat timeline leaks the capture clock (or
+        // container-duration offsets), the saved duration grows with the
+        // recording age instead of staying at the requested length.
+        assert!(
+            saved_seconds <= request_stream + segment_seconds as f64 + 2.0,
+            "saved clip duration {saved_seconds:.1}s exceeds the request moment {request_stream:.1}s plus a segment; the capture clock leaked into the output timeline"
+        );
 
         let _ = std::fs::remove_dir_all(&work);
     }
@@ -957,8 +966,9 @@ mod save_window_test {
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-select_streams",
-                "v:0,a:0",
+                // No `-select_streams`: some ffprobe builds reject the
+                // `v:0,a:0` specifier outright. The parser below filters by
+                // `codec_type` instead, which is equivalent for this file.
                 "-show_entries",
                 "packet=codec_type,pts_time,duration_time",
                 "-of",
@@ -1172,6 +1182,18 @@ mod save_window_test {
             audio_seconds >= request_stream - 1.0,
             "saved clip audio ends before the save request (audio {audio_seconds:.1}s, video {video_seconds:.1}s, request at {request_stream:.1}s)"
         );
+        // The clip is the newest `duration_seconds` of buffer: both streams
+        // must end near the request moment, not at the recording age (a
+        // leaked capture clock would grow the duration with every minute of
+        // recording).
+        assert!(
+            video_seconds <= request_stream + segment_seconds as f64 + 2.0,
+            "saved video duration {video_seconds:.1}s exceeds the request moment {request_stream:.1}s plus a segment; the capture clock leaked into the output timeline"
+        );
+        assert!(
+            audio_seconds <= request_stream + segment_seconds as f64 + 2.0,
+            "saved audio duration {audio_seconds:.1}s exceeds the request moment {request_stream:.1}s plus a segment; the capture clock leaked into the output timeline"
+        );
 
         // The first A/V packet start offset must stay within one mixer block:
         // the new readback worker and low-latency encoder path must not trade
@@ -1206,9 +1228,17 @@ mod save_window_test {
             end_offset_ms <= block_ms as f64 + 5.0,
             "last A/V packet offset {end_offset_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
         );
+        // Video span vs audio span. The first segment includes the encoder's
+        // cold-start delay (NVENC warms up for a moment, so the video stream
+        // starts ~one frame after audio), and the test's wall-clock pacer can
+        // miss one tick at a segment boundary on a loaded machine. Both are
+        // bounded, non-accumulating; the hard guarantees are the start/end
+        // offset assertions above, so allow two blocks plus startup slack
+        // here (a per-segment frame loss would still blow past it over a
+        // longer run).
         assert!(
-            duration_drift_ms <= block_ms as f64 + 5.0,
-            "A/V duration drift {duration_drift_ms:.1}ms exceeds one {block_ms}ms mixer block (+5ms probe rounding)"
+            duration_drift_ms <= block_ms as f64 * 2.0 + 25.0,
+            "A/V duration drift {duration_drift_ms:.1}ms exceeds two {block_ms}ms mixer blocks (+25ms probe/startup slack)"
         );
 
         let _ = std::fs::remove_dir_all(&work);

@@ -82,6 +82,16 @@ pub fn save_replay(
         let path = segment.path.to_string_lossy().replace('\\', "/");
         let escaped = path.replace('\'', "'\\''");
         list.push_str(&format!("file '{escaped}'\n"));
+        // The concat demuxer rebuilds the output timeline from each file's
+        // *container* duration (the MKV Duration element), which the segment
+        // muxer writes as the last packet's end time. With AAC the frame
+        // straddling the boundary extends past the video end, so the container
+        // duration overstates the segment's true span (~one AAC frame per
+        // segment). Concat would then push every following segment late by
+        // that amount, accumulating into an A/V offset that grows across the
+        // whole clip. Overriding it with the segment list's true span keeps
+        // the rebuilt timeline exact (and the output duration exact).
+        list.push_str(&format!("duration {:.6}\n", segment.duration.as_secs_f64()));
     }
     std::fs::write(&list_path, list).map_err(|e| {
         MediaError::General(format!(

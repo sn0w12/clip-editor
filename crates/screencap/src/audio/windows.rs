@@ -189,10 +189,17 @@ impl Manager {
         // Start workers for new roots, stop workers for gone roots.
         let active: HashSet<SourceKey> = wanted.keys().cloned().collect();
         let existing: HashSet<SourceKey> = workers.keys().cloned().collect();
+        let dbg = std::env::var("SCREENCAP_AUDIO_DBG").as_deref() == Ok("1");
         for key in existing.difference(&active) {
             if let Some(handle) = workers.remove(key) {
                 handle.stop();
                 let _ = self.event_tx.send(AudioEvent::SourceRemoved(key.clone()));
+                if dbg {
+                    eprintln!(
+                        "[audiodbg] manager STOP worker {} (session disappeared from enumerator)",
+                        key.0
+                    );
+                }
             }
         }
         for (key, target) in wanted.into_iter() {
@@ -208,6 +215,12 @@ impl Manager {
             match self.spawn_worker(target.pid, target.include_children, &key, &info) {
                 Ok(handle) => {
                     workers.insert(key.clone(), handle);
+                    if dbg {
+                        eprintln!(
+                            "[audiodbg] manager START worker {} (session appeared)",
+                            key.0
+                        );
+                    }
                     if key.0.starts_with("process:") {
                         // Unknown roots are dynamic; configured sources were
                         // registered up front by the supervisor.
@@ -474,11 +487,15 @@ fn run_worker(
     let mut resampler = StreamingResampler::new(LOOPBACK_RATE, sample_rate, channels, 960);
     let block_frames = (sample_rate as u64 * 20 / 1000) as usize; // 20 ms default blocks
     let block_dur = Duration::from_secs_f64(block_frames as f64 / sample_rate as f64);
-    // Data-timeline PTS, aligned to the 20 ms window grid: burst reads stamp
-    // distinct, uniformly spaced blocks and every block lands exactly on a
-    // mixer window boundary (no split-block tails in the router).
-    let mut next_pts: Option<Duration> = None;
     let mut limiter = RateLimiter::new(Duration::from_secs(5));
+    // Diagnostics (SCREENCAP_AUDIO_DBG=1): per-wave read/stamp stats and
+    // resume-after-idle events, so a real reproduction shows exactly where
+    // resumed samples go (or fail to arrive).
+    let dbg = std::env::var("SCREENCAP_AUDIO_DBG").as_deref() == Ok("1");
+    // Wall time of the last wave that actually carried non-silent content
+    // (the loopback delivers continuous silence during a quiet stretch, so
+    // block *count* never idles; content does).
+    let mut last_sound_wall = std::time::Instant::now();
 
     loop {
         if stop_rx.try_recv().is_ok() || shutdown.try_recv().is_ok() {
@@ -491,6 +508,15 @@ fn run_worker(
             // still emits silence at a steady cadence.
             Err(_) => {}
         }
+        // Per-packet read, stamp, drain: each packet read is stamped at its
+        // wall position immediately, so blocks always flow even under load.
+        // (A wave-collect variant that spread catch-up bursts across their
+        // true span was tried twice; both times Discord audio stopped reaching
+        // the clip in the real app, so per-packet draining is restored.)
+        let mut wave_peak = 0f32;
+        let mut wave_blocks = 0u32;
+        let mut last_first_pts = Duration::ZERO;
+        let mut last_back = Duration::ZERO;
         loop {
             match capture.get_next_packet_size() {
                 Ok(Some(0)) | Ok(None) => break,
@@ -516,17 +542,25 @@ fn run_worker(
                             }
                             None => out.extend_from_slice(source),
                         }
+                        // Stamp this packet's blocks on the shared wall clock
+                        // (grid-aligned, backdated by the accumulated span so
+                        // a multi-packet catch-up wave at least spreads).
+                        let wave_end = origin.elapsed();
+                        let audio_back = Duration::from_secs_f64(
+                            out.len() as f64 / (channels as f64 * sample_rate as f64),
+                        );
+                        let mut block_pts = crate::audio::burst_base_pts(wave_end, audio_back, 20);
                         while out.len() >= block_frames * channels as usize {
                             let block: Vec<f32> =
                                 out.drain(..block_frames * channels as usize).collect();
-                            let block_pts = match next_pts {
-                                Some(pts) => pts,
-                                None => {
-                                    let start = origin.elapsed().saturating_sub(block_dur);
-                                    Duration::from_millis(((start.as_millis() / 20) * 20) as u64)
-                                }
-                            };
-                            next_pts = Some(block_pts + block_dur);
+                            if dbg {
+                                wave_peak =
+                                    wave_peak.max(
+                                        block.iter().fold(0f32, |m, s| {
+                                            if s.abs() > m { s.abs() } else { m }
+                                        }),
+                                    );
+                            }
                             send_drop_oldest(
                                 &event_tx,
                                 &event_rx,
@@ -540,6 +574,12 @@ fn run_worker(
                                 &mut limiter,
                                 "audio",
                             );
+                            wave_blocks += 1;
+                            if wave_blocks == 1 {
+                                last_first_pts = block_pts;
+                                last_back = audio_back;
+                            }
+                            block_pts += block_dur;
                         }
                     }
                     Err(e) => {
@@ -551,6 +591,26 @@ fn run_worker(
                 },
                 Err(_) => break,
             }
+        }
+        // Print ONLY at resume events: a wave carrying real audio that follows
+        // >= 500 ms of quiet (whether quiet means no packets at all or a
+        // stream of silence). Steady audio prints nothing, so the log stays
+        // readable during a recording.
+        if dbg && wave_peak > 0.001 {
+            let idle_ms = last_sound_wall.elapsed().as_millis();
+            if idle_ms >= 500 {
+                eprintln!(
+                    "[audiodbg] worker RESUME {} wall={}ms quiet={}ms blocks={} back={}ms first_pts={}ms peak={:.3}",
+                    key.0,
+                    origin.elapsed().as_millis(),
+                    idle_ms,
+                    wave_blocks,
+                    last_back.as_millis(),
+                    last_first_pts.as_millis(),
+                    wave_peak
+                );
+            }
+            last_sound_wall = std::time::Instant::now();
         }
     }
 

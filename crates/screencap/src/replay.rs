@@ -592,6 +592,16 @@ fn mix_loop(
         } else {
             0
         };
+        let dbg = std::env::var("SCREENCAP_AUDIO_DBG").as_deref() == Ok("1");
+        if dbg && target > mixed + 5 {
+            eprintln!(
+                "[audiodbg] mixer CATCH-UP target={} mixed={} lag={}ms ({} windows behind)",
+                target,
+                mixed,
+                elapsed.as_millis(),
+                target - mixed
+            );
+        }
         while mixed < target {
             for (block, (tx, rx)) in router.mix().into_iter().zip(track_channels.iter()) {
                 crate::util::send_drop_oldest(tx, rx, block, &mut limiter, "track");
@@ -1242,5 +1252,279 @@ mod save_window_test {
         );
 
         let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Reproduce the reported resume loss end-to-end: feed the real segmenter
+    /// a silent audio track for the first ~4 s, then a 440 Hz tone (like an
+    /// app resuming after a quiet stretch), save, and measure where the tone
+    /// onset lands in the saved clip. The onset must land at the fed moment
+    /// (the clip starts at the recording origin because the recording is
+    /// shorter than the requested window), not later — a lost "first bit"
+    /// would push it past the resume moment by the loss amount. Gated behind
+    /// SCREENCAP_SAVE_WINDOW=1.
+    #[test]
+    fn saved_clip_preserves_resumed_tone_onset() {
+        if std::env::var("SCREENCAP_SAVE_WINDOW").as_deref() != Ok("1") {
+            eprintln!("SKIP: set SCREENCAP_SAVE_WINDOW=1 to run the save-window test");
+            return;
+        }
+        let width: u32 = 640;
+        let height: u32 = 360;
+        let fps: u32 = 30;
+        let segment_seconds: u32 = 4;
+        let frame_bytes = width as usize * height as usize * 4;
+        let rate: u32 = 48000;
+        let block_ms: u32 = 20;
+        let block_frames = (block_ms as u64 * rate as u64 / 1000) as usize;
+        let resume_at_s: f64 = 4.0;
+
+        let work = std::env::temp_dir().join(format!("screencap_tone_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&work);
+        let buffer_dir = work.join("buffer");
+        let out_dir = work.join("out");
+        std::fs::create_dir_all(&buffer_dir).unwrap();
+        std::fs::create_dir_all(&out_dir).unwrap();
+
+        let store = Arc::new(SegmentStore::new(buffer_dir.clone()));
+        store.prepare().unwrap();
+
+        let (video_tx, video_rx) = crossbeam_channel::bounded(crate::video::VIDEO_QUEUE_CAPACITY);
+        let pacer_rx = video_rx.clone();
+        let (track_tx, track_rx) = crossbeam_channel::bounded(1200);
+        let (shutdown_tx, shutdown_rx) = crossbeam_channel::bounded(64);
+        let (err_tx, err_rx) = crossbeam_channel::bounded(16);
+        let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(2);
+        let origin = Instant::now();
+
+        let done = crate::media::segmenter::spawn_segmenter(
+            SegmenterParams {
+                ffmpeg: ffmpeg(),
+                video: VideoInfo { width, height, fps },
+                sample_rate: rate,
+                channels: 2,
+                tracks: vec![ResolvedTrack {
+                    number: 1,
+                    name: "t1".to_string(),
+                    include: Vec::new(),
+                    exclude: Vec::new(),
+                }],
+                codec: crate::config::VideoCodec::H264Nvenc,
+                quality: 28,
+                segment_seconds,
+                buffer_dir: buffer_dir.clone(),
+                keep: Duration::from_secs(120),
+                capture_origin: origin,
+            },
+            store.clone(),
+            video_rx,
+            vec![track_rx],
+            shutdown_rx,
+            err_tx,
+        )
+        .expect("segmenter spawns");
+
+        let err_log: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let err_log2 = err_log.clone();
+        let _err_thread = std::thread::spawn(move || {
+            loop {
+                match err_rx.recv_timeout(Duration::from_secs(1)) {
+                    Ok(e) => err_log2.lock().unwrap().push(e.to_string()),
+                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+        });
+
+        let pacer_tx = video_tx.clone();
+        let track_stop_rx = stop_rx.clone();
+        let pacer = std::thread::spawn(move || {
+            let mut next_tick = origin;
+            let interval = Duration::from_micros(1_000_000 / fps as u64);
+            loop {
+                if stop_rx.try_recv().is_ok() {
+                    break;
+                }
+                let now = Instant::now();
+                if now < next_tick {
+                    std::thread::sleep((next_tick - now).min(Duration::from_millis(10)));
+                    continue;
+                }
+                next_tick += interval;
+                if next_tick < now {
+                    next_tick = now + interval;
+                }
+                let frame = vec![0u8; frame_bytes];
+                send_drop_oldest(
+                    &pacer_tx,
+                    &pacer_rx,
+                    VideoFrame::new(origin.elapsed(), width, height, frame),
+                );
+            }
+        });
+
+        let track_feeder_tx = track_tx.clone();
+        let track_feeder_stop = track_stop_rx;
+        let track_feeder = std::thread::spawn(move || {
+            let mut next = origin;
+            let interval = Duration::from_millis(block_ms as u64);
+            let mut phase: f64 = 0.0;
+            loop {
+                if track_feeder_stop.try_recv().is_ok() {
+                    break;
+                }
+                let now = Instant::now();
+                if now < next {
+                    std::thread::sleep((next - now).min(Duration::from_millis(10)));
+                    continue;
+                }
+                next += interval;
+                if next < now {
+                    next = now + interval;
+                }
+                let on = now.duration_since(origin).as_secs_f64() >= resume_at_s;
+                let mut samples = vec![0f32; block_frames * 2];
+                if on {
+                    for i in 0..block_frames {
+                        phase += 2.0 * std::f64::consts::PI * 440.0 / rate as f64;
+                        let v = (phase.sin() * 0.2) as f32;
+                        samples[i * 2] = v;
+                        samples[i * 2 + 1] = v;
+                    }
+                }
+                let _ = track_feeder_tx.try_send(TrackAudioBlock {
+                    number: 1,
+                    name: "t1".to_string(),
+                    pts: origin.elapsed(),
+                    sample_rate: rate,
+                    channels: 2,
+                    samples,
+                });
+            }
+        });
+
+        std::thread::sleep(Duration::from_millis(9500));
+        let saved = super::perform_save(
+            &ffmpeg(),
+            &store,
+            &buffer_dir,
+            &out_dir,
+            "Replay",
+            "tone-resume",
+            20,
+            segment_seconds,
+            origin,
+        )
+        .expect("perform_save succeeds");
+
+        let _ = stop_tx.send(());
+        let _ = stop_tx.send(());
+        let _ = pacer.join();
+        let _ = track_feeder.join();
+        for _ in 0..64 {
+            let _ = shutdown_tx.try_send(());
+        }
+        let _ = done.recv_timeout(Duration::from_secs(20));
+        drop(video_tx);
+        drop(track_tx);
+        let errors = err_log.lock().unwrap().clone();
+        assert!(errors.is_empty(), "segmenter terminal errors: {errors:?}");
+
+        // Measure the tone onset in the saved clip: decode to f32 mono and
+        // find the first sample with |value| > 0.1.
+        let onset = tone_onset_seconds(&ffmpeg(), &saved);
+        let v_secs = decoded_seconds(&ffmpeg(), &saved, width, height, fps);
+        let a_secs = decoded_audio_seconds(&ffmpeg(), &saved);
+        println!(
+            "TONE-RESUME: fed onset at ~{resume_at_s:.3}s, saved clip onset at {onset:?} video={v_secs:.2}s audio={a_secs:.2}s"
+        );
+        let onset = onset.expect("tone must appear in the saved clip");
+        // The recording is shorter than the requested window, so the clip
+        // starts at the origin and the tone must land at the fed moment (the
+        // capture threads start a few hundred ms after `origin`, so the onset
+        // is expected slightly early — never late). A lost first bit pushes it
+        // later by the loss.
+        assert!(
+            (resume_at_s - onset) >= -0.5 && (resume_at_s - onset) <= segment_seconds as f64,
+            "tone onset {onset:.3}s vs fed {resume_at_s:.3}s: expected a startup shift of at most 0.5s, not a {}s gap",
+            resume_at_s - onset
+        );
+        // Segment joins must be seamless: the old concat placed every file one
+        // AAC frame past its boundary, punching a hole (a missing video frame
+        // and the first ~20-40ms of audio) at each join. AAC packet spacing is
+        // ~21.3ms, so any gap over 28ms is a join hole.
+        let audio_gap_ms = max_audio_packet_gap_ms(&ffmpeg().with_file_name("ffprobe.exe"), &saved);
+        println!("TONE-RESUME: max audio packet gap {audio_gap_ms:.1}ms");
+        assert!(
+            audio_gap_ms <= 28.0,
+            "saved clip has a {audio_gap_ms:.1}ms audio gap: a segment join lost the first bit of resumed audio"
+        );
+        println!("TONE-RESUME: workdir={}", work.display());
+        if std::env::var_os("SWA_KEEP").is_none() {
+            let _ = std::fs::remove_dir_all(&work);
+        }
+    }
+
+    /// Largest gap between consecutive audio packet start times in `path`
+    /// (milliseconds). AAC packets are ~21.3ms apart; a segment-join hole
+    /// shows up as a gap of ~40ms+. Returns 0 if the stream has fewer than
+    /// two packets.
+    fn max_audio_packet_gap_ms(ffprobe: &PathBuf, path: &PathBuf) -> f64 {
+        let output = std::process::Command::new(ffprobe)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                // No `-select_streams`: some ffprobe builds reject the
+                // `v:0,a:0` specifier outright. Filter by `codec_type` below.
+                "-show_entries",
+                "packet=codec_type,pts_time",
+                "-of",
+                "csv=p=0",
+            ])
+            .arg(path)
+            .output()
+            .expect("ffprobe runs");
+        let mut max_gap = 0.0f64;
+        let mut prev: Option<f64> = None;
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut fields = line.split(',');
+            let (Some(codec), Some(pts)) = (fields.next(), fields.next()) else {
+                continue;
+            };
+            if codec.trim() != "audio" {
+                continue;
+            }
+            let Ok(pts) = pts.parse::<f64>() else {
+                continue;
+            };
+            if let Some(p) = prev {
+                max_gap = max_gap.max(pts - p);
+            }
+            prev = Some(pts);
+        }
+        max_gap * 1000.0
+    }
+
+    /// Decode the first audio stream of `path` to 48 kHz mono f32 and return
+    /// the time of the first sample with |value| > 0.1, if any.
+    fn tone_onset_seconds(ffmpeg: &std::path::Path, path: &std::path::Path) -> Option<f64> {
+        use std::os::windows::process::CommandExt;
+        let out = std::process::Command::new(ffmpeg)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(path)
+            .args([
+                "-map", "0:a:0", "-ac", "1", "-ar", "48000", "-f", "f32le", "-",
+            ])
+            .output()
+            .ok()?;
+        let samples: Vec<f32> = out
+            .stdout
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let first = samples.iter().position(|s| s.abs() > 0.1)?;
+        Some(first as f64 / 48000.0)
     }
 }

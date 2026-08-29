@@ -106,6 +106,25 @@ pub enum AudioError {
     Microphone(String),
 }
 
+/// Stamp the PTS of a burst of audio blocks drained at wall time `wall`.
+///
+/// Every live source must sit on the *same* wall-clock timeline as the
+/// mixer windows and the video ticks (all derived from the capture
+/// `origin`), or the sources drift apart: an independent per-source data
+/// timeline advances at its own rate and re-anchors at its own moments,
+/// shifting that source's content relative to everything else. A burst
+/// read (a loopback poll or a device callback) returns audio that spans
+/// the preceding `audio_back` of wall time, so the burst's oldest block is
+/// stamped `grid(wall - audio_back)` and each following block `block_dur`
+/// later. Steady reads land one block per mixer window; burst reads spread
+/// across their real span; a silent stretch leaves a genuine gap; and a
+/// stalled worker's buffered audio keeps its true position — the mixer
+/// drops only what is genuinely late, and nothing is ever shifted.
+pub fn burst_base_pts(wall: Duration, audio_back: Duration, grid_ms: u64) -> Duration {
+    let start = wall.saturating_sub(audio_back);
+    Duration::from_millis(((start.as_millis() / grid_ms as u128) * grid_ms as u128) as u64)
+}
+
 pub use router::AudioRouter;
 
 pub mod microphone;
@@ -114,3 +133,54 @@ pub mod router;
 
 #[cfg(windows)]
 pub mod windows;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLOCK: Duration = Duration::from_millis(20);
+
+    #[test]
+    fn steady_reads_stamp_on_the_wall_grid() {
+        // A steady 20 ms read at wall=1.0s covers the preceding 20 ms: the
+        // burst's base PTS is one block back, grid-aligned.
+        let base = burst_base_pts(Duration::from_millis(1000), BLOCK, 20);
+        assert_eq!(base, Duration::from_millis(980));
+    }
+
+    #[test]
+    fn burst_reads_spread_across_their_wall_span() {
+        // A 100 ms burst drained at wall=1.0s covers 900..1000 ms: the
+        // blocks keep their true positions instead of collapsing onto the
+        // drain moment.
+        let base = burst_base_pts(Duration::from_millis(1000), Duration::from_millis(100), 20);
+        assert_eq!(base, Duration::from_millis(900));
+    }
+
+    #[test]
+    fn resumed_audio_after_silence_keeps_true_position() {
+        // Silence leaves no data, so the first block after a 4 s pause is
+        // stamped at the resume moment — never pre-gap.
+        let wall = Duration::from_millis(4000);
+        let base = burst_base_pts(wall, BLOCK, 20);
+        assert_eq!(base, Duration::from_millis(3980));
+    }
+
+    #[test]
+    fn stalled_worker_burst_keeps_buffered_audio_in_place() {
+        // A worker preempted for 300 ms drains the accumulated audio at the
+        // resume moment; the burst still spans the stall window, so the
+        // content is not shifted forward on the track.
+        let wall = Duration::from_millis(2000);
+        let base = burst_base_pts(wall, Duration::from_millis(300), 20);
+        assert_eq!(base, Duration::from_millis(1700));
+    }
+
+    #[test]
+    fn grid_alignment_never_goes_negative() {
+        // A burst spanning more wall than has elapsed (startup) clamps at
+        // the origin instead of going negative.
+        let base = burst_base_pts(Duration::from_millis(5), Duration::from_millis(20), 20);
+        assert_eq!(base, Duration::ZERO);
+    }
+}

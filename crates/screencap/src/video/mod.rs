@@ -8,13 +8,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, TrySendError};
 
 use parking_lot::Mutex;
-use tracing::info;
 
 use crate::error::RunError;
-use crate::util::{RateLimiter, send_drop_oldest};
 
 /// Latest frame shared between the capture producer and the pacer.
 #[derive(Default)]
@@ -34,8 +32,10 @@ pub(crate) struct StopState {
 /// It re-sends the latest published frame at `info.fps`, seeding the timeline
 /// with a black frame at `origin` so the stream's t=0 lands at the recorder
 /// start even before the first captured frame arrives (the pre-capture gap is
-/// pruned away with the rolling buffer). A full video channel drops the
-/// oldest queued frame instead of building a stale backlog.
+/// pruned away with the rolling buffer). A full video channel *blocks* until
+/// the writer drains a frame — never drops: the encoder timestamps rawvideo
+/// input by frame count, so dropping a frame compresses the video timeline
+/// and the saved clip plays that stretch faster than real time.
 #[cfg(windows)]
 pub(crate) fn spawn_pacer(
     info: VideoInfo,
@@ -50,22 +50,15 @@ pub(crate) fn spawn_pacer(
     let interval = Duration::from_micros(1_000_000 / info.fps as u64);
     let pacer_shutdown = shutdown;
     let pacer_tx = tx;
-    let pacer_rx = rx;
+    let _pacer_rx = rx;
     let pacer_stop = stop;
     let pacer_latest = latest;
     let pacer_done_join = pacer_done;
     thread::Builder::new()
         .name("video-pacer".to_string())
         .spawn(move || {
-            let mut limiter = RateLimiter::new(Duration::from_secs(5));
             let mut last: Option<VideoFrame> = None;
             let mut next_tick = origin;
-            // Pre-encoder drops: a full video channel means the encoder is
-            // behind; dropping the oldest queued frame keeps the stream
-            // fresh instead of building a stale backlog. Counted and
-            // rate-limit-logged so a chronic backlog is visible.
-            let mut encoder_drops: u64 = 0;
-            let mut last_drops_log = Instant::now();
             let mut stream_seeded = false;
             let (seed_w, seed_h) = (info.width, info.height);
             loop {
@@ -84,11 +77,6 @@ pub(crate) fn spawn_pacer(
                         .recv_timeout((next_tick - now).min(Duration::from_millis(50)));
                     continue;
                 }
-                next_tick += interval;
-                if next_tick < now {
-                    // Fell behind; resync rather than burst-sending.
-                    next_tick = now + interval;
-                }
                 let frame = {
                     let mut guard = pacer_latest.lock();
                     guard.frame.take().or_else(|| last.clone())
@@ -100,35 +88,62 @@ pub(crate) fn spawn_pacer(
                         seed_h,
                         vec![0u8; seed_w as usize * seed_h as usize * 4],
                     );
-                    send_drop_oldest(&pacer_tx, &pacer_rx, seed.clone(), &mut limiter, "video");
+                    if !send_blocking(&pacer_tx, seed.clone(), &pacer_shutdown) {
+                        break;
+                    }
                     last = Some(seed);
                     stream_seeded = true;
                 }
                 if let Some(mut frame) = frame {
                     frame.pts = origin.elapsed();
-                    if send_drop_oldest(&pacer_tx, &pacer_rx, frame.clone(), &mut limiter, "video")
-                    {
-                        encoder_drops += 1;
+                    if !send_blocking(&pacer_tx, frame.clone(), &pacer_shutdown) {
+                        break;
                     }
                     last = Some(frame);
                 }
-                if last_drops_log.elapsed() >= Duration::from_secs(5) {
-                    info!(pre_encoder_drops = encoder_drops, "video pacer");
-                    last_drops_log = Instant::now();
-                }
+                // One frame per tick, never skipped: if delivery fell behind
+                // (a slow encoder), the next iterations re-send the latest
+                // frame until caught up, so the count-based video timeline
+                // stays exact — the clip plays at the real rate, with a
+                // freeze for the stalled stretch instead of a speed-up.
+                next_tick += interval;
             }
         })
         .map_err(|e| VideoError::Capture(format!("cannot spawn pacer thread: {e}")))?;
     Ok(())
 }
 
+/// Send one frame into the bounded pacer channel, blocking (never dropping)
+/// when the channel is full. The encoder timestamps rawvideo input by frame
+/// count at `-framerate`, so a dropped frame makes the segment shorter than
+/// the wall seconds it spans — the saved clip plays that stretch faster than
+/// real time. Blocking lets the writer/encoder catch up; the rolling buffer
+/// simply lags the wall for the stalled stretch. Returns `false` when the
+/// channel is gone or shutdown arrived, so the pacer exits instead of
+/// spinning against a stuck writer.
+fn send_blocking(tx: &Sender<VideoFrame>, frame: VideoFrame, shutdown: &Receiver<()>) -> bool {
+    loop {
+        match tx.try_send(frame.clone()) {
+            Ok(()) => return true,
+            Err(TrySendError::Full(_)) => {
+                if shutdown.try_recv().is_ok() {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            Err(TrySendError::Disconnected(_)) => return false,
+        }
+    }
+}
+
 /// The producer-to-segmenter video channel holds at most this many frames.
-/// Two frames bound end-to-end frame age: a frame in flight to the encoder
-/// plus one waiting, so a queued frame can never sit more than two frame
-/// intervals before FFmpeg reads it. This public constant is the single
-/// queue-capacity contract shared by the supervisor, its tests, and the
-/// segmenter throughput harness.
-pub const VIDEO_QUEUE_CAPACITY: usize = 2;
+/// The pacer blocks (never drops) when the channel is full, so the capacity
+/// bounds how much transient encoder slowness is absorbed before the pacer
+/// has to wait: 16 frames (~267 ms at 60 fps) rides out ordinary muxer/pipe
+/// hiccups without stalling, while the count-based video timeline stays
+/// exact. This public constant is the single queue-capacity contract shared
+/// by the supervisor, its tests, and the segmenter throughput harness.
+pub const VIDEO_QUEUE_CAPACITY: usize = 16;
 
 /// Capture statistics shared with the rate-limited capture log and the
 /// benchmarks (`capbench`). The capture thread updates these via atomics;

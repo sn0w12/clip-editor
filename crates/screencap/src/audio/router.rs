@@ -30,6 +30,8 @@ pub struct AudioRouter {
     /// Diagnostics: drops per source since the last summary log.
     drop_counts: HashMap<SourceKey, u64>,
     last_summary: std::time::Instant,
+    /// Verbose drop logging (SCREENCAP_AUDIO_DBG=1).
+    dbg: bool,
 }
 
 impl AudioRouter {
@@ -54,6 +56,7 @@ impl AudioRouter {
             mismatch_drop: RateLimiter::new(Duration::from_secs(5)),
             drop_counts: HashMap::new(),
             last_summary: std::time::Instant::now(),
+            dbg: std::env::var("SCREENCAP_AUDIO_DBG").as_deref() == Ok("1"),
         };
         for info in sources {
             router.register_source(info);
@@ -171,6 +174,14 @@ impl AudioRouter {
                 let block_end = front.pts + front.duration();
                 if block_end <= win_start_dur {
                     *self.drop_counts.entry(key.clone()).or_insert(0) += 1;
+                    if self.dbg {
+                        eprintln!(
+                            "[audiodbg] mixer LATE-DROP {} pts={}ms win={}ms",
+                            key.0,
+                            front.pts.as_millis(),
+                            win_start_dur.as_millis()
+                        );
+                    }
                     if self.late_drop.should_emit() {
                         warn!(
                             source = %key.0,
@@ -340,6 +351,96 @@ mod tests {
     const CH: u16 = 2;
     const BLOCK_MS: u32 = 20;
     const FRAMES: usize = 960; // 20 ms at 48 kHz
+
+    /// Simulate the loopback worker's exact stamping across a silent gap and a
+    /// resume BURST (several packets read together at one wall time — the
+    /// catch-up wave after idle), feeding the real router, and check that every
+    /// resumed sample lands in the mixed output at its true position.
+    #[test]
+    fn resumed_burst_after_silence_preserves_all_samples() {
+        let sources = vec![info("discord", SourceKind::Process, &[])];
+        let tracks = vec![track(1, "t1", vec![Selector::AllProcesses], vec![])];
+        let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
+
+        // Worker wave simulation: a wave collects all queued packets into
+        // `out`, then stamps the whole wave ONCE across its true span and
+        // drains (the production wave-collect stamping). Packets carry a
+        // distinctive amplitude so lost samples are detectable: silence 0.0,
+        // first resume packet 0.1, second 0.2, third 0.3, then steady 0.4.
+        let mut out: Vec<f32> = Vec::new();
+        let mut wave = |amps: &[f32], wall_ms: u64, out: &mut Vec<f32>| {
+            for &amp in amps {
+                out.extend(std::iter::repeat(amp).take(FRAMES * CH as usize));
+            }
+            let audio_back = Duration::from_secs_f64(out.len() as f64 / (RATE as f64 * CH as f64));
+            let mut pts = crate::audio::burst_base_pts(
+                Duration::from_millis(wall_ms),
+                audio_back,
+                BLOCK_MS as u64,
+            );
+            while out.len() >= FRAMES * CH as usize {
+                let samples = out.drain(..FRAMES * CH as usize).collect::<Vec<_>>();
+                router.apply_event(AudioEvent::Block(AudioBlock {
+                    source: SourceKey("discord".to_string()),
+                    pts,
+                    sample_rate: RATE,
+                    channels: CH,
+                    samples,
+                }));
+                pts += Duration::from_millis(BLOCK_MS as u64);
+            }
+        };
+
+        // Idle: nothing delivered for 8 s. Then a 3-packet burst read together
+        // at wall 8.02 s (one wave — the worker reads all three in a single
+        // inner pass), then steady 20 ms cadence, one packet per wave.
+        let mut wall_ms = 8000u64;
+        wave(&[0.1, 0.2, 0.3], wall_ms + 20, &mut out);
+        for _ in 0..100 {
+            wall_ms += 20;
+            wave(&[0.4], wall_ms + 20, &mut out);
+        }
+        // Leftover (never a full block) is irrelevant.
+
+        // Mix every window up to 10 s and concatenate the track.
+        let mut mixed: Vec<f32> = Vec::new();
+        for _ in 0..(10000 / BLOCK_MS as usize) {
+            let m = router.mix();
+            assert_eq!(m.len(), 1);
+            mixed.extend_from_slice(&m[0].samples);
+        }
+
+        // Verify: silence up to 8.0 s, then 0.1, 0.2, 0.3, then 0.4, with no
+        // gaps or overwrites. Scan every 20 ms window.
+        let win = FRAMES * CH as usize;
+        assert!(mixed.len() >= win * 400);
+        let mut w = 0usize;
+        while w * win + win <= mixed.len() {
+            let window: &[f32] = &mixed[w * win..w * win + win];
+            let t_ms = w as u64 * BLOCK_MS as u64;
+            let peak = window.iter().fold(0f32, |m, s| m.max(s.abs()));
+            // The 60 ms burst read at wall 8.02 s is backdated to its true
+            // span [7.96, 8.02] — the moment the audio was actually rendered —
+            // then steady audio continues from 8.02. Every packet must be
+            // present, in order, with no gaps or overwrites.
+            let expected = if t_ms < 7960 {
+                0.0
+            } else if t_ms < 7980 {
+                0.1
+            } else if t_ms < 8000 {
+                0.2
+            } else if t_ms < 8020 {
+                0.3
+            } else {
+                0.4
+            };
+            assert!(
+                (peak - expected).abs() < 0.05,
+                "window t={t_ms}ms peak={peak} expected {expected}"
+            );
+            w += 1;
+        }
+    }
 
     #[test]
     fn missing_source_is_zero_filled() {

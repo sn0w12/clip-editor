@@ -92,6 +92,16 @@ pub fn save_replay(
         // whole clip. Overriding it with the segment list's true span keeps
         // the rebuilt timeline exact (and the output duration exact).
         list.push_str(&format!("duration {:.6}\n", segment.duration.as_secs_f64()));
+        // The concat demuxer offsets every file's packets by
+        // `file_start_time - file_inpoint`, where `file_inpoint` defaults to
+        // the file's container start time. Our segments' AAC streams carry
+        // priming (`initial_padding`) that the demuxer reflects as a
+        // non-zero/negative container start, so every subsequent file lands
+        // shifted (~one AAC frame) past its boundary — punching a hole in the
+        // timeline (a missing video frame and the first ~20-40ms of audio) at
+        // each segment join. Forcing `inpoint 0` makes the offset exactly the
+        // accumulated duration, so joins are seamless.
+        list.push_str("inpoint 0\n");
     }
     std::fs::write(&list_path, list).map_err(|e| {
         MediaError::General(format!(

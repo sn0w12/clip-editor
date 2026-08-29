@@ -74,9 +74,6 @@ pub fn spawn_microphone(
             let mut resampler = StreamingResampler::new(device_rate, sample_rate, channels, 960);
             let block_frames = (sample_rate as u64 * block_ms as u64 / 1000) as usize;
             let block_dur = Duration::from_secs_f64(block_frames as f64 / sample_rate as f64);
-            // Data-timeline PTS (see the loopback worker for why burst reads
-            // must not stamp wall time per cut).
-            let mut next_pts: Option<Duration> = None;
             let mut pending: Vec<f32> = Vec::new();
 
             let err_cb = {
@@ -113,20 +110,19 @@ pub fn spawn_microphone(
                         }
                         None => pending.extend_from_slice(source),
                     }
+                    // Wall-clock PTS: the callback's data spans the preceding
+                    // `audio_back` of wall time, so stamp the burst at its true
+                    // position on the shared timeline (grid-aligned to the
+                    // mixer windows), like every other source.
+                    let wall = origin.elapsed();
+                    let audio_back = Duration::from_secs_f64(
+                        pending.len() as f64 / (channels as f64 * sample_rate as f64),
+                    );
+                    let mut block_pts =
+                        crate::audio::burst_base_pts(wall, audio_back, block_ms as u64);
                     while pending.len() >= block_frames * channels as usize {
                         let block: Vec<f32> =
                             pending.drain(..block_frames * channels as usize).collect();
-                        let block_pts = match next_pts {
-                            Some(pts) => pts,
-                            None => {
-                                let start = origin.elapsed().saturating_sub(block_dur);
-                                Duration::from_millis(
-                                    ((start.as_millis() / block_ms as u128) * block_ms as u128)
-                                        as u64,
-                                )
-                            }
-                        };
-                        next_pts = Some(block_pts + block_dur);
                         send_drop_oldest(
                             &event_tx,
                             &event_rx,
@@ -140,6 +136,7 @@ pub fn spawn_microphone(
                             &mut limiter,
                             "mic",
                         );
+                        block_pts += block_dur;
                     }
                 }
             };

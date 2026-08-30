@@ -132,7 +132,8 @@ impl VideoBackend for WindowsDxgiVideoBackend {
             .name("video-capture".to_string())
             .spawn(move || {
                 let result = run_capture(
-                    api,
+                    Some(api),
+                    monitor,
                     origin,
                     interval,
                     cursor,
@@ -158,8 +159,62 @@ impl VideoBackend for WindowsDxgiVideoBackend {
     }
 }
 
+/// Rebuild the duplication after access is lost. DXGI allows only one
+/// Desktop Duplication client per output, so access loss happens on mode
+/// changes, fast user switch, the secure desktop (screen lock/UAC), or when
+/// another app (OBS, Discord, a game overlay) takes over duplication. In all
+/// of those cases recreation can transiently fail with `E_ACCESSDENIED`;
+/// retry with a short backoff and fall back to a fresh open instead of
+/// tearing down the whole capture on the first failure.
+fn recreate_duplication(
+    api: &mut Option<DxgiDuplicationApi>,
+    monitor: &Monitor,
+) -> Result<(), String> {
+    const ATTEMPTS: usize = 6;
+    let mut wait = Duration::from_millis(50);
+    let mut last_err = String::new();
+
+    for _ in 0..ATTEMPTS {
+        // `recreate(self)` consumes the api and drops it on failure; a fresh
+        // open is the fallback. `take` empties the slot first so the old
+        // duplication interface is fully released before `DuplicateOutput`, in
+        // case our own previous interface still holds the output.
+        let rebuilt = match api.take() {
+            Some(old) => match old.recreate() {
+                Ok(new) => new,
+                Err(e) => {
+                    last_err = format!("recreate: {e:?}");
+                    match DxgiDuplicationApi::new(*monitor) {
+                        Ok(new) => new,
+                        Err(e2) => {
+                            last_err = format!("{last_err}; fresh open: {e2:?}");
+                            thread::sleep(wait);
+                            wait = wait.saturating_mul(2);
+                            continue;
+                        }
+                    }
+                }
+            },
+            None => match DxgiDuplicationApi::new(*monitor) {
+                Ok(new) => new,
+                Err(e) => {
+                    last_err = format!("fresh open: {e:?}");
+                    thread::sleep(wait);
+                    wait = wait.saturating_mul(2);
+                    continue;
+                }
+            },
+        };
+        *api = Some(rebuilt);
+        return Ok(());
+    }
+
+    Err(last_err)
+}
+
 fn run_capture(
-    mut api: DxgiDuplicationApi,
+    mut api: Option<DxgiDuplicationApi>,
+    monitor: Monitor,
     origin: Instant,
     interval: Duration,
     cursor: bool,
@@ -186,8 +241,14 @@ fn run_capture(
             stop.requested.store(true, Ordering::SeqCst);
             return Ok(());
         }
-        match api.acquire_next_frame(1000) {
-            Ok(frame) => {
+        // Scope the acquisition so its borrow of `api` ends before any
+        // recreate below; rebuilds that follow must take `api` back by value.
+        let should_recreate = {
+            let Some(current) = api.as_mut() else {
+                return Err("DXGI duplication unavailable".to_string());
+            };
+            match current.acquire_next_frame(1000) {
+                Ok(frame) => {
                 let now = Instant::now();
                 let should_read = now.duration_since(last_publish) >= interval;
                 if should_read {
@@ -300,23 +361,21 @@ fn run_capture(
                     stats.pre_readback_drops.fetch_add(1, Ordering::Relaxed);
                 }
                 // The frame is released on the next acquire.
+                false
             }
             Err(DxgiError::Timeout) => {
                 // Desktop unchanged; the pacer re-sends the last frame.
+                false
             }
-            Err(DxgiError::AccessLost) => {
-                // Desktop layout or mode changed; recreate the duplication.
-                let old = api;
-                match old.recreate() {
-                    Ok(api2) => api = api2,
-                    Err(e) => {
-                        return Err(format!("DXGI duplication recreate failed: {e:?}"));
-                    }
-                }
-            }
+            Err(DxgiError::AccessLost) => true,
             Err(e) => {
                 return Err(format!("DXGI duplication error: {e:?}"));
             }
+        }
+        };
+        if should_recreate {
+            recreate_duplication(&mut api, &monitor)
+                .map_err(|e| format!("DXGI duplication recreate failed: {e}"))?;
         }
         if limiter.should_emit() {
             let elapsed = last_log.elapsed().as_secs_f64().max(0.001);

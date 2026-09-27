@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, TrySendError};
+use crossbeam_channel::{Receiver, Sender};
 
 use parking_lot::Mutex;
 
@@ -86,7 +86,7 @@ pub(crate) fn spawn_pacer(
                         origin.elapsed(),
                         seed_w,
                         seed_h,
-                        vec![0u8; seed_w as usize * seed_h as usize * 4],
+                        nv12_black(seed_w, seed_h),
                     );
                     if !send_blocking(&pacer_tx, seed.clone(), &pacer_shutdown) {
                         break;
@@ -123,15 +123,18 @@ pub(crate) fn spawn_pacer(
 /// spinning against a stuck writer.
 fn send_blocking(tx: &Sender<VideoFrame>, frame: VideoFrame, shutdown: &Receiver<()>) -> bool {
     loop {
-        match tx.try_send(frame.clone()) {
-            Ok(()) => return true,
-            Err(TrySendError::Full(_)) => {
-                if shutdown.try_recv().is_ok() {
+        crossbeam_channel::select! {
+            send(tx, frame.clone()) -> res => {
+                if res.is_err() {
                     return false;
                 }
-                std::thread::sleep(Duration::from_millis(2));
+                return true;
             }
-            Err(TrySendError::Disconnected(_)) => return false,
+            recv(shutdown) -> res => {
+                if res.is_ok() {
+                    return false;
+                }
+            }
         }
     }
 }
@@ -187,8 +190,6 @@ pub struct CaptureStats {
     pub skipped_empty_damage: AtomicU64,
     /// GPU readback failures (the capture falls back to retrying).
     pub readback_errors: AtomicU64,
-    /// Frames where a cursor shape was alpha-blended into the frame.
-    pub cursor_blends: AtomicU64,
     /// Successful duplication acquires. In steady state this tracks the
     /// configured FPS: one acquire per stream tick, not one per compositor
     /// update (`capbench`'s no-busy-spin assertion).
@@ -201,15 +202,12 @@ pub struct CaptureStats {
     /// Frames whose readback was skipped because the changed area was
     /// negligible (a cursor-sized region); the pacer re-sends the last frame.
     pub dirty_skips: AtomicU64,
-    /// Frames published by reusing the previous pixels with a freshly blended
-    /// cursor: the desktop content was unchanged but the pointer moved.
-    pub cursor_reuse: AtomicU64,
     /// Readback maps that waited longer than [`SLOW_MAP_WAIT`] on the GPU: the
     /// tail that can make a capture tick miss its interval, counted so it is
     /// visible instead of hiding inside the mean.
     pub slow_map_waits: AtomicU64,
-    /// Total and worst CPU time spent per published frame (map + row copy +
-    /// cursor blend), in nanoseconds.
+    /// Total and worst CPU time spent per published frame (the plane maps and
+    /// row copies), in nanoseconds.
     pub readback_nanos: AtomicU64,
     pub readback_max_nanos: AtomicU64,
     /// Readback-latency histogram (see [`READBACK_BUCKET_MICROS`]).
@@ -234,12 +232,10 @@ impl Default for CaptureStats {
             partial_copies: AtomicU64::new(0),
             skipped_empty_damage: AtomicU64::new(0),
             readback_errors: AtomicU64::new(0),
-            cursor_blends: AtomicU64::new(0),
             acquires: AtomicU64::new(0),
             acquire_timeouts: AtomicU64::new(0),
             tick_overruns: AtomicU64::new(0),
             dirty_skips: AtomicU64::new(0),
-            cursor_reuse: AtomicU64::new(0),
             slow_map_waits: AtomicU64::new(0),
             readback_nanos: AtomicU64::new(0),
             readback_max_nanos: AtomicU64::new(0),
@@ -261,12 +257,10 @@ pub struct CaptureStatsSnapshot {
     pub partial_copies: u64,
     pub skipped_empty_damage: u64,
     pub readback_errors: u64,
-    pub cursor_blends: u64,
     pub acquires: u64,
     pub acquire_timeouts: u64,
     pub tick_overruns: u64,
     pub dirty_skips: u64,
-    pub cursor_reuse: u64,
     pub slow_map_waits: u64,
     /// Total CPU time spent in the readback path, in milliseconds.
     pub readback_total_ms: f64,
@@ -319,12 +313,10 @@ impl CaptureStats {
             partial_copies: load(&self.partial_copies),
             skipped_empty_damage: load(&self.skipped_empty_damage),
             readback_errors: load(&self.readback_errors),
-            cursor_blends: load(&self.cursor_blends),
             acquires: load(&self.acquires),
             acquire_timeouts: load(&self.acquire_timeouts),
             tick_overruns: load(&self.tick_overruns),
             dirty_skips: load(&self.dirty_skips),
-            cursor_reuse: load(&self.cursor_reuse),
             slow_map_waits: load(&self.slow_map_waits),
             readback_total_ms: total_nanos as f64 / 1_000_000.0,
             readback_max_ms: load(&self.readback_max_nanos) as f64 / 1_000_000.0,
@@ -390,7 +382,10 @@ fn percentile_ms_from(buckets: &[AtomicU64; READBACK_BUCKETS], bucket_micros: u6
     ((counts.len() as u64 - 1) * bucket_micros) as f64 / 1000.0
 }
 
-/// One captured frame, tightly packed BGRA8 (`width * height * 4` bytes).
+/// One captured frame as NV12 (`width * height * 3 / 2` bytes: a luma plane
+/// followed by interleaved chroma). Capture converts on the GPU, so this is the
+/// only pixel format that crosses the frame channel; every hardware encoder
+/// accepts NV12 without a conversion filter.
 ///
 /// The payload is behind an `Arc` so the FPS pacer can re-send the latest
 /// frame (maintaining stream cadence on a static screen) without copying the
@@ -403,17 +398,33 @@ pub struct VideoFrame {
     pub width: u32,
     #[allow(dead_code)]
     pub height: u32,
-    pub bgra: Arc<Vec<u8>>,
+    pub data: Arc<Vec<u8>>,
+}
+
+/// Bytes in one NV12 frame.
+pub fn nv12_frame_bytes(width: u32, height: u32) -> usize {
+    width as usize * height as usize * 3 / 2
+}
+
+/// A black NV12 frame. Limited-range black is luma 16 and neutral chroma 128,
+/// not zero bytes, so the pre-capture seed is not a green flash before the
+/// first real frame arrives.
+pub fn nv12_black(width: u32, height: u32) -> Vec<u8> {
+    let mut frame = vec![128u8; nv12_frame_bytes(width, height)];
+    for y in frame[..width as usize * height as usize].iter_mut() {
+        *y = 16;
+    }
+    frame
 }
 
 impl VideoFrame {
-    pub fn new(pts: Duration, width: u32, height: u32, bgra: Vec<u8>) -> Self {
-        debug_assert_eq!(bgra.len() as u64, width as u64 * height as u64 * 4);
+    pub fn new(pts: Duration, width: u32, height: u32, data: Vec<u8>) -> Self {
+        debug_assert_eq!(data.len(), nv12_frame_bytes(width, height));
         VideoFrame {
             pts,
             width,
             height,
-            bgra: Arc::new(bgra),
+            data: Arc::new(data),
         }
     }
 }
@@ -544,6 +555,9 @@ pub fn create_backend(settings: &VideoSettings) -> Result<Box<dyn VideoBackend>,
 
 #[cfg(windows)]
 pub mod windows_dxgi;
+
+#[cfg(windows)]
+pub mod nv12;
 
 #[cfg(test)]
 mod capture_stats_tests {

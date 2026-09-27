@@ -82,9 +82,9 @@ fn main() {
                     // Sanity: a live desktop is never all-black. Sum the first
                     // ~2MB of the frame; compare across frames for variety
                     // (the changed-frame checksum).
-                    let bgra = frame.bgra;
-                    let end = bgra.len().min(2_000_000);
-                    let sum: u64 = bgra[..end].iter().map(|&b| b as u64).sum();
+                    let data = frame.data;
+                    let end = data.len().min(2_000_000);
+                    let sum: u64 = data[..end].iter().map(|&b| b as u64).sum();
                     if sum != 0 {
                         non_zero_frames += 1;
                     }
@@ -103,21 +103,29 @@ fn main() {
     for _ in 0..8 {
         let _ = shutdown_tx.try_send(());
     }
-    let _ = tx.send(VideoFrame::new(Instant::now() - origin, 1, 1, vec![0u8; 4]));
+    let _ = tx.send(VideoFrame::new(
+        Instant::now() - origin,
+        2,
+        2,
+        screencap::video::nv12_black(2, 2),
+    ));
     drop(tx);
     let (frames, non_zero, varied) = consumer.join().unwrap_or((0, 0, 0));
     let _ = err_rx.try_recv();
 
     let wall = origin.elapsed().as_secs_f64();
-    let (callbacks, pre_readback_drops, full, partial, skipped, errors, cursor_blends) = stats
-        .as_ref()
-        .map(|s| s.snapshot())
-        .unwrap_or((0, 0, 0, 0, 0, 0, 0));
+    let snap = stats.as_ref().map(|s| s.snapshot());
+    let callbacks = snap.as_ref().map_or(0, |s| s.callbacks);
+    let pre_readback_drops = snap.as_ref().map_or(0, |s| s.pre_readback_drops);
+    let full = snap.as_ref().map_or(0, |s| s.full_copies);
+    let partial = snap.as_ref().map_or(0, |s| s.partial_copies);
+    let skipped = snap.as_ref().map_or(0, |s| s.skipped_empty_damage);
+    let errors = snap.as_ref().map_or(0, |s| s.readback_errors);
     // DXGI delivered a changed frame for every readback plus every frame
     // dropped before readback; timeouts (no desktop change) are not acquires.
     let acquired = callbacks + pre_readback_drops;
     println!(
-        "RESULT wall={wall:.1}s pacer_delivered={frames} rate={:.1}fps acquired={acquired} readback={callbacks} pre_readback_drops={pre_readback_drops} cursor_blends={cursor_blends} non_zero_frames={non_zero} varied_frames={varied} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
+        "RESULT wall={wall:.1}s pacer_delivered={frames} rate={:.1}fps acquired={acquired} readback={callbacks} pre_readback_drops={pre_readback_drops} non_zero_frames={non_zero} varied_frames={varied} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
         frames as f64 / wall
     );
 }

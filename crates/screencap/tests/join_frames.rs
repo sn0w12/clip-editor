@@ -186,7 +186,8 @@ fn saved_clip_keeps_every_segment_frame_across_joins() {
     });
 
     let stop = Arc::new(AtomicBool::new(false));
-    let frame_bytes = WIDTH as usize * HEIGHT as usize * 4;
+    let y_len = WIDTH as usize * HEIGHT as usize;
+    let frame_bytes = y_len * 3 / 2;
     let pacer_tx = video_tx.clone();
     let pacer_stop = stop.clone();
     let pacer = std::thread::spawn(move || {
@@ -203,18 +204,14 @@ fn saved_clip_keeps_every_segment_frame_across_joins() {
             if next_tick < now {
                 next_tick = now + interval;
             }
-            // A moving band: distinct frames, so no two packets collapse.
-            let mut pixels = vec![0u8; frame_bytes];
+            // A moving band in the luma plane, neutral chroma: distinct NV12
+            // frames, so no two packets collapse.
+            let mut pixels = vec![128u8; frame_bytes];
             let shift = (tick * 4) as usize % HEIGHT as usize;
             for y in 0..HEIGHT as usize {
-                let row = &mut pixels[y * WIDTH as usize * 4..(y + 1) * WIDTH as usize * 4];
                 let value = (((y + shift) % 256) as u8).wrapping_add((tick % 256) as u8);
                 for x in 0..WIDTH as usize {
-                    let p = &mut row[x * 4..x * 4 + 4];
-                    p[0] = value;
-                    p[1] = value.wrapping_add(64);
-                    p[2] = (x % 256) as u8;
-                    p[3] = 255;
+                    pixels[y * WIDTH as usize + x] = value;
                 }
             }
             tick += 1;

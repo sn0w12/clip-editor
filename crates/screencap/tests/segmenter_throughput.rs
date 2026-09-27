@@ -113,7 +113,7 @@ fn segmenter_keeps_pace_with_the_wall() {
     let width: u32 = 1920;
     let height: u32 = 1080;
     let fps: u32 = 60;
-    let frame_bytes = width as usize * height as usize * 4;
+    let frame_bytes = width as usize * height as usize * 3 / 2;
 
     let work = std::env::temp_dir().join(format!("screencap_tput_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
@@ -195,7 +195,9 @@ fn segmenter_keeps_pace_with_the_wall() {
                 next_tick = now + interval;
             }
             frame_no += 1;
-            for i in 0..4 {
+            // Vary the luma plane so consecutive frames differ on the wire.
+            let y_len = width as usize * height as usize;
+            for i in 0..y_len.min(4) {
                 frame[i] = (frame_no as u8).wrapping_mul(31).wrapping_add(i as u8);
             }
             if send_drop_oldest(

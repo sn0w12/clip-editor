@@ -493,7 +493,9 @@ pub fn spawn_segmenter(
 
     // Create every pipe instance before FFmpeg starts so its input opens
     // never race the writers.
-    let video_frame_bytes = params.video.width as usize * params.video.height as usize * 4;
+    // Capture delivers NV12 (`width * height * 3 / 2` bytes), which every
+    // hardware encoder accepts natively — no conversion filter is inserted.
+    let video_frame_bytes = params.video.width as usize * params.video.height as usize * 3 / 2;
     // The video pipe must ABSORB FFmpeg's periodic wait for the audio stream
     // at each segment boundary instead of back-pressuring capture. The audio
     // mixer intentionally releases blocks ~250 ms behind wall time (LATENCY
@@ -529,7 +531,7 @@ pub fn spawn_segmenter(
         "-f",
         "rawvideo",
         "-pix_fmt",
-        "bgra",
+        "nv12",
         "-video_size",
         &format!("{}x{}", params.video.width, params.video.height),
         "-framerate",
@@ -763,7 +765,7 @@ pub fn spawn_segmenter(
                         let age = capture_origin.elapsed().saturating_sub(frame.pts);
                         max_age = max_age.max(age);
                         let write_started = std::time::Instant::now();
-                        if writer.write_all(&frame.bgra).is_err() {
+                        if writer.write_all(&frame.data).is_err() {
                             break; // ffmpeg closed the pipe; monitor reports exit
                         }
                         // Publish the delivery window: the supervisor turns it

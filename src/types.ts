@@ -158,7 +158,6 @@ export interface RecordingHealth {
     /** Frames skipped because only a cursor-sized region changed. */
     dirtySkips: number;
     /** Frames published by reusing pixels with a fresh cursor. */
-    cursorReuse: number;
     /** Read backs whose GPU wait threatened the frame interval. */
     slowMapWaits: number;
     /** p95 copy→map readback latency: the capture path's latency floor. */

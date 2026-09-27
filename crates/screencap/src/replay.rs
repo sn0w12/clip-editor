@@ -131,8 +131,6 @@ pub struct CaptureHealth {
     pub acquires_per_sec: f64,
     /// Frames skipped because only a cursor-sized region changed.
     pub dirty_skips: u64,
-    /// Frames published by reusing the previous pixels with a fresh cursor.
-    pub cursor_reuse: u64,
     /// Read backs whose GPU wait was long enough to threaten the frame
     /// interval (each one is a tick that may have to repeat a frame).
     pub slow_map_waits: u64,
@@ -237,7 +235,6 @@ impl HealthTracker {
             readback_ms,
             readback_p95_ms,
             dirty_skips,
-            cursor_reuse,
             slow_map_waits,
             readback_latency_p95_ms,
         ) = match capture {
@@ -250,12 +247,11 @@ impl HealthTracker {
                     stats.readback_mean_ms(),
                     stats.readback_percentile_ms(0.95),
                     snap.dirty_skips,
-                    snap.cursor_reuse,
                     snap.slow_map_waits,
                     stats.readback_latency_percentile_ms(0.95),
                 )
             }
-            None => (0.0, 0.0, 0.0, 0, 0, 0, 0.0),
+            None => (0.0, 0.0, 0.0, 0, 0, 0.0),
         };
         let frame_age_ms = window.max_frame_age_micros / 1000;
         let write_ms_per_frame = if written == 0 {
@@ -282,7 +278,6 @@ impl HealthTracker {
             readback_p95_ms,
             acquires_per_sec,
             dirty_skips,
-            cursor_reuse,
             slow_map_waits,
             readback_latency_p95_ms,
             max_queue_depth: window.max_queue_depth,
@@ -779,7 +774,7 @@ fn supervise_inner(
                     Err(_) => {}
                 }
             }
-            default(Duration::from_millis(250)) => {}
+            default(Duration::from_millis(500)) => {}
         }
         if last_fill_log.elapsed() >= Duration::from_secs(5) {
             let fill = store.available_seconds() / duration_secs as f64;

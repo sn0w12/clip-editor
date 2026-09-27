@@ -1,6 +1,6 @@
-//! Deterministic hot-path benchmarks for the DXGI readback path: pool
-//! acquisition/reuse (Arc) versus the removed per-frame full-frame clone,
-//! tight/padded row copies, cursor alpha blending, and `send_drop_oldest`
+//! Deterministic hot-path benchmarks for the DXGI capture path: pool
+//! acquisition/reuse (Arc) versus the removed per-frame full-frame clone, the
+//! staging row copies the NV12 readback still performs, and `send_drop_oldest`
 //! under empty and full queues. No Windows capture hardware is required;
 //! hardware-dependent checks live in `capbench` and the delivery gate.
 
@@ -9,14 +9,16 @@ use std::time::Duration;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use screencap::util::{RateLimiter, send_drop_oldest};
-use screencap::video::windows_dxgi::{blend_cursor, take_buffer_arc};
-use windows::Win32::Graphics::Dxgi::{
-    DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
-};
+use screencap::video::windows_dxgi::take_buffer_arc;
 
 const W: usize = 1920;
 const H: usize = 1080;
-const FRAME_LEN: usize = W * H * 4;
+/// NV12 luma plus chroma, the size of one captured frame.
+const FRAME_LEN: usize = W * H * 3 / 2;
+/// A width whose luma row is not 128-byte aligned, so the readback takes the
+/// per-row path rather than one contiguous copy.
+const PW: usize = 1366;
+const PH: usize = 768;
 
 /// The pre-optimization operation: clone the full frame into a fresh Arc for
 /// the pool, then wrap the original in a second Arc for the published frame.
@@ -96,29 +98,31 @@ fn bench_row_copy(c: &mut Criterion) {
     let mut group = c.benchmark_group("row_copy");
     group.throughput(criterion::Throughput::Bytes(FRAME_LEN as u64));
 
-    // Tight pitch: the staging mapping's RowPitch equals the packed row.
-    let mut src = vec![0x3Cu8; FRAME_LEN];
-    let mut dst = vec![0u8; FRAME_LEN];
-    group.bench_function("tight_row_copy_1920x1080", |b| {
+    // Tight pitch: an luma plane of W bytes per row is 128-byte aligned at
+    // 1920 wide, so the readback copies it as one contiguous run.
+    let y_len = W * H;
+    let src = vec![0x3Cu8; y_len];
+    let mut dst = vec![0u8; y_len];
+    group.bench_function("tight_luma_copy_1920x1080", |b| {
         b.iter(|| {
             // SAFETY: disjoint, in-bounds regions of `src` and `dst`.
             unsafe {
-                std::ptr::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr(), FRAME_LEN);
+                std::ptr::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr(), y_len);
             }
             std::hint::black_box(&dst);
         });
     });
 
-    // Padded pitch: RowPitch is larger than the packed row (e.g. 128-byte
-    // aligned staging), so each row is copied separately.
-    let row_len = W * 4;
+    // Padded pitch: at 1366 wide the luma row is not 128-byte aligned, so
+    // `RowPitch` exceeds it and every row is copied separately.
+    let row_len = PW;
     let row_pitch = (row_len + 127) & !127;
-    let mut padded = vec![0u8; row_pitch * H];
-    let mut dst2 = vec![0u8; FRAME_LEN];
-    group.bench_function("padded_row_copy_1920x1080", |b| {
+    let padded = vec![0u8; row_pitch * PH];
+    let mut dst2 = vec![0u8; row_len * PH];
+    group.bench_function("padded_luma_copy_1366x768", |b| {
         b.iter(|| {
-            for y in 0..H {
-                // SAFETY: `padded` holds `row_pitch * H` bytes; each row's
+            for y in 0..PH {
+                // SAFETY: `padded` holds `row_pitch * PH` bytes; each row's
                 // source range and the packed destination range are in-bounds
                 // and disjoint.
                 unsafe {
@@ -130,58 +134,6 @@ fn bench_row_copy(c: &mut Criterion) {
                 }
             }
             std::hint::black_box(&dst2);
-        });
-    });
-
-    group.finish();
-}
-
-fn shape_info(width: u32, height: u32, pitch: u32) -> DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-    DXGI_OUTDUPL_POINTER_SHAPE_INFO {
-        Type: DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32,
-        Width: width,
-        Height: height,
-        Pitch: pitch,
-        HotSpot: windows::Win32::Foundation::POINT { x: 0, y: 0 },
-    }
-}
-
-fn bench_cursor_blend(c: &mut Criterion) {
-    // A 64x64 color cursor (alpha ramp) at the frame center.
-    let shape: Vec<u8> = (0..64 * 64)
-        .flat_map(|i| {
-            let a = ((i % 64) * 4) as u8;
-            [i as u8, (i * 7) as u8, (i * 13) as u8, a]
-        })
-        .collect();
-    let info = shape_info(64, 64, 64 * 4);
-
-    let mut group = c.benchmark_group("cursor_blend");
-    group.throughput(criterion::Throughput::Elements(64 * 64 as u64));
-
-    let mut frame = vec![0u8; FRAME_LEN];
-    group.bench_function("blend_64x64_center", |b| {
-        b.iter(|| {
-            blend_cursor(&mut frame, W as u32, H as u32, &shape, info, 900, 500);
-            std::hint::black_box(&frame);
-        });
-    });
-
-    // Clipped at the top-left corner: only the in-bounds part is blended.
-    group.bench_function("blend_64x64_clipped_corner", |b| {
-        b.iter(|| {
-            blend_cursor(&mut frame, W as u32, H as u32, &shape, info, -32, -32);
-            std::hint::black_box(&frame);
-        });
-    });
-
-    // Fully off-screen: the loop must walk the shape without writing.
-    group.bench_function("blend_64x64_offscreen", |b| {
-        b.iter(|| {
-            let drew = blend_cursor(
-                &mut frame, W as u32, H as u32, &shape, info, W as i32, H as i32,
-            );
-            std::hint::black_box(drew);
         });
     });
 
@@ -229,7 +181,6 @@ fn bench_send_drop_oldest(c: &mut Criterion) {
 fn bench_all(c: &mut Criterion) {
     bench_buffer_ownership(c);
     bench_row_copy(c);
-    bench_cursor_blend(c);
     bench_send_drop_oldest(c);
 }
 

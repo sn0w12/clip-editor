@@ -243,7 +243,15 @@ fn run_capture(
     // since the last release, so a tick never needs to poll faster than the
     // stream rate. The short timeout keeps the grid honest on a static desktop
     // (the pacer re-sends the previous frame).
-    let acquire_timeout_ms = (interval.as_millis() as u64 / 4).clamp(1, 8) as u32;
+    // The timeout must outlast one display refresh. The duplication only
+    // produces a new frame when the desktop changes, and on a 240 Hz display
+    // that is every ~4.2 ms — so the previous `interval / 4` (4 ms at 60 fps)
+    // raced the compositor and timed out on a large fraction of ticks. A
+    // timeout is not free: the pacer re-sends the previous frame, so each one
+    // is a duplicate in the saved clip rather than a new image. Waiting up to
+    // the stream interval costs nothing when the desktop is static (there is
+    // nothing to capture) and is capped at 50 ms so shutdown stays responsive.
+    let acquire_timeout_ms = interval.as_millis().clamp(4, 50) as u32;
     let mut next_tick = origin;
 
     loop {

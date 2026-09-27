@@ -72,7 +72,15 @@ float3 toYuv(float3 c)
     float y  = dot(c, float3(0.256788, 0.504129, 0.097906)) + 0.062500;
     float cb = dot(c, float3(-0.148223, -0.290993, 0.439216)) + 0.500000;
     float cr = dot(c, float3( 0.439216, -0.367788, -0.071427)) + 0.500000;
-    return float3(y, cb, cr);
+    // Chroma only: the R8G8_UNORM target truncates the float instead of
+    // rounding it (measured: a flat rgb(20,20,20) yields luma 33 but chroma
+    // 127/127 where both should be 33/128/128), and neutral chroma is exactly
+    // 0.5, i.e. a dead tie at 127.5. Truncation sends every neutral grey to
+    // 127 and tints it green. Half an LSB makes truncation land on the
+    // correctly rounded value. The R8_UNORM luma target rounds properly, so it
+    // is left alone: biasing it would push it one step too far.
+    const float HALF_LSB = 0.0019608; // 0.5 / 255
+    return float3(y, cb + HALF_LSB, cr + HALF_LSB);
 }
 
 float4 psY(float4 pos : SV_Position) : SV_Target

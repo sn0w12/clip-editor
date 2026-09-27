@@ -15,6 +15,7 @@ import type {
     LibraryChanged,
     ListGamesResult,
     OpResult,
+    RecordingHealth,
     RecordingProfile,
     RecordingState,
     RenameResult,
@@ -58,6 +59,11 @@ export function onRecordingProgress(
 
 export function onRecordingSaving(cb: () => void): Promise<UnlistenFn> {
     return listen("recording-saving", () => cb());
+}
+
+/** Per-second capture health (encoder, delivered fps, readback cost, warnings). */
+export function onRecordingHealth(cb: (payload: RecordingHealth) => void): Promise<UnlistenFn> {
+    return listen<RecordingHealth>("recording-health", (e) => cb(e.payload));
 }
 
 export function onRecordingSaved(cb: (payload: { path: string }) => void): Promise<UnlistenFn> {

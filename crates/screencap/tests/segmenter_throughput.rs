@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::Sender;
-use screencap::media::segmenter::{SegmentStore, SegmenterParams};
+use screencap::media::segmenter::{DeliveryStats, SegmentStore, SegmenterParams};
 use screencap::video::{VIDEO_QUEUE_CAPACITY, VideoFrame, VideoInfo};
 
 fn ffmpeg() -> PathBuf {
@@ -162,6 +162,7 @@ fn segmenter_keeps_pace_with_the_wall() {
             buffer_dir: work.clone(),
             keep: Duration::from_secs(120),
             capture_origin: origin,
+            delivery: std::sync::Arc::new(DeliveryStats::default()),
         },
         store.clone(),
         video_rx,

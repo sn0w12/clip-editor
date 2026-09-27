@@ -63,6 +63,67 @@ pub struct SegmenterParams {
     /// on. The video writer measures frame age as
     /// `capture_origin.elapsed() - frame.pts` to bound end-to-end latency.
     pub capture_origin: Instant,
+    /// Delivery metrics the video writer publishes for the supervisor's
+    /// capture-health reporting and the segment-length benchmark.
+    pub delivery: Arc<DeliveryStats>,
+}
+
+/// Live delivery metrics of the video writer: what the encoder path actually
+/// consumed, how deep the video queue ran, how stale the newest written frame
+/// was, and how long the pipe write blocked. Together these say whether the
+/// pipeline keeps up with the configured capture rate — a saturated pipeline
+/// re-sends frames, which is what stutter in a saved clip looks like.
+#[derive(Debug, Default)]
+pub struct DeliveryStats {
+    /// Frames written into the FFmpeg video pipe (cumulative).
+    written: AtomicU64,
+    /// Worst video-queue depth seen in the window.
+    max_queue_depth: AtomicU64,
+    /// Worst end-to-end frame age (capture time -> write) in the window, µs.
+    max_frame_age_micros: AtomicU64,
+    /// Total time blocked in the pipe write during the window, ns.
+    write_nanos: AtomicU64,
+    /// Worst single pipe write during the window, ns.
+    write_max_nanos: AtomicU64,
+}
+
+/// One window of [`DeliveryStats`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DeliverySnapshot {
+    /// Cumulative frames written (diff two snapshots for a rate).
+    pub written: u64,
+    pub max_queue_depth: u64,
+    pub max_frame_age_micros: u64,
+    pub write_nanos: u64,
+    pub write_max_nanos: u64,
+}
+
+impl DeliveryStats {
+    /// Record one frame handed to FFmpeg.
+    pub fn record_frame(&self, queue_depth: u64, frame_age: Duration, write: Duration) {
+        self.written.fetch_add(1, Ordering::Relaxed);
+        self.max_queue_depth
+            .fetch_max(queue_depth, Ordering::Relaxed);
+        self.max_frame_age_micros
+            .fetch_max(frame_age.as_micros() as u64, Ordering::Relaxed);
+        self.write_nanos
+            .fetch_add(write.as_nanos() as u64, Ordering::Relaxed);
+        self.write_max_nanos
+            .fetch_max(write.as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    /// Read the window's metrics and reset its maxima, so every snapshot
+    /// describes the interval since the previous one. `written` stays
+    /// cumulative (rate = delta between snapshots).
+    pub fn take_snapshot(&self) -> DeliverySnapshot {
+        DeliverySnapshot {
+            written: self.written.load(Ordering::Relaxed),
+            max_queue_depth: self.max_queue_depth.swap(0, Ordering::Relaxed),
+            max_frame_age_micros: self.max_frame_age_micros.swap(0, Ordering::Relaxed),
+            write_nanos: self.write_nanos.swap(0, Ordering::Relaxed),
+            write_max_nanos: self.write_max_nanos.swap(0, Ordering::Relaxed),
+        }
+    }
 }
 
 struct StoreInner {
@@ -433,7 +494,19 @@ pub fn spawn_segmenter(
     // Create every pipe instance before FFmpeg starts so its input opens
     // never race the writers.
     let video_frame_bytes = params.video.width as usize * params.video.height as usize * 4;
-    let video_pipe = pipe::PipeWriter::create(&video_url, (video_frame_bytes + 256 * 1024) as u32)
+    // The video pipe must ABSORB FFmpeg's periodic wait for the audio stream
+    // at each segment boundary instead of back-pressuring capture. The audio
+    // mixer intentionally releases blocks ~250 ms behind wall time (LATENCY
+    // in replay.rs mix_loop, for producer-jitter absorption), so raw-f32le
+    // audio stream time trails video stream time by that much and the segment
+    // muxer stalls video briefly at every boundary. The old size (one frame
+    // + 256 KB) held exactly one frame, so each stall filled the queue within
+    // one interval and surfaced as "video N ms behind" with sub-target
+    // delivered fps. Two frames (16 MB floor) measured clean: the tickdump
+    // harness went from 29-38 stalled windows per 30 s run to a single
+    // startup transient, repeatedly, with no A/V sync change.
+    let video_pipe_buffer = (video_frame_bytes * 2).max(16 * 1024 * 1024) as u32;
+    let video_pipe = pipe::PipeWriter::create(&video_url, video_pipe_buffer)
         .map_err(|e| MediaError::General(format!("cannot create video pipe {video_url}: {e}")))?;
     let track_pipes: Vec<pipe::PipeWriter> = pipe_urls
         .iter()
@@ -553,6 +626,12 @@ pub fn spawn_segmenter(
             cmd.arg("-rc").arg("cqp");
             cmd.arg("-qp_i").arg(params.quality.to_string());
             cmd.arg("-qp_p").arg(params.quality.to_string());
+            // Strip AMF's per-surface pipeline the same way the NVENC/x264
+            // options above strip theirs: without these the encoder holds
+            // `surfaces` frames in flight (8+ on many builds), which at 60 fps
+            // alone is over 130 ms of latency ahead of the segment files.
+            cmd.arg("-usage").arg("lowlatency");
+            cmd.arg("-bf").arg("0");
         }
         VideoCodec::H264Qsv => {
             // QSV accepts only NV12, so FFmpeg converts BGRA->NV12 with
@@ -646,6 +725,7 @@ pub fn spawn_segmenter(
     let writer_shutdown = shutdown.clone();
     let writer_flag = shutdown_flag.clone();
     let writer_err = err_tx.clone();
+    let writer_delivery = params.delivery.clone();
     thread::Builder::new()
         .name("segmenter-video".to_string())
         .spawn(move || {
@@ -682,9 +762,18 @@ pub fn spawn_segmenter(
                         consumed += 1;
                         let age = capture_origin.elapsed().saturating_sub(frame.pts);
                         max_age = max_age.max(age);
+                        let write_started = std::time::Instant::now();
                         if writer.write_all(&frame.bgra).is_err() {
                             break; // ffmpeg closed the pipe; monitor reports exit
                         }
+                        // Publish the delivery window: the supervisor turns it
+                        // into the capture-health event (and the segment
+                        // benchmark reads it directly).
+                        writer_delivery.record_frame(
+                            video_rx.len() as u64,
+                            age,
+                            write_started.elapsed(),
+                        );
                         last_write = std::time::Instant::now();
                         if last_report.elapsed() >= Duration::from_secs(5) {
                             report(consumed, max_depth, max_age);

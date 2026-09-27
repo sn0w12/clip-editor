@@ -146,6 +146,54 @@ fn sibling_ffmpeg() -> Option<PathBuf> {
     }
 }
 
+/// Primary GPU vendor as reported by the Windows display-class registry keys:
+/// `"nvidia"`, `"amd"`, `"intel"`, or `"unknown"`. One registry read per
+/// potential adapter; results are cached after the first call so per-run
+/// encoder checks stay free.
+pub fn gpu_vendor() -> &'static str {
+    use std::sync::OnceLock;
+    static VENDOR: OnceLock<&'static str> = OnceLock::new();
+    *VENDOR.get_or_init(detect_gpu_vendor)
+}
+
+fn detect_gpu_vendor() -> &'static str {
+    #[cfg(windows)]
+    {
+        let mut vendors = std::collections::HashSet::new();
+        for subkey in 0..12 {
+            let path = format!(
+                r"SYSTEM\CurrentControlSet\Control\Class\{{4d36e968-e325-11ce-bfc1-08002be10318}}\{subkey:04}"
+            );
+            if let Ok(value) = winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+                .open_subkey(&path)
+                .and_then(|k| k.get_value::<String, _>("DriverDesc"))
+            {
+                let lower = value.to_lowercase();
+                if lower.contains("nvidia") {
+                    vendors.insert("nvidia");
+                } else if lower.contains("amd") || lower.contains("radeon") {
+                    vendors.insert("amd");
+                } else if lower.contains("intel") {
+                    vendors.insert("intel");
+                }
+            }
+        }
+        // When several vendors are present (laptop hybrid graphics), any
+        // hardware encoder is a win over software; the caller probes each
+        // candidate, so ordering matters only for preference.
+        for v in ["nvidia", "amd", "intel"] {
+            if vendors.contains(v) {
+                return v;
+            }
+        }
+        "unknown"
+    }
+    #[cfg(not(windows))]
+    {
+        "unknown"
+    }
+}
+
 /// Does the resolved FFmpeg expose the named encoder?
 pub fn has_encoder(ffmpeg: &Path, name: &str) -> Result<bool, MediaError> {
     let output = no_window(&mut Command::new(ffmpeg))
@@ -157,6 +205,24 @@ pub fn has_encoder(ffmpeg: &Path, name: &str) -> Result<bool, MediaError> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         parts.len() > 1 && parts[1] == name
     }))
+}
+
+/// True when the named hardware encoder both exists in the FFmpeg binary and
+/// initializes on this machine (its vendor's GPU runtime must open). The
+/// vendor gate skips the probe entirely when the resolved FFmpeg lacks the
+/// encoder or the machine has no matching GPU — the common case, where the
+/// probe is a wasted process spawn.
+pub fn hardware_encoder_available(ffmpeg: &Path, name: &str) -> bool {
+    if !matches!(
+        (gpu_vendor(), name),
+        ("nvidia", "h264_nvenc") | ("amd", "h264_amf") | ("intel", "h264_qsv")
+    ) {
+        return false;
+    }
+    match has_encoder(ffmpeg, name) {
+        Ok(true) => probe_encoder(ffmpeg, name),
+        _ => false,
+    }
 }
 
 /// Does the `name` encoder actually initialize on this machine? Hardware
@@ -196,5 +262,31 @@ pub fn check_encoder(ffmpeg: &Path, codec: &VideoCodec) -> Result<(), MediaError
             "encoder `{name}` is not available in {}",
             ffmpeg.display()
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gpu_vendor_returns_a_known_label() {
+        assert!(matches!(
+            gpu_vendor(),
+            "nvidia" | "amd" | "intel" | "unknown"
+        ));
+    }
+
+    #[test]
+    fn hardware_encoder_gate_never_probes_without_a_matching_gpu() {
+        // Without knowing the machine's GPU, assert only the gate behavior:
+        // an unknown vendor must answer `false` without touching FFmpeg, and
+        // a vendor/encoder mismatch likewise.
+        if gpu_vendor() == "unknown" {
+            let no_ffmpeg = Path::new("Z:/definitely/not/ffmpeg.exe");
+            assert!(!hardware_encoder_available(no_ffmpeg, "h264_nvenc"));
+            assert!(!hardware_encoder_available(no_ffmpeg, "h264_amf"));
+            assert!(!hardware_encoder_available(no_ffmpeg, "h264_qsv"));
+        }
     }
 }

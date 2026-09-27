@@ -9,13 +9,32 @@
 //!
 //! The duplication delivers a frame only when the desktop changes (the
 //! dirty-region optimization for free); the shared FPS pacer turns that into
-//! the configured fixed-rate stream by re-sending the latest frame. The
-//! readback runs synchronously on the capture thread (the duplication surface
-//! is reused on the next acquire, so each frame must be read before then);
-//! the pacer and the bounded video channel keep the encoder path decoupled.
-//! The readback is rate-limited to one read per stream interval: when the
-//! desktop changes faster than the stream rate, excess frames are dropped
-//! before readback (the pacer re-sends the latest).
+//! the configured fixed-rate stream by re-sending the latest frame.
+//!
+//! Capture runs on its own tick grid (one acquire per stream interval) rather
+//! than spinning on `AcquireNextFrame` at whatever rate the compositor
+//! produces: a 400 fps game would otherwise be handed to the duplication ~400
+//! times a second, which is compositor work the stream never uses and costs the
+//! game frames. Each tick submits exactly one staging copy and reads it back
+//! before the tick ends, so every stream frame is a distinct desktop frame one
+//! tick old (never a duplicate the pacer had to invent).
+//!
+//! The readback maps the staging texture once and lets the driver wait for the
+//! copy: measured with `examples/readbacklat.rs`, that map costs p50 1.04 ms and
+//! p95 1.33 ms for a 1080p frame (the live loop reports ~2.5 ms mean and 4 ms
+//! p95, the difference being a desktop that keeps changing under it), against a
+//! 16.7 ms tick at 60 fps. Probing it
+//! non-blocking instead is strictly worse *and* misleading: `Map` reports
+//! `WAS_STILL_DRAWING` until something asks for the data, so a probe deferred to
+//! the next tick reads as ~31 ms of latency while the very same copy, waited on
+//! in place, is ready in about a millisecond. The wait is recorded
+//! (`CaptureStats::observe_map_wait`) rather than hidden, so a contended GPU
+//! shows up as latency before it shows up as missing frames.
+//!
+//! Readbacks are skipped entirely when the duplication reports a negligible
+//! changed area (a cursor- or clock-sized region): the previous pixels are
+//! re-published, and a moved pointer is blended into them without touching the
+//! GPU. The pacer keeps the stream cadence either way.
 
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -25,15 +44,18 @@ use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
 use tracing::info;
+use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_CPU_ACCESS_READ, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_STAGING, ID3D11Texture2D,
+    D3D11_USAGE_STAGING, ID3D11DeviceContext, ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC;
 use windows::Win32::Graphics::Dxgi::{
-    DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
+    DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR, IDXGIOutputDuplication,
 };
-use windows_capture::dxgi_duplication_api::{DxgiDuplicationApi, Error as DxgiError};
+use windows_capture::dxgi_duplication_api::{
+    DxgiDuplicationApi, DxgiDuplicationFrame, Error as DxgiError,
+};
 use windows_capture::monitor::Monitor;
 
 use crate::error::{CaptureError, RunError};
@@ -223,15 +245,16 @@ fn run_capture(
     stats: Arc<CaptureStats>,
     shutdown: Receiver<()>,
 ) -> Result<(), String> {
-    let mut staging: Option<ID3D11Texture2D> = None;
-    let mut staging_desc: Option<D3D11_TEXTURE2D_DESC> = None;
-    let mut pool: Vec<Arc<Vec<u8>>> = Vec::new();
-    let mut cursor_shape: Vec<u8> = Vec::new();
-    let mut last_publish = origin;
+    let mut state = CaptureState::new();
     let mut limiter = RateLimiter::new(Duration::from_secs(5));
-    let mut frames: u64 = 0;
     let mut last_log = Instant::now();
     let mut last_log_frames: u64 = 0;
+    // One acquire per stream interval: DXGI coalesces every compositor update
+    // since the last release, so a tick never needs to poll faster than the
+    // stream rate. The short timeout keeps the grid honest on a static desktop
+    // (the pacer re-sends the previous frame).
+    let acquire_timeout_ms = (interval.as_millis() as u64 / 4).clamp(1, 8) as u32;
+    let mut next_tick = origin;
 
     loop {
         if stop.requested.load(Ordering::SeqCst) {
@@ -241,137 +264,53 @@ fn run_capture(
             stop.requested.store(true, Ordering::SeqCst);
             return Ok(());
         }
-        // Scope the acquisition so its borrow of `api` ends before any
-        // recreate below; rebuilds that follow must take `api` back by value.
+        // 1. Wait for the next stream tick, interrupting for shutdown.
+        let now = Instant::now();
+        if now < next_tick {
+            let wait = (next_tick - now).min(Duration::from_millis(50));
+            let _ = shutdown.recv_timeout(wait);
+            continue;
+        }
+        next_tick += interval;
+        // A tick that started late (a long readback, a duplication rebuild, a
+        // descheduled thread) is skipped rather than bursted: the pacer owns
+        // the stream cadence and duplicates the last frame instead.
+        let now = Instant::now();
+        if next_tick <= now {
+            let behind = (now - next_tick).as_nanos();
+            let missed = behind / interval.as_nanos().max(1);
+            if missed > 0 {
+                stats
+                    .tick_overruns
+                    .fetch_add(missed as u64, Ordering::Relaxed);
+            }
+            next_tick = now + interval;
+        }
+        // 2. Acquire at most one frame for this tick, read it back and publish
+        //    it before the tick ends. The acquisition borrows `api`, so it is
+        //    scoped to end before any recreation below.
         let should_recreate = {
             let Some(current) = api.as_mut() else {
                 return Err("DXGI duplication unavailable".to_string());
             };
-            match current.acquire_next_frame(1000) {
+            match current.acquire_next_frame(acquire_timeout_ms) {
                 Ok(frame) => {
-                let now = Instant::now();
-                let should_read = now.duration_since(last_publish) >= interval;
-                if should_read {
-                    // Rate-limited readback: at most one read per stream
-                    // interval; the pacer re-sends the latest between reads.
-                    let w = frame.width() as usize;
-                    let h = frame.height() as usize;
-                    let len = w * h * 4;
-                    // (Re)create the persistent staging texture when the
-                    // duplication surface changes size or format.
-                    let desc = frame.texture_desc();
-                    let needs = staging_desc.as_ref().is_none_or(|d| {
-                        d.Width != desc.Width || d.Height != desc.Height || d.Format != desc.Format
-                    });
-                    if needs {
-                        let new_desc = D3D11_TEXTURE2D_DESC {
-                            Width: desc.Width,
-                            Height: desc.Height,
-                            MipLevels: 1,
-                            ArraySize: 1,
-                            Format: desc.Format,
-                            SampleDesc: DXGI_SAMPLE_DESC {
-                                Count: 1,
-                                Quality: 0,
-                            },
-                            Usage: D3D11_USAGE_STAGING,
-                            BindFlags: 0,
-                            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-                            MiscFlags: 0,
-                        };
-                        let mut tex = None;
-                        if unsafe {
-                            frame
-                                .device()
-                                .CreateTexture2D(&new_desc, None, Some(&mut tex))
-                        }
-                        .is_err()
-                        {
-                            return Err("cannot create capture staging texture".to_string());
-                        }
-                        staging = tex;
-                        staging_desc = Some(new_desc);
-                    }
-                    let Some(staging_tex) = staging.clone() else {
-                        return Err("capture staging texture unavailable".to_string());
-                    };
-                    let context = frame.device_context();
-                    let mut buffer = take_buffer_arc(&mut pool, len);
-                    // The helper returned a uniquely-owned Arc, so the
-                    // readback writes the mapping in place (no per-frame
-                    // full-frame copy).
-                    let data =
-                        Arc::get_mut(&mut buffer).expect("recycled buffer is uniquely owned");
-                    let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-                    unsafe {
-                        context.CopyResource(&staging_tex, frame.texture());
-                        if context
-                            .Map(&staging_tex, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
-                            .is_err()
-                        {
-                            return Err("capture frame readback failed".to_string());
-                        }
-                        let row_pitch = mapped.RowPitch as usize;
-                        let row_len = w * 4;
-                        let src = mapped.pData.cast::<u8>();
-                        if row_pitch == row_len {
-                            std::ptr::copy_nonoverlapping(src, data.as_mut_ptr(), len);
-                        } else {
-                            for y in 0..h {
-                                std::ptr::copy_nonoverlapping(
-                                    src.add(y * row_pitch),
-                                    data.as_mut_ptr().add(y * row_len),
-                                    row_len,
-                                );
-                            }
-                        }
-                        context.Unmap(&staging_tex, 0);
-                    }
-                    if cursor {
-                        // Composite the system cursor into the frame: the
-                        // duplication reports the pointer position and shape
-                        // separately, so fetch the current shape and blend it
-                        // in. Only color (ARGB) shapes are drawn; the rare
-                        // monochrome/masked shapes are skipped.
-                        if composite_cursor(&frame, w as u32, h as u32, data, &mut cursor_shape) {
-                            stats.cursor_blends.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                    // Publish a clone of the Arc (a refcount bump) and return
-                    // the original to the pool; the pool entry is reused only
-                    // after the pacer/latest releases the published clone.
-                    let frame = VideoFrame {
-                        pts: origin.elapsed(),
-                        width: w as u32,
-                        height: h as u32,
-                        bgra: buffer.clone(),
-                    };
-                    if pool.len() < 4 {
-                        pool.push(buffer);
-                    }
-                    let mut guard = latest.lock();
-                    guard.frame = Some(frame);
-                    last_publish = now;
-                    stats.callbacks.fetch_add(1, Ordering::Relaxed);
-                    stats.full_copies.fetch_add(1, Ordering::Relaxed);
-                    frames += 1;
-                } else {
-                    // Desktop changes faster than the stream rate: drop the
-                    // frame before readback (the pacer re-sends the latest).
-                    stats.pre_readback_drops.fetch_add(1, Ordering::Relaxed);
+                    stats.acquires.fetch_add(1, Ordering::Relaxed);
+                    state.process(&frame, cursor, origin, &latest, &stats)?;
+                    // The frame is released on the next acquire.
+                    false
                 }
-                // The frame is released on the next acquire.
-                false
+                Err(DxgiError::Timeout) => {
+                    // Desktop unchanged: nothing to read back, and the pacer
+                    // re-sends the last frame for this tick.
+                    stats.acquire_timeouts.fetch_add(1, Ordering::Relaxed);
+                    false
+                }
+                Err(DxgiError::AccessLost) => true,
+                Err(e) => {
+                    return Err(format!("DXGI duplication error: {e:?}"));
+                }
             }
-            Err(DxgiError::Timeout) => {
-                // Desktop unchanged; the pacer re-sends the last frame.
-                false
-            }
-            Err(DxgiError::AccessLost) => true,
-            Err(e) => {
-                return Err(format!("DXGI duplication error: {e:?}"));
-            }
-        }
         };
         if should_recreate {
             recreate_duplication(&mut api, &monitor)
@@ -379,15 +318,23 @@ fn run_capture(
         }
         if limiter.should_emit() {
             let elapsed = last_log.elapsed().as_secs_f64().max(0.001);
-            let rate = (frames - last_log_frames) as f64 / elapsed;
+            let delivered = (state.frames - last_log_frames) as f64 / elapsed;
+            let snap = stats.snapshot();
             info!(
-                capture_rate = format!("{rate:.1}/s"),
-                full_copies = stats.full_copies.load(Ordering::Relaxed),
-                pre_readback_drops = stats.pre_readback_drops.load(Ordering::Relaxed),
-                readback_errors = stats.readback_errors.load(Ordering::Relaxed),
+                delivered = format!("{delivered:.1}/s"),
+                acquires = snap.acquires,
+                acquire_timeouts = snap.acquire_timeouts,
+                readbacks = snap.callbacks,
+                dirty_skips = snap.dirty_skips,
+                cursor_reuse = snap.cursor_reuse,
+                slow_map_waits = snap.slow_map_waits,
+                map_wait_p95_ms = format!("{:.2}", stats.readback_latency_percentile_ms(0.95)),
+                tick_overruns = snap.tick_overruns,
+                readback_cpu_mean_ms = format!("{:.2}", stats.readback_mean_ms()),
+                readback_p99_ms = format!("{:.2}", stats.readback_percentile_ms(0.99)),
                 "capture readback"
             );
-            last_log_frames = frames;
+            last_log_frames = state.frames;
             last_log = Instant::now();
         }
     }
@@ -587,26 +534,316 @@ mod buffer_pool_tests {
     }
 }
 
-/// Composite the DXGI pointer shape into a captured BGRA frame. The pointer
-/// shape is fetched from the duplication (it is current while the frame is
-/// held) and alpha-blended at the reported position. Only
-/// `DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR` (32-bit ARGB) shapes are drawn;
-/// monochrome/masked shapes are skipped (they are rare on modern Windows).
-/// Returns whether any cursor pixel was actually composited.
-fn composite_cursor(
-    frame: &windows_capture::dxgi_duplication_api::DxgiDuplicationFrame<'_>,
+/// Fraction of the frame that must change for a tick to pay for a GPU→CPU
+/// readback. Below it, the changed pixels are a cursor- or clock-sized region:
+/// the previous pixels are re-published (with a freshly blended cursor) rather
+/// than reading the whole desktop back for content that is visually identical.
+const DIRTY_SKIP_FRACTION: f64 = 0.005;
+
+/// Dirty rects inspected before the area heuristic gives up. A longer list is
+/// certainly a large change, and skipping is only allowed when the changed area
+/// is known to be small.
+const MAX_DIRTY_RECTS: usize = 256;
+
+/// A pointer position plus shape captured at acquire time, so a later tick can
+/// composite it into the frame it belongs to.
+struct CursorSample {
+    x: i32,
+    y: i32,
+    shape: Vec<u8>,
+    info: DXGI_OUTDUPL_POINTER_SHAPE_INFO,
+}
+
+/// The staging texture readbacks go through, plus the description it was
+/// created with (rebuilt only when the duplication surface changes).
+#[derive(Default)]
+struct Slot {
+    staging: Option<ID3D11Texture2D>,
+    desc: Option<D3D11_TEXTURE2D_DESC>,
+}
+
+/// Everything the capture loop carries between ticks.
+struct CaptureState {
+    slot: Slot,
+    /// Recycled CPU frame buffers, reused only while uniquely owned.
+    pool: Vec<Arc<Vec<u8>>>,
+    /// Pixels of the last published frame, for cursor-only reuse.
+    last_pixels: Option<(Arc<Vec<u8>>, u32, u32)>,
+    /// Pointer position in the last published frame.
+    last_cursor_pos: Option<(i32, i32)>,
+    /// Scratch buffers reused across ticks (dirty rects, pointer shape).
+    rects: Vec<RECT>,
+    shape: Vec<u8>,
+    /// Frames published by this capture thread.
+    frames: u64,
+}
+
+impl CaptureState {
+    fn new() -> Self {
+        CaptureState {
+            slot: Slot::default(),
+            pool: Vec::new(),
+            last_pixels: None,
+            last_cursor_pos: None,
+            rects: vec![RECT::default(); MAX_DIRTY_RECTS],
+            shape: Vec::new(),
+            frames: 0,
+        }
+    }
+
+    /// Publish a frame and keep its pixels for cursor-only reuse. The buffer is
+    /// recycled through the pool: the published `Arc` keeps the pixels alive
+    /// until the pacer releases them, so a pool entry is reused only when it is
+    /// uniquely owned again.
+    fn publish(
+        &mut self,
+        buffer: Arc<Vec<u8>>,
+        width: u32,
+        height: u32,
+        cursor_pos: Option<(i32, i32)>,
+        origin: Instant,
+        latest: &Mutex<Latest>,
+    ) {
+        let pixels = buffer.clone();
+        latest.lock().frame = Some(VideoFrame {
+            pts: origin.elapsed(),
+            width,
+            height,
+            bgra: pixels.clone(),
+        });
+        self.last_pixels = Some((pixels, width, height));
+        self.last_cursor_pos = cursor_pos;
+        if self.pool.len() < 4 {
+            self.pool.push(buffer);
+        }
+        self.frames += 1;
+    }
+
+    /// Finish a readback: blend the frame's pointer sample in and publish the
+    /// pixels to the pacer. `cpu` is the row-copy time the map already spent;
+    /// the blend (the CPU work left) is measured here.
+    #[allow(clippy::too_many_arguments)]
+    fn publish_readback(
+        &mut self,
+        mut buffer: Arc<Vec<u8>>,
+        width: u32,
+        height: u32,
+        cursor: bool,
+        sample: Option<&CursorSample>,
+        cpu: Duration,
+        origin: Instant,
+        latest: &Mutex<Latest>,
+        stats: &CaptureStats,
+    ) {
+        let blend_started = Instant::now();
+        let mut cursor_pos = None;
+        if cursor {
+            if let Some(sample) = sample {
+                let data = Arc::get_mut(&mut buffer).expect("recycled buffer is uniquely owned");
+                if blend_cursor(
+                    data,
+                    width,
+                    height,
+                    &sample.shape,
+                    sample.info,
+                    sample.x,
+                    sample.y,
+                ) {
+                    stats.cursor_blends.fetch_add(1, Ordering::Relaxed);
+                }
+                cursor_pos = Some((sample.x, sample.y));
+            }
+        }
+        stats.observe_readback(cpu.saturating_add(blend_started.elapsed()));
+        stats.full_copies.fetch_add(1, Ordering::Relaxed);
+        stats.callbacks.fetch_add(1, Ordering::Relaxed);
+        self.publish(buffer, width, height, cursor_pos, origin, latest);
+    }
+
+    /// Read the staging texture back into a pooled CPU buffer, recording how
+    /// long the map had to wait on the GPU copy.
+    fn readback(
+        staging: &ID3D11Texture2D,
+        context: &ID3D11DeviceContext,
+        pool: &mut Vec<Arc<Vec<u8>>>,
+        width: u32,
+        height: u32,
+        stats: &CaptureStats,
+    ) -> Result<(Arc<Vec<u8>>, Duration), String> {
+        let (buffer, map_wait, cpu) = map_and_copy(staging, context, pool, width, height)?;
+        stats.observe_map_wait(map_wait);
+        Ok((buffer, cpu))
+    }
+
+    /// Handle one acquired frame: skip it, reuse the previous pixels with its
+    /// cursor, or read it back and publish it before the tick ends.
+    fn process(
+        &mut self,
+        frame: &DxgiDuplicationFrame<'_>,
+        cursor: bool,
+        origin: Instant,
+        latest: &Mutex<Latest>,
+        stats: &CaptureStats,
+    ) -> Result<(), String> {
+        let width = frame.width();
+        let height = frame.height();
+        let fraction = dirty_area_fraction(frame.duplication(), width, height, &mut self.rects);
+        // The pointer shape is only reported while the frame is held, so a
+        // fresh readback would blend a stale one: sample it here.
+        let sample = if cursor {
+            fetch_cursor(frame, &mut self.shape)
+        } else {
+            None
+        };
+        let pointer_moved = sample
+            .as_ref()
+            .is_some_and(|c| Some((c.x, c.y)) != self.last_cursor_pos);
+        if fraction.is_some_and(|f| f <= DIRTY_SKIP_FRACTION) {
+            if pointer_moved {
+                if let (Some((prev, w, h)), Some(sample)) = (self.last_pixels.clone(), sample) {
+                    // Content unchanged and only the pointer moved: reuse the
+                    // previous pixels with a fresh cursor — one CPU copy
+                    // instead of a GPU→CPU readback of the whole desktop.
+                    let mut buffer =
+                        take_buffer_arc(&mut self.pool, (w as usize) * (h as usize) * 4);
+                    if let Some(data) = Arc::get_mut(&mut buffer) {
+                        data.copy_from_slice(prev.as_slice());
+                        if blend_cursor(data, w, h, &sample.shape, sample.info, sample.x, sample.y)
+                        {
+                            stats.cursor_blends.fetch_add(1, Ordering::Relaxed);
+                        }
+                        stats.cursor_reuse.fetch_add(1, Ordering::Relaxed);
+                        self.publish(buffer, w, h, Some((sample.x, sample.y)), origin, latest);
+                    }
+                    return Ok(());
+                }
+            }
+            // A cursor- or clock-sized region changed: the pacer re-sends the
+            // previous frame, so no readback is needed for this tick.
+            stats.dirty_skips.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+        ensure_staging(&mut self.slot, frame)?;
+        let Some(staging) = self.slot.staging.clone() else {
+            return Err("capture staging texture unavailable".to_string());
+        };
+        let context = frame.device_context();
+        // SAFETY: the acquired frame is held, so its texture is valid, and the
+        // staging texture is not mapped (a readback unmaps before it returns,
+        // and copies never overlap because one readback finishes before the
+        // next is queued).
+        unsafe {
+            context.CopyResource(&staging, frame.texture());
+            // D3D11 batches commands until it has a reason to submit them, and
+            // the map below is that reason (it waits for the copy either way);
+            // flushing keeps the copy from sitting unsubmitted until the map
+            // discovers it, which is the difference between a 1 ms readback and
+            // a whole extra tick of latency (see `readbacklat`).
+            context.Flush();
+        }
+        let (buffer, cpu) =
+            Self::readback(&staging, context, &mut self.pool, width, height, stats)?;
+        self.publish_readback(
+            buffer,
+            width,
+            height,
+            cursor,
+            sample.as_ref(),
+            cpu,
+            origin,
+            latest,
+            stats,
+        );
+        Ok(())
+    }
+}
+
+/// (Re)create the slot's staging texture when the duplication surface changes
+/// size or format.
+fn ensure_staging(slot: &mut Slot, frame: &DxgiDuplicationFrame<'_>) -> Result<(), String> {
+    let desc = frame.texture_desc();
+    let needs = slot.desc.as_ref().is_none_or(|d| {
+        d.Width != desc.Width || d.Height != desc.Height || d.Format != desc.Format
+    });
+    if !needs {
+        return Ok(());
+    }
+    let new_desc = D3D11_TEXTURE2D_DESC {
+        Width: desc.Width,
+        Height: desc.Height,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: desc.Format,
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Usage: D3D11_USAGE_STAGING,
+        BindFlags: 0,
+        CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+        MiscFlags: 0,
+    };
+    let mut tex = None;
+    // SAFETY: the device belongs to the live duplication and `tex` receives the
+    // newly created staging texture.
+    if unsafe {
+        frame
+            .device()
+            .CreateTexture2D(&new_desc, None, Some(&mut tex))
+    }
+    .is_err()
+    {
+        return Err("cannot create capture staging texture".to_string());
+    }
+    slot.staging = tex;
+    slot.desc = Some(new_desc);
+    Ok(())
+}
+
+/// Total changed area of the frame as a fraction of the frame, or `None` when
+/// the duplication reports more rects than the scratch buffer holds (certainly
+/// large) or the query fails. Callers may only skip a readback on a `Some` that
+/// is small, never on `None`.
+fn dirty_area_fraction(
+    duplication: &IDXGIOutputDuplication,
     width: u32,
     height: u32,
-    data: &mut [u8],
-    shape_buf: &mut Vec<u8>,
-) -> bool {
+    scratch: &mut [RECT],
+) -> Option<f64> {
+    if scratch.is_empty() {
+        return None;
+    }
+    let bytes = (scratch.len() * std::mem::size_of::<RECT>()) as u32;
+    let mut required = 0u32;
+    // SAFETY: `scratch` is a live buffer of `bytes` bytes and the duplication
+    // writes at most that many rects into it, reporting the needed size.
+    if unsafe { duplication.GetFrameDirtyRects(bytes, scratch.as_mut_ptr(), &mut required) }
+        .is_err()
+    {
+        return None;
+    }
+    let count = (required as usize / std::mem::size_of::<RECT>()).min(scratch.len());
+    let mut area: u64 = 0;
+    for rect in &scratch[..count] {
+        let w = (rect.right - rect.left).max(0) as u64;
+        let h = (rect.bottom - rect.top).max(0) as u64;
+        area += w * h;
+    }
+    let frame_area = (width as u64).max(1) * (height as u64).max(1);
+    Some((area as f64 / frame_area as f64).min(1.0))
+}
+
+/// Sample the pointer position and shape while the frame is held. Returns
+/// `None` when the pointer is hidden or the shape is not a color bitmap
+/// (monochrome/masked shapes are skipped: they are rare on modern Windows).
+fn fetch_cursor(frame: &DxgiDuplicationFrame<'_>, shape_buf: &mut Vec<u8>) -> Option<CursorSample> {
     let info = frame.frame_info();
     if info.PointerPosition.Visible.0 == 0 {
-        return false;
+        return None;
     }
     let needed = info.PointerShapeBufferSize as usize;
     if needed == 0 {
-        return false;
+        return None;
     }
     shape_buf.resize(needed, 0);
     let mut shape_info = DXGI_OUTDUPL_POINTER_SHAPE_INFO::default();
@@ -622,11 +859,69 @@ fn composite_cursor(
         )
     };
     if hr.is_err() || shape_info.Type != DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR.0 as u32 {
-        return false;
+        return None;
     }
-    let start_x = info.PointerPosition.Position.x - shape_info.HotSpot.x;
-    let start_y = info.PointerPosition.Position.y - shape_info.HotSpot.y;
-    blend_cursor(data, width, height, shape_buf, shape_info, start_x, start_y)
+    // `blend_cursor` bounds the shape by `Pitch * Height`; a shape whose pitch
+    // cannot hold its own rows would read out of bounds, so reject it here.
+    if shape_info.Pitch < shape_info.Width * 4 {
+        return None;
+    }
+    Some(CursorSample {
+        x: info.PointerPosition.Position.x - shape_info.HotSpot.x,
+        y: info.PointerPosition.Position.y - shape_info.HotSpot.y,
+        // Keep the whole buffer: `got` may report fewer bytes than requested,
+        // and `blend_cursor` assumes `Pitch * Height` bytes are readable.
+        shape: shape_buf.clone(),
+        info: shape_info,
+    })
+}
+
+/// Map the staging texture, waiting for the copy to complete, and copy its rows
+/// into a pooled CPU buffer. Returns the buffer, the map's wait on the GPU and
+/// the CPU time spent copying rows out.
+fn map_and_copy(
+    staging: &ID3D11Texture2D,
+    context: &ID3D11DeviceContext,
+    pool: &mut Vec<Arc<Vec<u8>>>,
+    width: u32,
+    height: u32,
+) -> Result<(Arc<Vec<u8>>, Duration, Duration), String> {
+    let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+    let map_started = Instant::now();
+    // SAFETY: `staging` is a live staging texture owned by the capture state and
+    // is not mapped here; `mapped` receives the mapped description. The map
+    // waits for the copy, which is the one wait in this path and is measured.
+    let mapped_result = unsafe { context.Map(staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)) };
+    let map_wait = map_started.elapsed();
+    if let Err(e) = mapped_result {
+        return Err(format!("capture frame readback failed: {e}"));
+    }
+    let cpu_started = Instant::now();
+    let len = width as usize * height as usize * 4;
+    // The helper returns a uniquely-owned `Arc`, so the mapping is copied
+    // straight into the published buffer (no per-frame full-frame clone).
+    let mut buffer = take_buffer_arc(pool, len);
+    let data = Arc::get_mut(&mut buffer).expect("recycled buffer is uniquely owned");
+    // SAFETY: the mapping is valid until `Unmap`; `RowPitch` is at least the
+    // packed row length and `pData` points at `RowPitch * height` bytes.
+    unsafe {
+        let row_pitch = mapped.RowPitch as usize;
+        let row_len = width as usize * 4;
+        let src = mapped.pData.cast::<u8>();
+        if row_pitch == row_len {
+            std::ptr::copy_nonoverlapping(src, data.as_mut_ptr(), len);
+        } else {
+            for y in 0..height as usize {
+                std::ptr::copy_nonoverlapping(
+                    src.add(y * row_pitch),
+                    data.as_mut_ptr().add(y * row_len),
+                    row_len,
+                );
+            }
+        }
+        context.Unmap(staging, 0);
+    }
+    Ok((buffer, map_wait, cpu_started.elapsed()))
 }
 
 /// Pure cursor-blend math: overlay an ARGB shape (BGRA byte order, `pitch`

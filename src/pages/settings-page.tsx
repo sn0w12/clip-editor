@@ -401,8 +401,6 @@ function RecordingSettings() {
     const {
         error: recordingError,
         running,
-        availableSeconds,
-        targetSeconds,
         saving: isBufferSaving,
         save: saveBuffer,
         stop,
@@ -473,15 +471,6 @@ function RecordingSettings() {
                 <div className="flex flex-row items-center justify-between px-5 py-4">
                     <FrameTitle>Buffer</FrameTitle>
                     <div className="flex items-center gap-2 text-sm">
-                        <span className={running ? "text-destructive" : "text-muted-foreground"}>
-                            {running ? "● Buffer running" : "Buffer stopped"}
-                        </span>
-                        {running && (
-                            <span className="text-muted-foreground">
-                                {availableSeconds.toFixed(1)}s / {targetSeconds}s
-                                {isBufferSaving ? " · saving…" : ""}
-                            </span>
-                        )}
                         {running ? (
                             <>
                                 <Button

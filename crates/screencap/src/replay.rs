@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, Sender};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::audio::{AudioEvent, AudioRouter, SourceInfo, SourceKind, TrackAudioBlock};
 use crate::config::{Config, ProcessRule, ResolvedTrack};
@@ -17,7 +17,7 @@ use crate::config::{Config, ProcessRule, ResolvedTrack};
 use crate::error::PlatformError;
 use crate::error::RunError;
 use crate::hotkey::{HotkeyCommand, HotkeyControl};
-use crate::media::segmenter::{SegmentStore, SegmenterParams};
+use crate::media::segmenter::{DeliveryStats, SegmentStore, SegmenterParams};
 use crate::media::{ffmpeg as ffmpeg_util, save as save_util};
 
 /// How many shutdown messages to broadcast (more than the worker count, so
@@ -103,10 +103,268 @@ pub enum ReplayEvent {
     Saving,
     /// A save finished; the file is complete and atomically present.
     Saved { path: PathBuf },
+    /// Per-second capture and delivery health, so a host can tell "the buffer
+    /// is keeping up" from "it is silently duplicating frames".
+    CaptureHealth(CaptureHealth),
     /// A terminal failure (setup, worker, or save failure).
     Error { message: String },
     /// The supervisor shut down cleanly.
     Stopped,
+}
+
+/// One window of capture and delivery health. Everything here is measured, not
+/// inferred: `delivered_fps` is what the segmenter actually wrote, `acquires`
+/// is how often the duplication was polled (it should track `target_fps`, not
+/// the compositor's update rate), and `frame_age_ms` is how stale the newest
+/// written frame was relative to the capture instant.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CaptureHealth {
+    /// Resolved FFmpeg encoder name (e.g. `h264_nvenc`).
+    pub encoder: String,
+    pub target_fps: u32,
+    /// Frames written to the encoder per second over this window.
+    pub delivered_fps: f64,
+    /// Mean and p95 CPU time per read-back frame, in milliseconds.
+    pub readback_ms: f64,
+    pub readback_p95_ms: f64,
+    /// Duplication acquires per second (should be ≈ `target_fps`).
+    pub acquires_per_sec: f64,
+    /// Frames skipped because only a cursor-sized region changed.
+    pub dirty_skips: u64,
+    /// Frames published by reusing the previous pixels with a fresh cursor.
+    pub cursor_reuse: u64,
+    /// Read backs whose GPU wait was long enough to threaten the frame
+    /// interval (each one is a tick that may have to repeat a frame).
+    pub slow_map_waits: u64,
+    /// p95 copy→map latency, in milliseconds: the capture path's latency floor,
+    /// and the reason a stream can only contain duplicates if it approaches the
+    /// frame interval.
+    pub readback_latency_p95_ms: f64,
+    /// Worst video-queue depth in this window.
+    pub max_queue_depth: u64,
+    /// Worst end-to-end frame age (capture -> written) in this window.
+    pub frame_age_ms: u64,
+    /// Mean time the segmenter spent blocked writing one frame to FFmpeg.
+    pub write_ms_per_frame: f64,
+    /// Set when this window did not keep up, naming the measured bottleneck.
+    /// An empty pipeline never warns; a saturated one never warns silently.
+    pub warning: Option<String>,
+}
+
+/// Why the pipeline is not keeping up, if it is not. Pure so the thresholds are
+/// unit tested rather than inferred from a live run.
+fn saturation_warning(
+    target_fps: u32,
+    delivered_fps: f64,
+    max_frame_age_ms: u64,
+    acquires_per_sec: f64,
+    readback_latency_p95_ms: f64,
+) -> Option<String> {
+    let target = target_fps.max(1) as f64;
+    let frame_interval_ms = 1000.0 / target;
+    if delivered_fps < target * 0.95 {
+        return Some(format!(
+            "capture delivered {delivered_fps:.0} of {target_fps} fps: the encode path cannot \
+             keep up, so frames are being duplicated (check the encoder, quality, and \
+             conflicting capture apps)"
+        ));
+    }
+    if max_frame_age_ms as f64 > frame_interval_ms * 4.0 {
+        return Some(format!(
+            "video is {max_frame_age_ms} ms behind the capture instant; lower the capture \
+             quality or check the encoder"
+        ));
+    }
+    if acquires_per_sec > target * 2.0 {
+        return Some(format!(
+            "capture is acquiring {acquires_per_sec:.0} frames/s for a {target_fps} fps \
+             stream: the capture loop is not throttling to the stream rate"
+        ));
+    }
+    // A readback that takes most of a frame interval means the next frame is
+    // already due when this one lands, so the pacer has to re-send frames and
+    // the clip plays them back as repeats. This is a *capture* limit, and it is
+    // invisible in the delivered rate, hence its own warning.
+    if readback_latency_p95_ms > frame_interval_ms * 0.9 {
+        return Some(format!(
+            "screen readback is taking {readback_latency_p95_ms:.1} ms per frame (frame \
+             budget {frame_interval_ms:.1} ms), so the stream re-sends frames: close other \
+             screen-capturing apps and check the GPU load"
+        ));
+    }
+    None
+}
+
+/// Rolling capture-health sampler. Delivery maxima are window-reset by
+/// [`DeliveryStats::take_snapshot`], so this must be sampled exactly once per
+/// window.
+struct HealthTracker {
+    encoder: String,
+    target_fps: u32,
+    last_written: u64,
+    last_acquires: u64,
+    last_sample: Instant,
+    samples: u64,
+}
+
+impl HealthTracker {
+    fn new(encoder: &str, target_fps: u32) -> Self {
+        HealthTracker {
+            encoder: encoder.to_string(),
+            target_fps,
+            last_written: 0,
+            last_acquires: 0,
+            last_sample: Instant::now(),
+            samples: 0,
+        }
+    }
+
+    fn sample(
+        &mut self,
+        capture: Option<&crate::video::CaptureStats>,
+        delivery: &DeliveryStats,
+    ) -> CaptureHealth {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_sample).as_secs_f64().max(1e-3);
+        self.last_sample = now;
+        self.samples += 1;
+        let window = delivery.take_snapshot();
+        let written = window.written.saturating_sub(self.last_written);
+        self.last_written = window.written;
+        let delivered_fps = written as f64 / elapsed;
+        let (
+            acquires_per_sec,
+            readback_ms,
+            readback_p95_ms,
+            dirty_skips,
+            cursor_reuse,
+            slow_map_waits,
+            readback_latency_p95_ms,
+        ) = match capture {
+            Some(stats) => {
+                let snap = stats.snapshot();
+                let acquires = snap.acquires.saturating_sub(self.last_acquires) as f64 / elapsed;
+                self.last_acquires = snap.acquires;
+                (
+                    acquires,
+                    stats.readback_mean_ms(),
+                    stats.readback_percentile_ms(0.95),
+                    snap.dirty_skips,
+                    snap.cursor_reuse,
+                    snap.slow_map_waits,
+                    stats.readback_latency_percentile_ms(0.95),
+                )
+            }
+            None => (0.0, 0.0, 0.0, 0, 0, 0, 0.0),
+        };
+        let frame_age_ms = window.max_frame_age_micros / 1000;
+        let write_ms_per_frame = if written == 0 {
+            0.0
+        } else {
+            window.write_nanos as f64 / 1_000_000.0 / written as f64
+        };
+        let warning = if self.samples > 2 {
+            saturation_warning(
+                self.target_fps,
+                delivered_fps,
+                frame_age_ms,
+                acquires_per_sec,
+                readback_latency_p95_ms,
+            )
+        } else {
+            None
+        };
+        CaptureHealth {
+            encoder: self.encoder.clone(),
+            target_fps: self.target_fps,
+            delivered_fps,
+            readback_ms,
+            readback_p95_ms,
+            acquires_per_sec,
+            dirty_skips,
+            cursor_reuse,
+            slow_map_waits,
+            readback_latency_p95_ms,
+            max_queue_depth: window.max_queue_depth,
+            frame_age_ms,
+            write_ms_per_frame,
+            warning,
+        }
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+
+    #[test]
+    fn healthy_pipeline_reports_no_warning() {
+        assert_eq!(
+            saturation_warning(60, 60.0, 18, 60.0, 1.0),
+            None,
+            "delivering the target rate with fresh frames is healthy"
+        );
+        // Slightly under target is still fine: the tolerance is 5%.
+        assert_eq!(saturation_warning(60, 57.5, 18, 59.0, 1.0), None);
+    }
+
+    #[test]
+    fn delivery_shortfall_is_reported_as_the_encoder_falling_behind() {
+        let warning =
+            saturation_warning(60, 45.0, 18, 60.0, 1.0).expect("45 of 60 fps is a warning");
+        assert!(warning.contains("encode path"), "unexpected: {warning}");
+    }
+
+    #[test]
+    fn stale_frames_are_reported_even_at_the_target_rate() {
+        // 60 fps -> a frame interval is 16.7 ms, so 100 ms of age is late.
+        let warning =
+            saturation_warning(60, 60.0, 100, 60.0, 1.0).expect("100 ms of age is a warning");
+        assert!(warning.contains("behind"), "unexpected: {warning}");
+        // 30 ms is within the four-interval tolerance.
+        assert_eq!(saturation_warning(60, 60.0, 30, 60.0, 1.0), None);
+    }
+
+    #[test]
+    fn acquiring_faster_than_the_stream_is_reported() {
+        let warning = saturation_warning(60, 60.0, 18, 400.0, 1.0)
+            .expect("400 acquires/s for a 60 fps stream is a warning");
+        assert!(warning.contains("not throttling"), "unexpected: {warning}");
+        // Twice the stream rate is the tolerated ceiling.
+        assert_eq!(saturation_warning(60, 60.0, 18, 120.0, 1.0), None);
+    }
+
+    #[test]
+    fn readback_latency_approaching_the_frame_interval_is_reported() {
+        // 60 fps -> 16.7 ms per frame. A 15.1 ms p95 readback leaves no room
+        // for the next frame, so the stream must contain repeats.
+        let warning = saturation_warning(60, 60.0, 18, 60.0, 15.1)
+            .expect("15.1 ms of readback latency at 60 fps is a warning");
+        assert!(warning.contains("re-sends frames"), "unexpected: {warning}");
+        // A fast readback (the measured ~1 ms) is never a warning, at any rate.
+        assert_eq!(saturation_warning(60, 60.0, 18, 60.0, 1.0), None);
+        assert_eq!(saturation_warning(240, 240.0, 3, 240.0, 3.0), None);
+    }
+
+    #[test]
+    fn higher_capture_rates_scale_the_thresholds() {
+        // A 30 ms frame age is fine at 60 fps (four intervals = 67 ms) and late
+        // at 240 fps (four intervals = 17 ms).
+        assert_eq!(saturation_warning(60, 60.0, 30, 60.0, 1.0), None);
+        let warning =
+            saturation_warning(240, 240.0, 30, 240.0, 1.0).expect("30 ms is late at 240 fps");
+        assert!(warning.contains("behind"), "unexpected: {warning}");
+        // The acquire ceiling scales with the stream rate too: 400 acquires/s
+        // is aggressive for 60 fps and fine for 240 fps.
+        assert_eq!(saturation_warning(240, 240.0, 4, 400.0, 1.0), None);
+        // So does the readback budget: 8 ms is fine at 240 fps (4.2 ms per
+        // frame is only 90% of 4.2 ms... it is not, so check the boundary
+        // instead: 3 ms is fine, 4 ms at 240 fps is not.
+        assert_eq!(saturation_warning(240, 240.0, 3, 240.0, 3.0), None);
+        let warning = saturation_warning(240, 240.0, 3, 240.0, 4.0)
+            .expect("4 ms of readback at 240 fps exceeds the frame budget");
+        assert!(warning.contains("re-sends frames"), "unexpected: {warning}");
+    }
 }
 
 /// A live replay-buffer supervisor. `start` spawns the capture pipeline on a
@@ -249,6 +507,7 @@ fn supervise_inner(
     let codec = config.video.codec.resolve(&ffmpeg)?;
     ffmpeg_util::check_encoder(&ffmpeg, &codec)?;
     info!(codec = codec.ffmpeg_name(), "video codec resolved");
+    let encoder_name = codec.ffmpeg_name().to_string();
 
     // Monitor resolution before audio/media workers (plan §2.2).
     let video_settings = crate::video::VideoSettings {
@@ -257,6 +516,9 @@ fn supervise_inner(
         cursor: config.video.cursor,
     };
     let backend = crate::video::create_backend(&video_settings)?;
+    // The capture counters are shared with the capture thread, so grab them
+    // before `spawn` consumes the backend.
+    let capture_stats = backend.stats();
     let video_info = backend.resolve()?;
     info!(
         width = video_info.width,
@@ -374,6 +636,9 @@ fn supervise_inner(
         );
     })?;
 
+    // Delivery metrics are shared with the supervisor loop, which turns them
+    // into the per-second capture-health event.
+    let delivery = Arc::new(DeliveryStats::default());
     let segmenter_done = crate::media::segmenter::spawn_segmenter(
         SegmenterParams {
             ffmpeg: ffmpeg.clone(),
@@ -389,6 +654,7 @@ fn supervise_inner(
                 config.replay.duration_seconds as u64 + config.replay.segment_seconds as u64,
             ),
             capture_origin: origin,
+            delivery: delivery.clone(),
         },
         store.clone(),
         video_rx,
@@ -404,6 +670,7 @@ fn supervise_inner(
     let mut last_fill_log = Instant::now();
     let mut last_progress = Instant::now();
     let mut outcome: Option<RunError> = None;
+    let mut health = HealthTracker::new(&encoder_name, config.replay.fps);
 
     emit(ReplayEvent::Started {
         width: video_info.width,
@@ -527,6 +794,11 @@ fn supervise_inner(
                 available_seconds: store.available_seconds(),
                 target_seconds: duration_secs,
             });
+            let report = health.sample(capture_stats.as_deref(), &delivery);
+            if let Some(warning) = report.warning.as_deref() {
+                warn!(warning = warning, "capture health");
+            }
+            emit(ReplayEvent::CaptureHealth(report));
             last_progress = Instant::now();
         }
     }
@@ -721,7 +993,7 @@ mod save_window_test {
 
     use crate::audio::TrackAudioBlock;
     use crate::config::ResolvedTrack;
-    use crate::media::segmenter::{SegmentStore, SegmenterParams};
+    use crate::media::segmenter::{DeliveryStats, SegmentStore, SegmenterParams};
     use crate::video::{VideoFrame, VideoInfo};
 
     fn ffmpeg() -> PathBuf {
@@ -825,6 +1097,7 @@ mod save_window_test {
                 buffer_dir: buffer_dir.clone(),
                 keep: Duration::from_secs(120),
                 capture_origin: origin,
+                delivery: Arc::new(DeliveryStats::default()),
             },
             store.clone(),
             video_rx,
@@ -1064,6 +1337,7 @@ mod save_window_test {
                 buffer_dir: buffer_dir.clone(),
                 keep: Duration::from_secs(120),
                 capture_origin: origin,
+                delivery: Arc::new(DeliveryStats::default()),
             },
             store.clone(),
             video_rx,
@@ -1314,6 +1588,7 @@ mod save_window_test {
                 buffer_dir: buffer_dir.clone(),
                 keep: Duration::from_secs(120),
                 capture_origin: origin,
+                delivery: Arc::new(DeliveryStats::default()),
             },
             store.clone(),
             video_rx,

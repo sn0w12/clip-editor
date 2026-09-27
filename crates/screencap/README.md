@@ -50,19 +50,19 @@ override keys, using `__` for nesting:
 
 Run `screencap keys` for the full reference. The important parts:
 
-| Key                                           | Default              | Notes                                                                                                 |
-| --------------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
-| `replay.duration_seconds`                     | `30`                 | Buffer length (1..=3600)                                                                              |
-| `replay.segment_seconds`                      | `1`                  | Rolling segment length (1..=10, <= duration)                                                          |
-| `replay.output_dir`                           | `captures`           | Where saved replays land                                                                              |
-| `replay.filename_base`                        | `Replay`             | Outputs are `<base>_<title>.mkv`                                                                      |
-| `replay.monitor`                              | `primary`            | or `index:<one-based-index>`                                                                          |
-| `replay.fps`                                  | `60`                 | Capture rate (1..=240)                                                                                |
-| `replay.hotkey`                               | `ctrl+shift+KeyQ`    | Global hotkey, e.g. `shift+alt+KeyQ`, `ContextMenu` (Menu key); `screencap hotkey` records it for you |
-| `replay.success_sound`                        | `—`                  | Path to a WAV played after a clip is saved; omit for no sound                                         |
-| `video.codec`                                 | `libx264`            | or `h264_nvenc` (GPU; far less CPU)                                                                   |
-| `video.quality`                               | `23`                 | CRF (libx264) / CQ (nvenc), 0..=51                                                                    |
-| `audio.sample_rate` / `channels` / `block_ms` | `48000` / `2` / `20` | Mix output format                                                                                     |
+| Key                                           | Default              | Notes                                                                                                                                                                                                                          |
+| --------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `replay.duration_seconds`                     | `30`                 | Buffer length (1..=3600)                                                                                                                                                                                                       |
+| `replay.segment_seconds`                      | `1`                  | Rolling segment length (1..=10, <= duration). Also the GOP length (NVENC ignores forced keyframes), so it trades keyframe bytes against save latency and clip-length overshoot; measure with `segmentbench` before changing it |
+| `replay.output_dir`                           | `captures`           | Where saved replays land                                                                                                                                                                                                       |
+| `replay.filename_base`                        | `Replay`             | Outputs are `<base>_<title>.mkv`                                                                                                                                                                                               |
+| `replay.monitor`                              | `primary`            | or `index:<one-based-index>`                                                                                                                                                                                                   |
+| `replay.fps`                                  | `60`                 | Capture rate (1..=240)                                                                                                                                                                                                         |
+| `replay.hotkey`                               | `ctrl+shift+KeyQ`    | Global hotkey, e.g. `shift+alt+KeyQ`, `ContextMenu` (Menu key); `screencap hotkey` records it for you                                                                                                                          |
+| `replay.success_sound`                        | `—`                  | Path to a WAV played after a clip is saved; omit for no sound                                                                                                                                                                  |
+| `video.codec`                                 | `libx264`            | or `h264_nvenc` (GPU; far less CPU)                                                                                                                                                                                            |
+| `video.quality`                               | `23`                 | CRF (libx264) / CQ (nvenc), 0..=51                                                                                                                                                                                             |
+| `audio.sample_rate` / `channels` / `block_ms` | `48000` / `2` / `20` | Mix output format                                                                                                                                                                                                              |
 
 ### Per-application audio routing
 
@@ -195,14 +195,92 @@ once.
 - Windows privacy settings may require granting screen/microphone access; a
   denial surfaces as a startup error, never as silent empty captures.
 
+## Capture path
+
+Capture is the part that runs _while you play_, so it is built to cost the game
+as little as possible and to be measurable when it does not. In order:
+
+- **One duplication acquire per stream tick**, not per compositor frame.
+  DXGI coalesces every desktop update since the last release, so a game
+  presenting at 400 fps is handed to the duplication ~60 times a second instead
+  of 400 — the handoffs are the compositor work the stream never uses. A tick
+  that starts late is skipped rather than bursted, and the pacer re-sends the
+  latest frame to keep the stream's cadence.
+- **One readback per tick, waited on in place.** The staging copy is mapped with
+  a blocking map: measured with `examples/readbacklat.rs`, a 1080p frame costs
+  p50 1.04 ms / p95 1.33 ms, against a 16.7 ms tick at 60 fps. Probing the same
+  copy non-blocking instead is worse _and_ misleading — `Map` reports
+  `WAS_STILL_DRAWING` until something asks for the data, so a probe deferred by
+  a tick reads as ~31 ms of latency while the same copy, waited on immediately,
+  is ready in about a millisecond. The wait is recorded
+  (`COPY-LATENCY`/`slow_map_waits`), so a contended GPU shows up as latency
+  before it shows up as missing frames.
+- **Nothing to read back costs nothing.** A tick whose changed area is at most
+  half a percent of the frame (cursor, clock) reuses the previous pixels; if the
+  pointer moved, it is blended into that copy on the CPU, so a cursor-only
+  update never touches the GPU.
+- **The cursor is blended into the frame being read back**, not into a second
+  full-frame copy, and buffers are recycled through a pool that only ever hands
+  out uniquely-owned memory.
+- **Encoder latency is stripped per encoder.** NVENC runs `p1`/`ull` with
+  lookahead, delay, and B-frames off; x264 runs `zerolatency` with lookahead
+  and B-frames off; AMF runs the `lowlatency` usage with B-frames off, so no
+  encoder holds frames in an internal pipeline ahead of the segment files.
+  `codec = "auto"` prefers the *render GPU's* vendor (registry display-class
+  detection): a hardware encoder on the other GPU of a hybrid laptop pays a
+  cross-adapter copy per frame, which alone can consume the entire frame
+  budget at 60 fps and push the pipeline behind in real time.
+
+Watch the numbers on the settings page or in the log: the encoder, delivered vs
+target fps, per-frame readback CPU, p95 readback latency, and slow-readback
+count. The capture-health warning names the measured bottleneck when the
+pipeline cannot keep up (delivery shortfall, stale frames, over-acquiring, or
+readback latency approaching the frame budget).
+
 ## Tests and benchmarks
 
 ```sh
 cargo test                          # unit tests (platform-independent)
 SCREENCAP_ITEST=1 cargo test --test windows_integration
                                     # end-to-end: capture, hotkey, ffprobe check
+SCREENCAP_JOIN_TEST=1 cargo test --test join_frames
+                                    # frames across segment joins (needs ffmpeg/ffprobe
+                                    # beside the test binary)
 cargo bench                         # router mix, resample, f32le write, config, sanitize
 ```
+
+The capture harnesses are examples, and they need the real thing to mean
+anything (a moving desktop, no other capture app):
+
+```sh
+cargo run --example capbench -- 20 fps=60 cursor=true
+# delivered fps, acquires/s (must track fps, not the compositor),
+# readback CPU, COPY-LATENCY p95, dirty-skip/cursor-reuse counts, verdicts
+
+cargo run --example readbacklat -- 30
+# copy->map latency for a desktop readback, probed vs waited on in place;
+# `probe=0` measures the blocking map the capture loop actually uses,
+# `poll_us=N` shows how a probe cadence inflates the apparent latency
+
+cargo run --example segmentbench -- 8 segments=1,2,3,6 fps=60
+# one row per segment length: delivered fps, queue depth/frame age, FFmpeg CPU,
+# bitrate and keyframe byte share, save latency, clip length, and the join frame
+# deficit (0 = no frame lost at a join). Add `keyframes` to probe whether this
+# FFmpeg can force keyframes with NVENC.
+```
+
+The measurement that decided the readback design, on a 1080p desktop with an
+RTX 3090: an 8 MB staging copy is mappable 0.58 ms after `CopyResource` when it
+is polled continuously, 2.6 ms when polled every 0.5 ms, and 41 ms when polled
+every 20 ms — the probe cadence, not the copy, is what costs the time. The
+segment-length measurements: 1 s segments at 1080p60 spend ~11% of their bytes
+on keyframes and 3 s segments ~3.5%, with no join deficit (and no lost frame at
+a join) at either length; at 120 fps the video queue reaches 11-14 of its 16
+slots, which is a delivery-headroom warning, not a readback one. The `keyframes`
+probe reports that forced IDRs _do_ work with NVENC once `-forced-idr 1` is
+passed, but that does not make short segments cheaper: the segment muxer can
+only cut at a keyframe, so every segment boundary needs one regardless, which is
+why the segmenter ties `-g` to `segment_seconds`.
 
 The integration test needs an interactive desktop session: it starts the app
 with a 3-second buffer, synthesizes the configured hotkey with `SendInput`, and

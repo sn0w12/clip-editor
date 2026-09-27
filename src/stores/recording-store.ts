@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import * as tauri from "@/lib/tauri";
-import type { RecordingProfile, RecordingState } from "@/types";
+import type { RecordingHealth, RecordingProfile, RecordingState } from "@/types";
 
 const IDLE: RecordingState = {
     running: false,
@@ -70,6 +70,8 @@ export function getLoadedRecordingProfile(): RecordingProfile {
 }
 
 export function useRecordingStore(): RecordingState & {
+    /** Last capture-health window, or null before the first one arrives. */
+    health: RecordingHealth | null;
     start: () => Promise<void>;
     save: () => Promise<void>;
     stop: () => Promise<void>;
@@ -79,6 +81,7 @@ export function useRecordingStore(): RecordingState & {
     refresh: () => Promise<void>;
 } {
     const [state, setState] = useState<RecordingState>(IDLE);
+    const [health, setHealth] = useState<RecordingHealth | null>(null);
     const [profile, setProfileState] = useState<RecordingProfile>(getLoadedRecordingProfile());
 
     const refresh = useCallback(async () => {
@@ -126,6 +129,7 @@ export function useRecordingStore(): RecordingState & {
                     targetSeconds: p.targetSeconds,
                 })),
             ),
+            tauri.onRecordingHealth(setHealth),
             tauri.onRecordingSaving(() => setState((s) => ({ ...s, saving: true }))),
             tauri.onRecordingSaved(() => setState((s) => ({ ...s, saving: false }))),
             tauri.onRecordingError((p) =>
@@ -171,6 +175,7 @@ export function useRecordingStore(): RecordingState & {
 
     return {
         ...state,
+        health,
         start,
         save,
         stop,

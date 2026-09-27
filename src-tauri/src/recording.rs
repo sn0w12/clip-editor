@@ -16,7 +16,8 @@ use screencap::replay::{ReplayController, ReplayEvent};
 use tauri::Emitter;
 
 use crate::types::{
-    err, RecordingProfile, RecordingProgressPayload, RecordingSavedPayload, RecordingStatePayload,
+    err, RecordingHealthPayload, RecordingProfile, RecordingProgressPayload, RecordingSavedPayload,
+    RecordingStatePayload,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -425,6 +426,29 @@ fn forward_event(event: &ReplayEvent, status: &Mutex<RecordingStatus>, app: &tau
                 RecordingProgressPayload {
                     available_seconds: *available_seconds,
                     target_seconds: *target_seconds,
+                },
+            );
+        }
+        ReplayEvent::CaptureHealth(health) => {
+            // Forward every second: the settings page renders the encoder and
+            // the measured rates, and turns `warning` into a visible alert.
+            let _ = app.emit(
+                "recording-health",
+                RecordingHealthPayload {
+                    encoder: health.encoder.clone(),
+                    target_fps: health.target_fps,
+                    delivered_fps: health.delivered_fps,
+                    readback_ms: health.readback_ms,
+                    readback_p95_ms: health.readback_p95_ms,
+                    acquires_per_sec: health.acquires_per_sec,
+                    dirty_skips: health.dirty_skips,
+                    cursor_reuse: health.cursor_reuse,
+                    slow_map_waits: health.slow_map_waits,
+                    readback_latency_p95_ms: health.readback_latency_p95_ms,
+                    max_queue_depth: health.max_queue_depth,
+                    frame_age_ms: health.frame_age_ms,
+                    write_ms_per_frame: health.write_ms_per_frame,
+                    warning: health.warning.clone(),
                 },
             );
         }

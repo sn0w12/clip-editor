@@ -221,6 +221,33 @@ impl Default for RecordingProfile {
     }
 }
 
+/// Per-second capture health, forwarded from `screencap::replay::CaptureHealth`.
+/// Everything here is measured: it exists so the UI can say "the buffer is
+/// keeping up" or "the capture path cannot keep up" with numbers instead of
+/// leaving the user guessing why clips stutter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingHealthPayload {
+    /// Resolved FFmpeg encoder (e.g. `h264_nvenc`, `libx264`).
+    pub encoder: String,
+    pub target_fps: u32,
+    pub delivered_fps: f64,
+    pub readback_ms: f64,
+    pub readback_p95_ms: f64,
+    pub acquires_per_sec: f64,
+    pub dirty_skips: u64,
+    pub cursor_reuse: u64,
+    /// Read backs whose GPU wait threatened the frame interval.
+    pub slow_map_waits: u64,
+    /// p95 copy→map readback latency, in milliseconds.
+    pub readback_latency_p95_ms: f64,
+    pub max_queue_depth: u64,
+    pub frame_age_ms: u64,
+    pub write_ms_per_frame: f64,
+    /// Set when the capture path is not keeping up, naming the bottleneck.
+    pub warning: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordingStatePayload {

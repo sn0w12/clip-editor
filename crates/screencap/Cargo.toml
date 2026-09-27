@@ -41,6 +41,7 @@ windows = { version = "0.62", features = [
 [target.'cfg(windows)'.dependencies]
 windows-capture = "2.0"
 wasapi = "0.23"
+winreg = "0.52"
 
 [dev-dependencies]
 criterion = "0.5"

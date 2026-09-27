@@ -4227,6 +4227,7 @@ dependencies = [
  "wasapi",
  "windows 0.62.2",
  "windows-capture",
+ "winreg 0.52.0",
 ]
 
 [[package]]

@@ -632,6 +632,12 @@ fn plan_for_format(ffmpeg: &Path, format: &str) -> Result<EncodePlan, String> {
                     "medium".into(),
                     "-profile:v".into(),
                     "main".into(),
+                    // zerolatency disables frame threading and lookahead, so
+                    // each encoded frame is emitted as soon as it is ready
+                    // instead of being held back by the encoder pipeline —
+                    // exports become one frame slower per held frame otherwise.
+                    "-tune".into(),
+                    "zerolatency".into(),
                 ]
             } else {
                 vec![]

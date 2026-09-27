@@ -169,18 +169,45 @@ impl VideoCodec {
     /// candidate is therefore probed with a one-frame encode so users without
     /// an NVIDIA GPU pick a *working* hardware encoder (AMF on AMD, QSV on
     /// Intel) instead of being pushed onto the CPU.
+    ///
+    /// Candidates are tried in the machine's GPU-vendor order first (registry
+    /// display-class detection), because "a hardware encoder exists" is not
+    /// enough: on a hybrid laptop (e.g. AMD iGPU + NVIDIA dGPU) probing AMF
+    /// succeeds through the iGPU even when the NVIDIA dGPU renders the game,
+    /// and an encoder on the *other* GPU costs a cross-adapter copy per frame
+    /// — enough to pin the encoder queue at 60 fps and fall behind in real
+    /// time. Preferring the render GPU's encoder keeps the encode on the same
+    /// GPU the desktop is composited on.
     pub fn resolve(self, ffmpeg: &Path) -> Result<VideoCodec, crate::error::MediaError> {
         match self {
             VideoCodec::Auto => {
-                const CANDIDATES: [(VideoCodec, &str); 3] = [
-                    (VideoCodec::H264Nvenc, "h264_nvenc"),
-                    (VideoCodec::H264Amf, "h264_amf"),
-                    (VideoCodec::H264Qsv, "h264_qsv"),
-                ];
-                for (codec, name) in CANDIDATES {
-                    if crate::media::ffmpeg::has_encoder(ffmpeg, name)?
-                        && crate::media::ffmpeg::probe_encoder(ffmpeg, name)
-                    {
+                // Vendor detection is order-free; this list is only the
+                // fallback order when the vendor is unknown.
+                let mut candidates: Vec<(VideoCodec, &str)> = Vec::with_capacity(3);
+                match crate::media::ffmpeg::gpu_vendor() {
+                    "nvidia" => {
+                        candidates.push((VideoCodec::H264Nvenc, "h264_nvenc"));
+                        candidates.push((VideoCodec::H264Amf, "h264_amf"));
+                        candidates.push((VideoCodec::H264Qsv, "h264_qsv"));
+                    }
+                    "amd" => {
+                        candidates.push((VideoCodec::H264Amf, "h264_amf"));
+                        candidates.push((VideoCodec::H264Nvenc, "h264_nvenc"));
+                        candidates.push((VideoCodec::H264Qsv, "h264_qsv"));
+                    }
+                    "intel" => {
+                        candidates.push((VideoCodec::H264Qsv, "h264_qsv"));
+                        candidates.push((VideoCodec::H264Nvenc, "h264_nvenc"));
+                        candidates.push((VideoCodec::H264Amf, "h264_amf"));
+                    }
+                    _ => {
+                        candidates.push((VideoCodec::H264Nvenc, "h264_nvenc"));
+                        candidates.push((VideoCodec::H264Amf, "h264_amf"));
+                        candidates.push((VideoCodec::H264Qsv, "h264_qsv"));
+                    }
+                }
+                for (codec, name) in candidates {
+                    if crate::media::ffmpeg::hardware_encoder_available(ffmpeg, name) {
                         return Ok(codec);
                     }
                 }

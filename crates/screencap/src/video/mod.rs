@@ -145,16 +145,37 @@ fn send_blocking(tx: &Sender<VideoFrame>, frame: VideoFrame, shutdown: &Receiver
 /// by the supervisor, its tests, and the segmenter throughput harness.
 pub const VIDEO_QUEUE_CAPACITY: usize = 16;
 
-/// Capture statistics shared with the rate-limited capture log and the
-/// benchmarks (`capbench`). The capture thread updates these via atomics;
-/// benchmarks use them to prove that static-screen capture stops doing
-/// readback work while the pacer keeps delivering the configured FPS.
-#[derive(Debug, Default)]
+/// Granularity of the readback-latency histogram, in microseconds.
+pub const READBACK_BUCKET_MICROS: u64 = 500;
+/// Number of readback-latency buckets; the top bucket also collects every
+/// slower readback, so `readback_max_nanos` remains the exact worst case.
+pub const READBACK_BUCKETS: usize = 32;
+
+/// Granularity of the copy→readback *latency* histogram, in microseconds. It
+/// is far coarser than the CPU-cost one because it spans the GPU copy plus any
+/// compositor queueing (tens of milliseconds), where sub-millisecond resolution
+/// would be noise. 2 ms × [`READBACK_BUCKETS`] covers 64 ms; everything slower
+/// lands in the top bucket and is exact via `readback_latency_max_nanos`.
+pub const READBACK_LATENCY_BUCKET_MICROS: u64 = 2000;
+
+/// A readback map that waits longer than this is slow enough to threaten a
+/// capture tick, so it is counted separately (see
+/// [`CaptureStats::slow_map_waits`]). Measured on an idle desktop the map wait
+/// is ~1 ms (p95 1.3 ms); anything past this is GPU contention.
+pub const SLOW_MAP_WAIT: Duration = Duration::from_millis(5);
+
+/// Capture statistics shared with the rate-limited capture log, the capture
+/// health event, and the benchmarks (`capbench`). The capture thread updates
+/// these via atomics; benchmarks use them to prove that a static screen costs
+/// no readback while the pacer keeps delivering the configured FPS, and that
+/// acquisition happens once per stream frame instead of once per compositor
+/// update.
+#[derive(Debug)]
 pub struct CaptureStats {
     /// Frames read back and published by the capture thread.
     pub callbacks: AtomicU64,
-    /// Frames dropped before GPU readback because they were superseded before
-    /// the next stream interval.
+    /// Frames a tick acquired but never read back because a newer frame
+    /// already superseded them (only possible when a tick runs long).
     pub pre_readback_drops: AtomicU64,
     /// Full-frame staging copies performed by the capture thread.
     pub full_copies: AtomicU64,
@@ -168,21 +189,205 @@ pub struct CaptureStats {
     pub readback_errors: AtomicU64,
     /// Frames where a cursor shape was alpha-blended into the frame.
     pub cursor_blends: AtomicU64,
+    /// Successful duplication acquires. In steady state this tracks the
+    /// configured FPS: one acquire per stream tick, not one per compositor
+    /// update (`capbench`'s no-busy-spin assertion).
+    pub acquires: AtomicU64,
+    /// Acquires that found no new frame within the tick's acquire budget.
+    pub acquire_timeouts: AtomicU64,
+    /// Ticks that started late (a long readback, a duplication rebuild, or a
+    /// descheduled thread) and were skipped to keep the tick grid honest.
+    pub tick_overruns: AtomicU64,
+    /// Frames whose readback was skipped because the changed area was
+    /// negligible (a cursor-sized region); the pacer re-sends the last frame.
+    pub dirty_skips: AtomicU64,
+    /// Frames published by reusing the previous pixels with a freshly blended
+    /// cursor: the desktop content was unchanged but the pointer moved.
+    pub cursor_reuse: AtomicU64,
+    /// Readback maps that waited longer than [`SLOW_MAP_WAIT`] on the GPU: the
+    /// tail that can make a capture tick miss its interval, counted so it is
+    /// visible instead of hiding inside the mean.
+    pub slow_map_waits: AtomicU64,
+    /// Total and worst CPU time spent per published frame (map + row copy +
+    /// cursor blend), in nanoseconds.
+    pub readback_nanos: AtomicU64,
+    pub readback_max_nanos: AtomicU64,
+    /// Readback-latency histogram (see [`READBACK_BUCKET_MICROS`]).
+    readback_buckets: [AtomicU64; READBACK_BUCKETS],
+    /// Total and worst time between submitting a readback's GPU copy and
+    /// mapping it, in nanoseconds. This is the capture path's latency floor:
+    /// no pipeline can deliver more unique frames per second than its inverse,
+    /// and a latency near the stream interval means the pacer has to re-send
+    /// frames to keep the cadence (visible in a clip as repeated frames).
+    pub readback_latency_nanos: AtomicU64,
+    pub readback_latency_max_nanos: AtomicU64,
+    /// Copy→map latency histogram (see [`READBACK_LATENCY_BUCKET_MICROS`]).
+    readback_latency_buckets: [AtomicU64; READBACK_BUCKETS],
+}
+
+impl Default for CaptureStats {
+    fn default() -> Self {
+        CaptureStats {
+            callbacks: AtomicU64::new(0),
+            pre_readback_drops: AtomicU64::new(0),
+            full_copies: AtomicU64::new(0),
+            partial_copies: AtomicU64::new(0),
+            skipped_empty_damage: AtomicU64::new(0),
+            readback_errors: AtomicU64::new(0),
+            cursor_blends: AtomicU64::new(0),
+            acquires: AtomicU64::new(0),
+            acquire_timeouts: AtomicU64::new(0),
+            tick_overruns: AtomicU64::new(0),
+            dirty_skips: AtomicU64::new(0),
+            cursor_reuse: AtomicU64::new(0),
+            slow_map_waits: AtomicU64::new(0),
+            readback_nanos: AtomicU64::new(0),
+            readback_max_nanos: AtomicU64::new(0),
+            readback_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+            readback_latency_nanos: AtomicU64::new(0),
+            readback_latency_max_nanos: AtomicU64::new(0),
+            readback_latency_buckets: std::array::from_fn(|_| AtomicU64::new(0)),
+        }
+    }
+}
+
+/// A consistent-enough read of [`CaptureStats`] for logging, the health event,
+/// and benchmarks (each counter is read once; the set is not a transaction).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CaptureStatsSnapshot {
+    pub callbacks: u64,
+    pub pre_readback_drops: u64,
+    pub full_copies: u64,
+    pub partial_copies: u64,
+    pub skipped_empty_damage: u64,
+    pub readback_errors: u64,
+    pub cursor_blends: u64,
+    pub acquires: u64,
+    pub acquire_timeouts: u64,
+    pub tick_overruns: u64,
+    pub dirty_skips: u64,
+    pub cursor_reuse: u64,
+    pub slow_map_waits: u64,
+    /// Total CPU time spent in the readback path, in milliseconds.
+    pub readback_total_ms: f64,
+    /// Worst single readback, in milliseconds.
+    pub readback_max_ms: f64,
+    /// Mean and 95th-percentile copy→map latency, in milliseconds.
+    pub readback_latency_mean_ms: f64,
+    pub readback_latency_p95_ms: f64,
+    /// Worst copy→map latency, in milliseconds.
+    pub readback_latency_max_ms: f64,
 }
 
 impl CaptureStats {
-    pub fn snapshot(&self) -> (u64, u64, u64, u64, u64, u64, u64) {
+    /// Record one readback's copy→map latency: how long the map waited for the
+    /// staging copy to complete. This is the capture path's latency floor, and
+    /// the number the pacer's re-sends are made of.
+    pub fn observe_map_wait(&self, elapsed: Duration) {
+        let micros = elapsed.as_micros() as u64;
+        self.readback_latency_nanos
+            .fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
+        self.readback_latency_max_nanos
+            .fetch_max(elapsed.as_nanos() as u64, Ordering::Relaxed);
+        if elapsed > SLOW_MAP_WAIT {
+            self.slow_map_waits.fetch_add(1, Ordering::Relaxed);
+        }
+        let bucket =
+            (micros / READBACK_LATENCY_BUCKET_MICROS).min(READBACK_BUCKETS as u64 - 1) as usize;
+        self.readback_latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record one published frame's readback cost (map + row copy + blend).
+    pub fn observe_readback(&self, elapsed: Duration) {
+        let micros = elapsed.as_micros() as u64;
+        self.readback_nanos
+            .fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
+        self.readback_max_nanos
+            .fetch_max(elapsed.as_nanos() as u64, Ordering::Relaxed);
+        let bucket = (micros / READBACK_BUCKET_MICROS).min(READBACK_BUCKETS as u64 - 1) as usize;
+        self.readback_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Read every counter once.
+    pub fn snapshot(&self) -> CaptureStatsSnapshot {
         let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
-        (
-            load(&self.callbacks),
-            load(&self.pre_readback_drops),
-            load(&self.full_copies),
-            load(&self.partial_copies),
-            load(&self.skipped_empty_damage),
-            load(&self.readback_errors),
-            load(&self.cursor_blends),
+        let total_nanos = load(&self.readback_nanos);
+        CaptureStatsSnapshot {
+            callbacks: load(&self.callbacks),
+            pre_readback_drops: load(&self.pre_readback_drops),
+            full_copies: load(&self.full_copies),
+            partial_copies: load(&self.partial_copies),
+            skipped_empty_damage: load(&self.skipped_empty_damage),
+            readback_errors: load(&self.readback_errors),
+            cursor_blends: load(&self.cursor_blends),
+            acquires: load(&self.acquires),
+            acquire_timeouts: load(&self.acquire_timeouts),
+            tick_overruns: load(&self.tick_overruns),
+            dirty_skips: load(&self.dirty_skips),
+            cursor_reuse: load(&self.cursor_reuse),
+            slow_map_waits: load(&self.slow_map_waits),
+            readback_total_ms: total_nanos as f64 / 1_000_000.0,
+            readback_max_ms: load(&self.readback_max_nanos) as f64 / 1_000_000.0,
+            readback_latency_mean_ms: self.readback_latency_mean_ms(),
+            readback_latency_p95_ms: self.readback_latency_percentile_ms(0.95),
+            readback_latency_max_ms: load(&self.readback_latency_max_nanos) as f64 / 1_000_000.0,
+        }
+    }
+
+    /// Mean copy→map latency (the readback map's GPU wait) per published frame,
+    /// in milliseconds.
+    pub fn readback_latency_mean_ms(&self) -> f64 {
+        let frames = self.callbacks.load(Ordering::Relaxed);
+        if frames == 0 {
+            return 0.0;
+        }
+        self.readback_latency_nanos.load(Ordering::Relaxed) as f64 / 1_000_000.0 / frames as f64
+    }
+
+    /// Copy→map latency at percentile `p` (0.0..=1.0), in milliseconds.
+    #[allow(clippy::wrong_self_convention)]
+    pub fn readback_latency_percentile_ms(&self, p: f64) -> f64 {
+        percentile_ms_from(
+            &self.readback_latency_buckets,
+            READBACK_LATENCY_BUCKET_MICROS,
+            p,
         )
     }
+
+    /// Mean CPU time per published frame, in milliseconds (0 with no frames).
+    pub fn readback_mean_ms(&self) -> f64 {
+        let frames = self.callbacks.load(Ordering::Relaxed);
+        if frames == 0 {
+            return 0.0;
+        }
+        self.readback_nanos.load(Ordering::Relaxed) as f64 / 1_000_000.0 / frames as f64
+    }
+
+    /// Readback latency at percentile `p` (0.0..=1.0), in milliseconds. The
+    /// histogram is bucketed at [`READBACK_BUCKET_MICROS`], so the result is the
+    /// floor of the containing bucket.
+    pub fn readback_percentile_ms(&self, p: f64) -> f64 {
+        percentile_ms_from(&self.readback_buckets, READBACK_BUCKET_MICROS, p)
+    }
+}
+
+/// Percentile from a bucket histogram: the lower bound of the containing
+/// bucket, in milliseconds.
+fn percentile_ms_from(buckets: &[AtomicU64; READBACK_BUCKETS], bucket_micros: u64, p: f64) -> f64 {
+    let counts: Vec<u64> = buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
+    let total: u64 = counts.iter().sum();
+    if total == 0 {
+        return 0.0;
+    }
+    let target = ((p.clamp(0.0, 1.0) * total as f64).ceil() as u64).max(1);
+    let mut seen = 0u64;
+    for (i, count) in counts.iter().enumerate() {
+        seen += count;
+        if seen >= target {
+            return (i as u64 * bucket_micros) as f64 / 1000.0;
+        }
+    }
+    ((counts.len() as u64 - 1) * bucket_micros) as f64 / 1000.0
 }
 
 /// One captured frame, tightly packed BGRA8 (`width * height * 4` bytes).
@@ -339,3 +544,55 @@ pub fn create_backend(settings: &VideoSettings) -> Result<Box<dyn VideoBackend>,
 
 #[cfg(windows)]
 pub mod windows_dxgi;
+
+#[cfg(test)]
+mod capture_stats_tests {
+    use super::*;
+
+    #[test]
+    fn readback_latency_is_measured_and_bucketed() {
+        let stats = CaptureStats::default();
+        assert_eq!(stats.readback_mean_ms(), 0.0, "no frames means no mean");
+        assert_eq!(stats.readback_percentile_ms(0.95), 0.0);
+
+        // Nine fast readbacks and one slow one: the mean and p99 must see both.
+        for _ in 0..9 {
+            stats.observe_readback(Duration::from_micros(200));
+        }
+        stats.observe_readback(Duration::from_micros(6_100));
+        stats.callbacks.store(10, Ordering::Relaxed);
+
+        let mean = stats.readback_mean_ms();
+        assert!(
+            (0.7..0.8).contains(&mean),
+            "mean of 9x0.2ms + 1x6.1ms frames is ~0.79ms, got {mean}"
+        );
+        assert_eq!(stats.readback_max_nanos.load(Ordering::Relaxed), 6_100_000);
+        assert_eq!(
+            stats.readback_percentile_ms(0.5),
+            0.0,
+            "the median readback sits in the first bucket"
+        );
+        assert_eq!(
+            stats.readback_percentile_ms(0.99),
+            6.0,
+            "p99 lands in the bucket containing the slow readback"
+        );
+        let snap = stats.snapshot();
+        assert_eq!(snap.readback_max_ms, 6.1);
+        assert!((snap.readback_total_ms - 7.9).abs() < 0.01);
+    }
+
+    #[test]
+    fn counters_default_to_zero_and_are_independent() {
+        let a = CaptureStats::default();
+        let b = CaptureStats::default();
+        a.acquires.fetch_add(3, Ordering::Relaxed);
+        assert_eq!(a.snapshot().acquires, 3);
+        assert_eq!(
+            b.snapshot().acquires,
+            0,
+            "each stats block owns its counters"
+        );
+    }
+}

@@ -143,6 +143,36 @@ export interface RecordingState {
     error?: string | null;
 }
 
+/** Per-second capture health reported by the replay buffer. */
+export interface RecordingHealth {
+    /** Resolved FFmpeg encoder, e.g. `h264_nvenc` or `libx264`. */
+    encoder: string;
+    targetFps: number;
+    /** Frames actually written to the encoder per second. */
+    deliveredFps: number;
+    /** CPU time per read-back frame, mean and p95, in milliseconds. */
+    readbackMs: number;
+    readbackP95Ms: number;
+    /** Duplication acquires per second (tracks the capture fps when healthy). */
+    acquiresPerSec: number;
+    /** Frames skipped because only a cursor-sized region changed. */
+    dirtySkips: number;
+    /** Frames published by reusing pixels with a fresh cursor. */
+    cursorReuse: number;
+    /** Read backs whose GPU wait threatened the frame interval. */
+    slowMapWaits: number;
+    /** p95 copy→map readback latency: the capture path's latency floor. */
+    readbackLatencyP95Ms: number;
+    /** Worst video-queue depth in the window. */
+    maxQueueDepth: number;
+    /** Worst end-to-end frame age, in milliseconds. */
+    frameAgeMs: number;
+    /** Mean time the segmenter blocked writing one frame to FFmpeg. */
+    writeMsPerFrame: number;
+    /** Set when the capture path is not keeping up, naming the bottleneck. */
+    warning: string | null;
+}
+
 export interface ScanResult {
     roots: string[];
     clips: number;

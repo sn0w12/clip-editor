@@ -748,6 +748,23 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// These tests synthesize real system-wide keypresses with `SendInput`, and
+    /// the capture path registers a *global* hotkey. On a machine that is
+    /// already running the app, an injected combo that happens to match the
+    /// user's configured hotkey makes the live app save a clip, and the test
+    /// itself then races the app for the hotkey. Both are unacceptable side
+    /// effects for a routine `cargo test`, so they run only on request.
+    fn input_tests_enabled() -> bool {
+        if std::env::var_os("SCREENCAP_INPUT_TESTS").is_some() {
+            return true;
+        }
+        eprintln!(
+            "SKIP: this test injects system-wide keypresses; set SCREENCAP_INPUT_TESTS=1 to run \
+             it (and stop the running app first, or it will receive the hotkey too)"
+        );
+        false
+    }
+
     /// Run the recorder and inject `keys`, retrying until the expected combo
     /// is captured (ambient input on CI machines can land first).
     #[cfg(windows)]
@@ -797,6 +814,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn hook_captures_synthetic_combo() {
+        if !input_tests_enabled() {
+            return;
+        }
         let _guard = HOOK_TEST_LOCK.lock();
         let result = capture_with_injected(
             "ctrl+alt+F12",
@@ -816,6 +836,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn hook_captures_menu_key() {
+        if !input_tests_enabled() {
+            return;
+        }
         let _guard = HOOK_TEST_LOCK.lock();
         let result = capture_with_injected("ContextMenu", &[(0x5D, false), (0x5D, true)]);
         assert_eq!(result, "ContextMenu");

@@ -91,8 +91,29 @@ include = ["all_nonmuted_processes"]
 exclude = []
 "#;
 
+/// These tests synthesize real system-wide keypresses (`SendInput`) so the
+/// global hotkey path can be driven end to end. The app registers a *global*
+/// hotkey, so on a machine already running it an injected combo that matches the
+/// user's configured hotkey makes the live app save a clip mid-test, and the two
+/// then race for the same hotkey. Off by default so a routine `cargo test` has
+/// no side effects on the running app; opt in with `SCREENCAP_INPUT_TESTS=1`
+/// after stopping it.
+fn input_tests_enabled() -> bool {
+    if std::env::var_os("SCREENCAP_INPUT_TESTS").is_some() {
+        return true;
+    }
+    eprintln!(
+        "SKIP: this test injects system-wide keypresses; set SCREENCAP_INPUT_TESTS=1 to run it \
+         (and stop the running app first, or it will receive the hotkey too)"
+    );
+    false
+}
+
 #[test]
 fn end_to_end_save_via_hotkey() {
+    if !input_tests_enabled() {
+        return;
+    }
     let _guard = TEST_LOCK.lock();
     if std::env::var("SCREENCAP_ITEST").as_deref() != Ok("1") {
         eprintln!("SKIP: set SCREENCAP_ITEST=1 to run the interactive capture integration test");
@@ -247,6 +268,9 @@ static TEST_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 /// by the key, and saved like any hotkey.
 #[test]
 fn menu_key_hotkey_saves_clip() {
+    if !input_tests_enabled() {
+        return;
+    }
     let _guard = TEST_LOCK.lock();
     if std::env::var("SCREENCAP_ITEST").as_deref() != Ok("1") {
         eprintln!("SKIP: set SCREENCAP_ITEST=1 to run the interactive capture integration test");
@@ -305,6 +329,9 @@ fn menu_key_hotkey_saves_clip() {
 
 #[test]
 fn hotkey_recording_writes_config() {
+    if !input_tests_enabled() {
+        return;
+    }
     let _guard = TEST_LOCK.lock();
     if std::env::var("SCREENCAP_ITEST").as_deref() != Ok("1") {
         eprintln!("SKIP: set SCREENCAP_ITEST=1 to run the interactive capture integration test");

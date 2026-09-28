@@ -711,6 +711,8 @@ dependencies = [
  "thumbhash",
  "tiny_http",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
  "windows 0.62.2",
  "winreg 0.52.0",

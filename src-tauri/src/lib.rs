@@ -46,6 +46,62 @@ fn is_autostart_launch() -> bool {
     std::env::args().any(|a| a == AUTOSTART_ARG)
 }
 
+/// Install a file-backed `tracing` subscriber writing into `dir`.
+///
+/// The capture pipeline reports the only measurements that distinguish a
+/// stalling readback from a stalling acquire or an overrun tick
+/// (`screencap::video`'s `capture readback` line, emitted every 5s). Without a
+/// subscriber those events are constructed and dropped, so a capture that
+/// silently degrades over hours leaves no trace. Appending to a file keeps them
+/// for later inspection without a console attached.
+///
+/// Honors `RUST_LOG` when set, otherwise `screencap=info` — the capture module
+/// reports at `info` while the rest of the app is chatty at that level.
+/// Failure is non-fatal: the app must still start if the log cannot be opened.
+fn install_file_logging(dir: &std::path::Path) {
+    use std::io::Write as _;
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("screencap=info,warn"));
+
+    let log_dir = dir.join("logs");
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let path = log_dir.join("capture.log");
+    // The app autostarts and can run for days, and this appends every 5s, so
+    // cap the file: keep one previous generation, then start clean. Without
+    // this the log would grow unbounded on a machine that never restarts.
+    const MAX_BYTES: u64 = 8 * 1024 * 1024;
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_BYTES) {
+        let _ = std::fs::remove_file(log_dir.join("capture.log.1"));
+        let _ = std::fs::rename(&path, log_dir.join("capture.log.1"));
+    }
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+    // A session marker so a multi-day log can be split by run, and so the
+    // start of the run that produced a given capture is unambiguous.
+    let _ = writeln!(
+        file,
+        "=== session start {} ===",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
+    let _ = file.flush();
+
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(false)
+        .with_writer(move || file.try_clone().expect("log file handle is valid"))
+        .finish();
+    // A subscriber may already be installed (tests, embedding); keep the first.
+    let _ = tracing::subscriber::set_global_default(subscriber);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
@@ -97,6 +153,9 @@ pub fn run() {
             let cache_root = data_dir.join("cache");
             std::fs::create_dir_all(&data_dir).map_err(|e| format!("app data dir: {e}"))?;
             std::fs::create_dir_all(&cache_root).map_err(|e| format!("app cache dir: {e}"))?;
+            // Before any worker starts: the replay buffer auto-starts further
+            // down, and its capture counters are the point of the log.
+            install_file_logging(&data_dir);
             // The FFmpeg fallback downloads next to the db/caches: the data
             // dir is writable under both per-user NSIS and per-machine MSI
             // installs, unlike the exe dir under Program Files.

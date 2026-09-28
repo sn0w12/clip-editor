@@ -33,6 +33,8 @@ thumbhash = "0.1"
 tiny_http = "0.12"
 parking_lot = "0.12"
 screencap = { path = "../crates/screencap" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 export function useAudioWaveform(
     videoPath: string,
     sampleCount: number,
-    audioTrack: number,
+    audioTrack: number
 ): {
     isLoading: boolean;
     error: string | null;
@@ -60,7 +60,8 @@ export function useAudioWaveform(
 
     // Derive the current view from the latest fetch result; while a fetch is in
     // flight (or the inputs changed) fall back to the pending state.
-    const current = videoPath && result?.audioTrack === audioTrack ? result : null;
+    const current =
+        videoPath && result?.audioTrack === audioTrack ? result : null;
     const isLoading = Boolean(videoPath) && !current;
     const waveformData = current?.data ?? null;
     const error = current?.error ?? null;
@@ -132,7 +133,7 @@ const VideoWaveformComponent = ({
                 i * barWidth,
                 centerY - barHeight / 2,
                 barWidth > 1 ? barWidth - 0.5 : barWidth,
-                barHeight,
+                barHeight
             );
         }
     }, [waveformData, backgroundColor, color, width, height, minBarHeight]);
@@ -157,7 +158,7 @@ const VideoWaveformComponent = ({
 
     if (error) {
         return (
-            <p className={cn("text-destructive text-sm", className)}>
+            <p className={cn("text-sm text-destructive", className)}>
                 Failed to load waveform: {error}
             </p>
         );
@@ -169,7 +170,12 @@ const VideoWaveformComponent = ({
 
     return (
         <div className={cn("relative h-full", className)}>
-            <canvas ref={canvasRef} width={width} height={height} className="h-full w-full" />
+            <canvas
+                ref={canvasRef}
+                width={width}
+                height={height}
+                className="h-full w-full"
+            />
         </div>
     );
 };

@@ -3,13 +3,16 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useThumbnail } from "@/hooks/use-thumbnails";
 import { rememberReturnToClip } from "@/lib/return-to-clip";
 import { useShortcutSetting } from "@/lib/settings";
 import { imgSrc } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
-import { editVideoRoute } from "@/routes/router";
 import { useClipsStore } from "@/stores/clips-store";
 import { filterClips, useFiltersStore } from "@/stores/filters-store";
 import type { VideoFile } from "@/types";
@@ -39,8 +42,8 @@ function FilmstripThumb({
                         className={cn(
                             "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
                             current
-                                ? "border-accent-positive opacity-100"
-                                : "border-primary/70 hover:opacity-100",
+                                ? "border-info opacity-100"
+                                : "border-primary/70 hover:opacity-100"
                         )}
                         style={{ width: `${THUMB_WIDTH}px` }}
                         onClick={() => {
@@ -62,7 +65,7 @@ function FilmstripThumb({
                         }}
                     />
                 ) : (
-                    <span className="bg-muted block h-full w-full" />
+                    <span className="block h-full w-full bg-muted" />
                 )}
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -89,7 +92,9 @@ function FilmstripThumb({
 function ClipHeaderLocal() {
     const containerRef = useRef<HTMLDivElement>(null);
     const [totalThumbs, setTotalThumbs] = useState(0);
-    const { videoPath } = useSearch({ from: editVideoRoute.id });
+    const { videoPath } = useSearch({ strict: false }) as {
+        videoPath?: string;
+    };
     const { clips, reload } = useClipsStore();
     const { dateRange, selectedGames, selectedGroupIds } = useFiltersStore();
     const navigate = useNavigate();
@@ -103,7 +108,13 @@ function ClipHeaderLocal() {
     const sortedVideos = useMemo(() => {
         // The filmstrip follows the home page's active filters so prev/next
         // navigate within the same set the user was browsing.
-        const filtered = [...filterClips(clips, { dateRange, selectedGames, selectedGroupIds })];
+        const filtered = [
+            ...filterClips(clips, {
+                dateRange,
+                selectedGames,
+                selectedGroupIds,
+            }),
+        ];
         return filtered.sort((a, b) => {
             const timestampA = new Date(a.lastModified).getTime();
             const timestampB = new Date(b.lastModified).getTime();
@@ -111,17 +122,22 @@ function ClipHeaderLocal() {
         });
     }, [clips, dateRange, selectedGames, selectedGroupIds]);
 
-    const calculateTotalThumbs = useCallback((w: number | undefined): number => {
-        if (!w) return 0;
-        return Math.floor((w - WIDTH_PADDING) / (THUMB_WIDTH + THUMB_GAP));
-    }, []);
+    const calculateTotalThumbs = useCallback(
+        (w: number | undefined): number => {
+            if (!w) return 0;
+            return Math.floor((w - WIDTH_PADDING) / (THUMB_WIDTH + THUMB_GAP));
+        },
+        []
+    );
 
     useEffect(() => {
         if (!containerRef.current) return;
 
         const updateDimensions = () => {
             if (containerRef.current) {
-                setTotalThumbs(calculateTotalThumbs(containerRef.current.clientWidth));
+                setTotalThumbs(
+                    calculateTotalThumbs(containerRef.current.clientWidth)
+                );
             }
         };
 
@@ -136,20 +152,28 @@ function ClipHeaderLocal() {
         };
     }, [calculateTotalThumbs]);
 
-    const normalize = useCallback((p: string) => p.replace(/^\\\\\?\\\\/, ""), []);
+    const normalize = useCallback(
+        (p: string) => p.replace(/^\\\\\?\\\\/, ""),
+        []
+    );
 
     const surroundingVideos = useMemo(() => {
         if (!sortedVideos.length) return { videos: [], currentIndex: -1 };
 
         const currentIndex = videoPath
-            ? sortedVideos.findIndex((v) => normalize(v.path) === normalize(videoPath))
+            ? sortedVideos.findIndex(
+                  (v) => normalize(v.path) === normalize(videoPath)
+              )
             : -1;
         if (currentIndex === -1) {
             // The opened clip is not in the library (direct open, renamed file, or
             // route restore): show the newest clips so the header never disappears.
             const count = Math.max(1, totalThumbs || 1);
             return {
-                videos: sortedVideos.slice(0, Math.min(count, sortedVideos.length)),
+                videos: sortedVideos.slice(
+                    0,
+                    Math.min(count, sortedVideos.length)
+                ),
                 currentIndex: -1,
             };
         }
@@ -157,9 +181,15 @@ function ClipHeaderLocal() {
         const sideCount = Math.max(1, Math.floor(totalThumbs / 2));
 
         let startIndex = Math.max(0, currentIndex - sideCount);
-        const endIndex = Math.min(sortedVideos.length - 1, startIndex + totalThumbs - 1);
+        const endIndex = Math.min(
+            sortedVideos.length - 1,
+            startIndex + totalThumbs - 1
+        );
 
-        if (endIndex === sortedVideos.length - 1 && endIndex - startIndex + 1 < totalThumbs) {
+        if (
+            endIndex === sortedVideos.length - 1 &&
+            endIndex - startIndex + 1 < totalThumbs
+        ) {
             startIndex = Math.max(0, sortedVideos.length - totalThumbs);
         }
 
@@ -172,25 +202,32 @@ function ClipHeaderLocal() {
     const handleNavigateToVideo = useCallback(
         (video: VideoFile) => {
             void navigate({
-                to: editVideoRoute.id,
+                to: "/clips/edit",
                 search: {
                     videoPath: video.path,
                     videoName: video.name,
                 },
             });
         },
-        [navigate],
+        [navigate]
     );
 
     const handlePrevious = useCallback(() => {
         if (surroundingVideos.currentIndex > 0) {
-            handleNavigateToVideo(surroundingVideos.videos[surroundingVideos.currentIndex - 1]);
+            handleNavigateToVideo(
+                surroundingVideos.videos[surroundingVideos.currentIndex - 1]
+            );
         }
     }, [surroundingVideos, handleNavigateToVideo]);
 
     const handleNext = useCallback(() => {
-        if (surroundingVideos.currentIndex < surroundingVideos.videos.length - 1) {
-            handleNavigateToVideo(surroundingVideos.videos[surroundingVideos.currentIndex + 1]);
+        if (
+            surroundingVideos.currentIndex <
+            surroundingVideos.videos.length - 1
+        ) {
+            handleNavigateToVideo(
+                surroundingVideos.videos[surroundingVideos.currentIndex + 1]
+            );
         }
     }, [surroundingVideos, handleNavigateToVideo]);
 
@@ -208,11 +245,11 @@ function ClipHeaderLocal() {
                         <Button
                             variant="secondary"
                             size="icon"
-                            className="bg-sidebar group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end"
+                            className="group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end bg-sidebar"
                             onClick={() => navigate({ to: "/" })}
                             aria-label="Back to library"
                         >
-                            <div className="bg-border group-hover:bg-secondary-foreground mx-6 h-0.5 w-full transition-colors duration-200" />
+                            <div className="mx-6 h-0.5 w-full bg-border transition-colors duration-200 group-hover:bg-secondary-foreground" />
                         </Button>
                         <Button
                             variant="outline"
@@ -240,7 +277,10 @@ function ClipHeaderLocal() {
                     size="icon"
                     className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
                     onClick={handleNext}
-                    disabled={headerIndex < 0 || headerIndex >= headerVideos.length - 1}
+                    disabled={
+                        headerIndex < 0 ||
+                        headerIndex >= headerVideos.length - 1
+                    }
                     aria-label="Next video"
                 >
                     <ChevronRight className="h-3 w-3" />

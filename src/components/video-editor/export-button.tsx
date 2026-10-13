@@ -81,12 +81,18 @@ const DEFAULT_PRESETS: ExportPreset[] = [
 
 const LOCAL_STORAGE_KEY = "clipEditor_customExportPresets";
 
-export function ExportButton({ onExport, isExporting, baseOptions }: ExportButtonProps) {
+export function ExportButton({
+    onExport,
+    isExporting,
+    baseOptions,
+}: ExportButtonProps) {
     const [presets, setPresets] = useState<ExportPreset[]>(() => {
         try {
             const savedPresetsJson = localStorage.getItem(LOCAL_STORAGE_KEY);
             if (savedPresetsJson) {
-                const customPresets = JSON.parse(savedPresetsJson) as ExportPreset[];
+                const customPresets = JSON.parse(
+                    savedPresetsJson
+                ) as ExportPreset[];
                 return [...DEFAULT_PRESETS, ...customPresets];
             }
         } catch (error) {
@@ -97,7 +103,7 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
     const [saveDialogOpen, setSaveDialogOpen] = useState(false);
     const [newPresetName, setNewPresetName] = useState("");
     const [newPresetDescription, setNewPresetDescription] = useState("");
-    const confirm = useConfirm();
+    const { confirm } = useConfirm();
 
     const handleDirectExport = () => {
         onExport(baseOptions);
@@ -106,7 +112,10 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
 
     const saveCustomPresets = (customPresets: ExportPreset[]) => {
         try {
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(customPresets));
+            localStorage.setItem(
+                LOCAL_STORAGE_KEY,
+                JSON.stringify(customPresets)
+            );
             setPresets([...DEFAULT_PRESETS, ...customPresets]);
         } catch (error) {
             console.error("Failed to save custom presets:", error);
@@ -131,7 +140,7 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
     };
 
     const handleDeletePreset = async (presetToDelete: ExportPreset) => {
-        const confirmed = await confirm({
+        const { confirmed } = await confirm({
             title: "Delete Preset",
             description: `Are you sure you want to delete the preset "${presetToDelete.name}"?`,
             confirmText: "Delete",
@@ -139,7 +148,8 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
         });
         if (confirmed) {
             const customPresets = presets.filter(
-                (preset) => preset.isCustom && preset.name !== presetToDelete.name,
+                (preset) =>
+                    preset.isCustom && preset.name !== presetToDelete.name
             );
             saveCustomPresets(customPresets);
         }
@@ -198,7 +208,7 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
                             >
                                 <div className="flex flex-col">
                                     <span>{preset.name}</span>
-                                    <span className="text-muted-foreground text-xs">
+                                    <span className="text-xs text-muted-foreground">
                                         {preset.description}
                                     </span>
                                 </div>
@@ -210,32 +220,41 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
                         <>
                             <DropdownMenuSeparator />
                             <DropdownMenuGroup>
-                                <DropdownMenuLabel>Custom Presets</DropdownMenuLabel>
+                                <DropdownMenuLabel>
+                                    Custom Presets
+                                </DropdownMenuLabel>
                                 {customPresets.map((preset, index) => (
                                     <DropdownMenuItem
                                         key={`custom-${index}`}
                                         className="flex justify-between"
-                                        onClick={() => handlePresetExport(preset)}
+                                        onClick={() =>
+                                            handlePresetExport(preset)
+                                        }
                                     >
                                         <div className="flex min-w-0 flex-1 flex-col">
                                             <span>{preset.name}</span>
-                                            <span className="text-muted-foreground text-xs">
+                                            <span className="text-xs text-muted-foreground">
                                                 {preset.description}
                                             </span>
                                         </div>
                                         <span
                                             role="button"
                                             tabIndex={0}
-                                            className="hover:bg-destructive/10 text-destructive -m-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded"
+                                            className="-m-1 flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded text-destructive hover:bg-destructive/10"
                                             aria-label={`Delete preset ${preset.name}`}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 void handleDeletePreset(preset);
                                             }}
                                             onKeyDown={(e) => {
-                                                if (e.key === "Enter" || e.key === " ") {
+                                                if (
+                                                    e.key === "Enter" ||
+                                                    e.key === " "
+                                                ) {
                                                     e.stopPropagation();
-                                                    void handleDeletePreset(preset);
+                                                    void handleDeletePreset(
+                                                        preset
+                                                    );
                                                 }
                                             }}
                                         >
@@ -260,7 +279,9 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
                             <Input
                                 id="preset-name"
                                 value={newPresetName}
-                                onChange={(e) => setNewPresetName(e.target.value)}
+                                onChange={(e) =>
+                                    setNewPresetName(e.target.value)
+                                }
                                 placeholder="My Custom Preset"
                             />
                         </Field>
@@ -269,13 +290,17 @@ export function ExportButton({ onExport, isExporting, baseOptions }: ExportButto
                             <Input
                                 id="preset-description"
                                 value={newPresetDescription}
-                                onChange={(e) => setNewPresetDescription(e.target.value)}
+                                onChange={(e) =>
+                                    setNewPresetDescription(e.target.value)
+                                }
                                 placeholder="Custom settings for specific use case"
                             />
                         </Field>
                     </DialogPanel>
                     <DialogFooter>
-                        <DialogClose render={<Button variant="ghost">Cancel</Button>} />
+                        <DialogClose
+                            render={<Button variant="ghost">Cancel</Button>}
+                        />
                         <Button onClick={handleSavePreset}>Save Preset</Button>
                     </DialogFooter>
                 </DialogPopup>

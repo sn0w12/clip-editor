@@ -148,7 +148,7 @@ fn bench_send_drop_oldest(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let (tx, rx) = crossbeam_channel::bounded::<u64>(64);
-                let mut limiter = RateLimiter::new(Duration::from_secs(5));
+                let limiter = RateLimiter::new(Duration::from_secs(5));
                 (tx, rx, limiter)
             },
             |(tx, rx, mut limiter)| {
@@ -164,7 +164,7 @@ fn bench_send_drop_oldest(c: &mut Criterion) {
             || {
                 // A single-slot queue: every send must evict the oldest.
                 let (tx, rx) = crossbeam_channel::bounded::<u64>(1);
-                let mut limiter = RateLimiter::new(Duration::from_secs(5));
+                let limiter = RateLimiter::new(Duration::from_secs(5));
                 (tx, rx, limiter)
             },
             |(tx, rx, mut limiter)| {

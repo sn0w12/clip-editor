@@ -273,7 +273,6 @@ fn main() {
     let writer_shutdown = shutdown_rx.clone();
     let writer = thread::spawn(move || {
         let mut writer = pipe;
-        let mut last_write = Instant::now();
         loop {
             match writer_rx.recv_timeout(Duration::from_millis(block_ms)) {
                 Ok(frame) => {
@@ -304,7 +303,6 @@ fn main() {
                     } else if writer.write_all(&frame).is_err() {
                         break;
                     }
-                    last_write = Instant::now();
                 }
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if writer_shutdown.try_recv().is_ok() {

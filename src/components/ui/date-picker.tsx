@@ -5,7 +5,11 @@ import type * as React from "react";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -42,7 +46,7 @@ export function DatePicker({
                         className={cn(
                             "w-full justify-start gap-2 font-normal not-disabled:justify-between",
                             !value && "text-muted-foreground",
-                            className,
+                            className
                         )}
                     >
                         <span className="flex items-center gap-2">
@@ -53,7 +57,12 @@ export function DatePicker({
                 }
             />
             <PopoverContent align="start" className="w-auto p-0">
-                <Calendar mode="single" selected={value} onSelect={onValueChange} autoFocus />
+                <Calendar
+                    mode="single"
+                    selected={value}
+                    onSelect={onValueChange}
+                    autoFocus
+                />
             </PopoverContent>
         </Popover>
     );

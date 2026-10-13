@@ -1,0 +1,80 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/screencap",
+    "crates/tauri",
+    "crates/tauri-plugin-snap-layout",
+]
+
+[workspace.package]
+version = "0.4.3"
+edition = "2021"
+rust-version = "1.85"
+
+[workspace.dependencies]
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
+notify = "7"
+parking_lot = "0.12"
+percent-encoding = "2"
+pico-args = "0.5"
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+screencap = { path = "crates/screencap" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [
+    "protocol-asset",
+    "tray-icon",
+    "image-png",
+] }
+tauri-build = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-os = "2"
+tauri-plugin-prevent-default = "5"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-snap-layout = { path = "crates/tauri-plugin-snap-layout" }
+tauri-plugin-updater = "2"
+tempfile = "3"
+thiserror = "2"
+thumbhash = "0.1"
+tiny_http = "0.12"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "sync",
+    "time",
+    "macros",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+seraphis-core = { path = "crates/core" }
+winreg = "0.52"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_UI_Shell",
+] }
+
+[profile.dev]
+incremental = true
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
+
+[profile.release.package.screencap]
+opt-level = 3

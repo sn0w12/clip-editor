@@ -71,8 +71,8 @@ use crate::error::{CaptureError, RunError};
 use crate::util::RateLimiter;
 use crate::video::nv12::{CursorUpload, Nv12Converter};
 use crate::video::{
-    CaptureStats, Latest, MonitorSpec, StopState, VideoBackend, VideoError, VideoFrame, VideoInfo,
-    VideoSettings, VIDEO_QUEUE_CAPACITY, PENDING_FRAMES, nv12_frame_bytes,
+    CaptureStats, Latest, MonitorSpec, PENDING_FRAMES, StopState, VIDEO_QUEUE_CAPACITY,
+    VideoBackend, VideoError, VideoFrame, VideoInfo, VideoSettings, nv12_frame_bytes,
 };
 
 pub struct WindowsDxgiVideoBackend {
@@ -741,7 +741,7 @@ mod buffer_pool_tests {
     #[test]
     fn pool_reuses_uniquely_owned_buffer() {
         let mut pool: Vec<Arc<Vec<u8>>> = Vec::new();
-        let mut buf = take_buffer_arc(&mut pool, 16);
+        let buf = take_buffer_arc(&mut pool, 16);
         let ptr = Arc::as_ptr(&buf);
         pool.push(buf.clone());
         drop(buf); // only the pool reference remains

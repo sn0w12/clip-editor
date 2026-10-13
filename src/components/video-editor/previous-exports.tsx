@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { toastManager } from "@/components/ui/toast";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useConfirm } from "@/contexts/confirm-context";
 import { imgSrc, deleteClips, removeExport } from "@/lib/tauri";
 import { formatBytes, formatRelativeDate, cn } from "@/lib/utils";
@@ -18,7 +22,10 @@ interface PreviousExportsProps {
     exports: ExportedClip[];
     setExports: React.Dispatch<React.SetStateAction<ExportedClip[]>>;
     isLoading: boolean;
-    onSelectClip: (clipPath: string | null, clipDuration: number | null) => void;
+    onSelectClip: (
+        clipPath: string | null,
+        clipDuration: number | null
+    ) => void;
     selectedClipPath: string | null;
 }
 
@@ -30,11 +37,11 @@ export function PreviousExports({
     selectedClipPath,
 }: PreviousExportsProps) {
     const [isDeletingPath, setIsDeletingPath] = useState<string | null>(null);
-    const confirm = useConfirm();
+    const { confirm } = useConfirm();
 
     const handleDeleteExport = async (clipPath: string) => {
         try {
-            const shouldDelete = await confirm({
+            const { confirmed: shouldDelete } = await confirm({
                 title: "Delete Clip",
                 description: "Are you sure you want to delete this clip?",
                 confirmText: "Delete",
@@ -57,7 +64,10 @@ export function PreviousExports({
             if (selectedClipPath === clipPath) {
                 onSelectClip(null, null);
             }
-            toastManager.add({ title: "Clip deleted successfully", type: "success" });
+            toastManager.add({
+                title: "Clip deleted successfully",
+                type: "success",
+            });
         } catch (error) {
             console.error("Error deleting export:", error);
             toastManager.add({ title: "Failed to delete clip", type: "error" });
@@ -83,7 +93,7 @@ export function PreviousExports({
                     </div>
                 ) : exports.length === 0 ? (
                     <div className="flex h-16 items-center justify-center">
-                        <p className="text-muted-foreground text-sm">
+                        <p className="text-sm text-muted-foreground">
                             No exports found for this video
                         </p>
                     </div>
@@ -93,13 +103,16 @@ export function PreviousExports({
                             <div
                                 key={index}
                                 className={cn(
-                                    "bg-card hover:bg-accent/50 relative flex cursor-pointer justify-between rounded-md border p-2 transition-all",
-                                    selectedClipPath === clip.path && "border-accent-positive",
+                                    "relative flex cursor-pointer justify-between rounded-md border bg-card p-2 transition-all hover:bg-accent/50",
+                                    selectedClipPath === clip.path &&
+                                        "border-info"
                                 )}
-                                onClick={() => handleSelectClip(clip.path, clip.duration)}
+                                onClick={() =>
+                                    handleSelectClip(clip.path, clip.duration)
+                                }
                             >
                                 <div className="grid grid-cols-[auto_1fr_auto] gap-2">
-                                    <div className="bg-muted relative h-14 w-24 overflow-hidden rounded">
+                                    <div className="relative h-14 w-24 overflow-hidden rounded bg-muted">
                                         <img
                                             src={
                                                 clip.thumbnail
@@ -109,18 +122,27 @@ export function PreviousExports({
                                             alt="Clip thumbnail"
                                             className="absolute inset-0 h-full w-full object-cover"
                                             onError={(e) => {
-                                                e.currentTarget.style.display = "none";
+                                                e.currentTarget.style.display =
+                                                    "none";
                                             }}
                                         />
                                     </div>
                                     <div className="flex flex-col justify-center overflow-hidden">
-                                        <p className="truncate text-sm font-medium">{clip.name}</p>
-                                        <div className="text-muted-foreground flex gap-3 text-xs">
-                                            <span>{formatTime(clip.duration)}</span>
-                                            <span>{formatBytes(clip.size)}</span>
+                                        <p className="truncate text-sm font-medium">
+                                            {clip.name}
+                                        </p>
+                                        <div className="flex gap-3 text-xs text-muted-foreground">
+                                            <span>
+                                                {formatTime(clip.duration)}
+                                            </span>
+                                            <span>
+                                                {formatBytes(clip.size)}
+                                            </span>
                                             <span>
                                                 {formatRelativeDate(
-                                                    new Date(clip.timestamp).toISOString(),
+                                                    new Date(
+                                                        clip.timestamp
+                                                    ).toISOString()
                                                 )}
                                             </span>
                                         </div>
@@ -138,7 +160,7 @@ export function PreviousExports({
                                                         onClick={() =>
                                                             handleSelectClip(
                                                                 clip.path,
-                                                                clip.duration,
+                                                                clip.duration
                                                             )
                                                         }
                                                     />
@@ -149,7 +171,9 @@ export function PreviousExports({
                                                     Return to default video
                                                 </span>
                                             </TooltipTrigger>
-                                            <TooltipContent>Return to default video</TooltipContent>
+                                            <TooltipContent>
+                                                Return to default video
+                                            </TooltipContent>
                                         </Tooltip>
                                     )}
                                     <Tooltip>
@@ -160,19 +184,28 @@ export function PreviousExports({
                                                     size="icon"
                                                     className="h-6 w-6 p-0"
                                                     onClick={(
-                                                        e: React.MouseEvent<HTMLButtonElement>,
+                                                        e: React.MouseEvent<HTMLButtonElement>
                                                     ) => {
                                                         e.stopPropagation();
-                                                        void handleDeleteExport(clip.path);
+                                                        void handleDeleteExport(
+                                                            clip.path
+                                                        );
                                                     }}
-                                                    disabled={isDeletingPath === clip.path}
+                                                    disabled={
+                                                        isDeletingPath ===
+                                                        clip.path
+                                                    }
                                                 />
                                             }
                                         >
-                                            <Trash2 className="text-destructive h-4 w-4" />
-                                            <span className="sr-only">Delete clip</span>
+                                            <Trash2 className="h-4 w-4 text-destructive" />
+                                            <span className="sr-only">
+                                                Delete clip
+                                            </span>
                                         </TooltipTrigger>
-                                        <TooltipContent>Delete clip</TooltipContent>
+                                        <TooltipContent>
+                                            Delete clip
+                                        </TooltipContent>
                                     </Tooltip>
                                 </div>
                             </div>

@@ -227,7 +227,7 @@ as little as possible and to be measurable when it does not. In order:
   lookahead, delay, and B-frames off; x264 runs `zerolatency` with lookahead
   and B-frames off; AMF runs the `lowlatency` usage with B-frames off, so no
   encoder holds frames in an internal pipeline ahead of the segment files.
-  `codec = "auto"` prefers the *render GPU's* vendor (registry display-class
+  `codec = "auto"` prefers the _render GPU's_ vendor (registry display-class
   detection): a hardware encoder on the other GPU of a hybrid laptop pays a
   cross-adapter copy per frame, which alone can consume the entire frame
   budget at 60 fps and push the pipeline behind in real time.

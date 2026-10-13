@@ -3,7 +3,6 @@ import { Gamepad2Icon } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import { Frame, FramePanel, FrameFooter } from "@/components/ui/frame";
-import { useBadge } from "@/contexts/badge-context";
 import { useThumbnail } from "@/hooks/use-thumbnails";
 import { rememberReturnToClip } from "@/lib/return-to-clip";
 import { imgSrc, videoSrc } from "@/lib/tauri";
@@ -14,7 +13,10 @@ import type { GameImage, VideoFile, VideoGroup, VideoMetadata } from "@/types";
 import { GameIcon } from "../game-icon";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 
-function previewDuration(video: HTMLVideoElement | null, metadata?: VideoMetadata | null): number {
+function previewDuration(
+    video: HTMLVideoElement | null,
+    metadata?: VideoMetadata | null
+): number {
     const own = video?.duration;
     if (own != null && Number.isFinite(own) && own > 0) return own;
     const meta = metadata?.duration;
@@ -43,13 +45,18 @@ export const VideoCard = memo(function VideoCard({
 }: VideoCardProps) {
     const navigate = useNavigate();
     const { scanError, path, thumbnail: inlineThumb, thumbhash } = video;
-    const fallbackThumb = useThumbnail(scanError ? undefined : inlineThumb ? undefined : path);
+    const fallbackThumb = useThumbnail(
+        scanError ? undefined : inlineThumb ? undefined : path
+    );
     const thumbUrl = inlineThumb ?? fallbackThumb ?? null;
     const [thumbFailedUrl, setThumbFailedUrl] = useState<string | null>(null);
     const showThumb = thumbUrl !== null && thumbFailedUrl !== thumbUrl;
     const thumbhashUrl = useMemo(
-        () => (!showThumb && thumbhash ? thumbHashBase64ToDataURL(thumbhash) : null),
-        [showThumb, thumbhash],
+        () =>
+            !showThumb && thumbhash
+                ? thumbHashBase64ToDataURL(thumbhash)
+                : null,
+        [showThumb, thumbhash]
     );
 
     const [showVideo, setShowVideo] = useState(false);
@@ -73,8 +80,6 @@ export const VideoCard = memo(function VideoCard({
     const progressAnimationRef = useRef<number | null>(null);
     const lastPlaybackPositionRef = useRef<number>(0);
 
-    const { setBadgeContent, setBadgeVisible } = useBadge();
-
     const handleCardClick = () => {
         rememberReturnToClip(video.path);
         navigate({
@@ -85,21 +90,12 @@ export const VideoCard = memo(function VideoCard({
 
     const handleMouseEnter = () => {
         if (video.scanError) return;
-        // Show the game icon + name in the window badge while hovering.
-        setBadgeContent(
-            <div className="flex items-center gap-1">
-                <GameIcon game={video.game} gameImage={gameImage} />
-                <span className="text-sm">{video.game || "Clip Editor"}</span>
-            </div>,
-        );
-        setBadgeVisible(true);
         hoverTimerRef.current = window.setTimeout(() => {
             setShowVideo(true);
         }, 700);
     };
 
     const handleMouseLeave = () => {
-        setBadgeVisible(false);
         if (hoverTimerRef.current) {
             clearTimeout(hoverTimerRef.current);
             hoverTimerRef.current = null;
@@ -158,7 +154,8 @@ export const VideoCard = memo(function VideoCard({
     useEffect(() => {
         return () => {
             if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-            if (progressAnimationRef.current) cancelAnimationFrame(progressAnimationRef.current);
+            if (progressAnimationRef.current)
+                cancelAnimationFrame(progressAnimationRef.current);
             lastPlaybackPositionRef.current = 0;
         };
     }, []);
@@ -171,8 +168,10 @@ export const VideoCard = memo(function VideoCard({
     return (
         <Frame
             className={cn(
-                "selectable-item cursor-pointer border-2 border-transparent transition-colors duration-150 ease-snappy select-none scroll-mt-11",
-                isSelected ? "border-primary/70 hover:border-primary/90" : "hover:border-accent",
+                "selectable-item cursor-pointer scroll-mt-11 border-2 border-transparent transition-colors duration-150 ease-snappy select-none",
+                isSelected
+                    ? "border-primary/70 hover:border-primary/90"
+                    : "hover:border-accent"
             )}
             onClick={handleCardClick}
             onMouseEnter={handleMouseEnter}
@@ -203,7 +202,9 @@ export const VideoCard = memo(function VideoCard({
                         src={imgSrc(thumbUrl)}
                         alt={`Thumbnail for ${encodeURIComponent(video.name)}`}
                         className={`h-full w-full object-cover transition-opacity duration-300 ease-in-out ${
-                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
+                            showVideo && videoLoaded
+                                ? "opacity-0"
+                                : "opacity-100"
                         }`}
                         loading="lazy"
                         draggable={false}
@@ -215,7 +216,9 @@ export const VideoCard = memo(function VideoCard({
                         src={thumbhashUrl}
                         alt={`Thumbnail for ${encodeURIComponent(video.name)}`}
                         className={`h-full w-full object-cover transition-opacity duration-300 ease-in-out ${
-                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
+                            showVideo && videoLoaded
+                                ? "opacity-0"
+                                : "opacity-100"
                         }`}
                         draggable={false}
                         onDragStart={(e) => e.preventDefault()}
@@ -223,12 +226,19 @@ export const VideoCard = memo(function VideoCard({
                 ) : (
                     <div
                         className={`flex h-full w-full flex-col items-center justify-center gap-2 transition-opacity duration-300 ease-in-out ${
-                            showVideo && videoLoaded ? "opacity-0" : "opacity-100"
+                            showVideo && videoLoaded
+                                ? "opacity-0"
+                                : "opacity-100"
                         }`}
                     >
-                        <Gamepad2Icon size={40} className="text-muted-foreground opacity-50" />
-                        <p className="text-muted-foreground text-xs">
-                            {video.scanError ? "Unreadable file" : "Generating thumbnail..."}
+                        <Gamepad2Icon
+                            size={40}
+                            className="text-muted-foreground opacity-50"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            {video.scanError
+                                ? "Unreadable file"
+                                : "Generating thumbnail..."}
                         </p>
                     </div>
                 )}
@@ -236,17 +246,22 @@ export const VideoCard = memo(function VideoCard({
                 {showVideo && videoLoaded && (
                     <div
                         className={cn(
-                            "absolute right-0 bottom-0 left-0 bg-background/20 duration-200 ease-snappy h-1.5 hit-area-y-2",
+                            "hit-area-y-2 absolute right-0 bottom-0 left-0 h-1.5 bg-background/20 duration-200 ease-snappy",
                             isHoveringProgressBar &&
-                                "bottom-2 cursor-pointer mx-2 hit-area-x-2 rounded-full bg-background/40",
+                                "hit-area-x-2 bottom-2 mx-2 cursor-pointer rounded-full bg-background/40"
                         )}
                         onClick={(e) => {
                             e.stopPropagation();
                             const el = videoRef.current;
                             if (!el) return;
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const percentage = ((e.clientX - rect.left) / rect.width) * 100;
-                            const duration = previewDuration(el, video.metadata);
+                            const rect =
+                                e.currentTarget.getBoundingClientRect();
+                            const percentage =
+                                ((e.clientX - rect.left) / rect.width) * 100;
+                            const duration = previewDuration(
+                                el,
+                                video.metadata
+                            );
                             if (duration <= 0) return;
                             const seekTime = duration * (percentage / 100);
                             el.currentTime = seekTime;
@@ -258,8 +273,8 @@ export const VideoCard = memo(function VideoCard({
                     >
                         <div
                             className={cn(
-                                "bg-accent-positive h-full transition-all duration-200 ease-snappy",
-                                isHoveringProgressBar && "rounded-full",
+                                "h-full bg-info transition-all duration-200 ease-snappy",
+                                isHoveringProgressBar && "rounded-full"
                             )}
                             style={{ width: `${progress}%` }}
                         />
@@ -267,7 +282,9 @@ export const VideoCard = memo(function VideoCard({
                 )}
             </FramePanel>
             <FrameFooter className="flex flex-col gap-1 p-2">
-                <h3 className="group relative line-clamp-1 text-lg font-medium">{video.name}</h3>
+                <h3 className="ui-selectable group relative line-clamp-1 text-lg font-medium">
+                    {video.name}
+                </h3>
                 <div className="flex items-center gap-1">
                     {groupDots.length > 0 && (
                         <div className="flex gap-1">
@@ -279,33 +296,36 @@ export const VideoCard = memo(function VideoCard({
                                                 className="h-3 w-3 rounded-full"
                                                 style={{
                                                     backgroundColor:
-                                                        group.color ?? "var(--accent-color)",
+                                                        group.color ??
+                                                        "var(--muted-foreground)",
                                                 }}
                                             />
                                         }
                                     />
-                                    <TooltipContent>{group.name}</TooltipContent>
+                                    <TooltipContent>
+                                        {group.name}
+                                    </TooltipContent>
                                 </Tooltip>
                             ))}
                             {groupIds.length > 3 && (
-                                <span className="text-muted-foreground text-xs">
+                                <span className="text-xs text-muted-foreground">
                                     +{groupIds.length - 3}
                                 </span>
                             )}
                         </div>
                     )}
                     {video.game && (
-                        <p className="bg-muted text-muted-foreground flex h-5 w-fit items-center gap-1 rounded py-0.5 pr-1 pl-0.5 text-xs">
+                        <p className="flex h-5 w-fit items-center gap-1 rounded bg-muted py-0.5 pr-1 pl-0.5 text-xs text-muted-foreground">
                             <GameIcon game={video.game} gameImage={gameImage} />
                             {video.game}
                         </p>
                     )}
                 </div>
                 <div className="flex flex-wrap justify-between gap-1">
-                    <p className="text-muted-foreground text-sm">
+                    <p className="font-mono text-sm text-muted-foreground">
                         {(video.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
-                    <p className="text-muted-foreground text-sm">
+                    <p className="font-mono text-sm text-muted-foreground">
                         {formatDateTime(video.lastModified)}
                     </p>
                 </div>

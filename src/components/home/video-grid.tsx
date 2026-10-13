@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
+import { VideoContextMenu } from "@/components/home/video-context-menu";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VideoContextMenu } from "@/pages/home-page";
-import { useGamesStore } from "@/stores/games-store";
+import type { useGamesStore } from "@/stores/games-store";
 import type { GameImage, VideoFile, VideoGroup } from "@/types";
 
 import { VideoCard } from "./video-card";
@@ -48,7 +48,9 @@ export function VideoGrid({
     const videosByDate = useMemo(() => {
         const grouped: Record<string, VideoFile[]> = {};
         for (const video of filteredVideos) {
-            const dateString = new Date(video.lastModified).toISOString().split("T")[0];
+            const dateString = new Date(video.lastModified)
+                .toISOString()
+                .split("T")[0];
             (grouped[dateString] ??= []).push(video);
         }
         const now = new Date();
@@ -61,7 +63,8 @@ export function VideoGrid({
                 const date = new Date(dateString);
                 let formattedDate: string;
                 if (dateString === todayString) formattedDate = "Today";
-                else if (dateString === yesterdayString) formattedDate = "Yesterday";
+                else if (dateString === yesterdayString)
+                    formattedDate = "Yesterday";
                 else {
                     formattedDate = date.toLocaleDateString("en-US", {
                         weekday: "long",
@@ -72,7 +75,8 @@ export function VideoGrid({
                 }
                 const sortedVideos = [...videos].sort(
                     (a, b) =>
-                        new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime(),
+                        new Date(b.lastModified).getTime() -
+                        new Date(a.lastModified).getTime()
                 );
                 return {
                     date: dateString,
@@ -80,7 +84,10 @@ export function VideoGrid({
                     videos: sortedVideos,
                 };
             })
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            .sort(
+                (a, b) =>
+                    new Date(b.date).getTime() - new Date(a.date).getTime()
+            );
     }, [filteredVideos]);
 
     if (isLoading) {
@@ -99,7 +106,7 @@ export function VideoGrid({
                             {Array.from({
                                 length: viewMode === "grid" ? 8 : 5,
                             }).map((_, i) => (
-                                <div key={i} className="bg-muted rounded-lg">
+                                <div key={i} className="rounded-lg bg-muted">
                                     <Skeleton className="aspect-video w-full rounded-b-none" />
                                     <div className="space-y-2 p-4">
                                         <Skeleton className="h-5 w-3/4" />
@@ -120,7 +127,11 @@ export function VideoGrid({
                 <p className="text-muted-foreground">
                     No video files found in the selected directory.
                 </p>
-                <Button onClick={() => void onSelectDirectory()} variant="outline" className="mt-4">
+                <Button
+                    onClick={() => void onSelectDirectory()}
+                    variant="outline"
+                    className="mt-4"
+                >
                     Select Another Directory
                 </Button>
             </div>
@@ -131,24 +142,30 @@ export function VideoGrid({
         <div className="space-y-6">
             {videosByDate.map((dateGroup) => (
                 <div key={dateGroup.date} className="mb-0 space-y-4">
-                    <div className="bg-background time-header sticky top-0 z-10 mb-0 flex items-center py-2">
+                    <div className="time-header sticky top-0 z-10 mb-0 flex items-center bg-background py-2">
                         <h3 className="pr-2 text-lg font-medium text-nowrap">
                             {dateGroup.formattedDate}
                         </h3>
-                        <Separator className="from-border via-border/20 bg-gradient-to-r to-transparent" />
+                        <Separator className="bg-gradient-to-r from-border via-border/20 to-transparent" />
                         <svg
                             className="pointer-events-none absolute top-full left-0 size-3"
                             viewBox="0 0 12 12"
                             aria-hidden="true"
                         >
-                            <path d="M0 0 L0 12 A12 12 0 0 1 12 0 Z" fill="var(--background)" />
+                            <path
+                                d="M0 0 L0 12 A12 12 0 0 1 12 0 Z"
+                                fill="var(--background)"
+                            />
                         </svg>
                         <svg
                             className="pointer-events-none absolute top-full right-0 size-3 -scale-x-100"
                             viewBox="0 0 12 12"
                             aria-hidden="true"
                         >
-                            <path d="M0 0 L0 12 A12 12 0 0 1 12 0 Z" fill="var(--background)" />
+                            <path
+                                d="M0 0 L0 12 A12 12 0 0 1 12 0 Z"
+                                fill="var(--background)"
+                            />
                         </svg>
                     </div>
                     <div
@@ -177,16 +194,24 @@ export function VideoGrid({
                                     {viewMode === "grid" ? (
                                         <VideoCard
                                             video={video}
-                                            isSelected={selectedVideos.includes(video.path)}
-                                            gameImage={gameImages[video.game] ?? null}
+                                            isSelected={selectedVideos.includes(
+                                                video.path
+                                            )}
+                                            gameImage={
+                                                gameImages[video.game] ?? null
+                                            }
                                             groups={groups}
                                             groupIds={groupIds}
                                         />
                                     ) : (
                                         <VideoList
                                             video={video}
-                                            isSelected={selectedVideos.includes(video.path)}
-                                            gameImage={gameImages[video.game] ?? null}
+                                            isSelected={selectedVideos.includes(
+                                                video.path
+                                            )}
+                                            gameImage={
+                                                gameImages[video.game] ?? null
+                                            }
                                             groups={groups}
                                             groupIds={groupIds}
                                         />

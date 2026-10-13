@@ -1,267 +1,248 @@
-// Typed Tauri adapter: every privileged operation goes through these wrappers.
-// Command args are camelCase (Tauri maps to snake_case Rust params).
-
-import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import type {
-    ExportComplete,
     ExportOptions,
-    ExportProgress,
-    ExportedClip,
     ExportResult,
+    ExportedClip,
     ImportResult,
-    LibraryChanged,
     ListGamesResult,
     OpResult,
-    RecordingHealth,
     RecordingProfile,
     RecordingState,
     RenameResult,
     ScanResult,
-    SettingsMap,
-    SteamArtworkUpdated,
     SteamDataResult,
     SteamGame,
     VideoFile,
     VideoGroup,
     VideoMetadata,
-} from "@/types";
+} from "@/lib/backend/domain";
+import {
+    onAppActivate,
+    onExportComplete,
+    onExportError,
+    onExportProgress,
+    onLibraryChanged,
+    onRecordingError,
+    onRecordingHealth,
+    onRecordingProgress,
+    onRecordingSaved,
+    onRecordingSaving,
+    onRecordingState,
+    onSteamArtworkUpdated,
+} from "@/lib/backend/events";
+import { expectOk } from "@/lib/backend/transport/result";
+import { getAppRuntime } from "@/lib/bootstrap/app-runtime";
+import { imgSrc, videoSrc } from "@/lib/media-src";
 
-export function onLibraryChanged(cb: (payload: LibraryChanged) => void): Promise<UnlistenFn> {
-    return listen<LibraryChanged>("library-changed", (e) => cb(e.payload));
-}
+const backend = () => getAppRuntime().backend;
 
-export function onExportProgress(cb: (payload: ExportProgress) => void): Promise<UnlistenFn> {
-    return listen<ExportProgress>("export-progress", (e) => cb(e.payload));
-}
-
-export function onExportComplete(cb: (payload: ExportComplete) => void): Promise<UnlistenFn> {
-    return listen<ExportComplete>("export-complete", (e) => cb(e.payload));
-}
-
-export function onExportError(cb: (payload: { message: string }) => void): Promise<UnlistenFn> {
-    return listen<{ message: string }>("export-error", (e) => cb(e.payload));
-}
-
-export function onRecordingState(cb: (payload: RecordingState) => void): Promise<UnlistenFn> {
-    return listen<RecordingState>("recording-state", (e) => cb(e.payload));
-}
-
-export function onRecordingProgress(
-    cb: (payload: { availableSeconds: number; targetSeconds: number }) => void,
-): Promise<UnlistenFn> {
-    return listen<{ availableSeconds: number; targetSeconds: number }>("recording-progress", (e) =>
-        cb(e.payload),
-    );
-}
-
-export function onRecordingSaving(cb: () => void): Promise<UnlistenFn> {
-    return listen("recording-saving", () => cb());
-}
-
-/** Per-second capture health (encoder, delivered fps, readback cost, warnings). */
-export function onRecordingHealth(cb: (payload: RecordingHealth) => void): Promise<UnlistenFn> {
-    return listen<RecordingHealth>("recording-health", (e) => cb(e.payload));
-}
-
-export function onRecordingSaved(cb: (payload: { path: string }) => void): Promise<UnlistenFn> {
-    return listen<{ path: string }>("recording-saved", (e) => cb(e.payload));
-}
-
-export function onRecordingError(cb: (payload: { message: string }) => void): Promise<UnlistenFn> {
-    return listen<{ message: string }>("recording-error", (e) => cb(e.payload));
-}
-
-export function onSteamArtworkUpdated(
-    cb: (payload: SteamArtworkUpdated) => void,
-): Promise<UnlistenFn> {
-    return listen<SteamArtworkUpdated>("steam-artwork-updated", (e) => cb(e.payload));
-}
-
-export function onAppActivate(cb: () => void): Promise<UnlistenFn> {
-    return listen("app-activate", () => cb());
-}
+export {
+    onAppActivate,
+    onExportComplete,
+    onExportError,
+    onExportProgress,
+    onLibraryChanged,
+    onRecordingError,
+    onRecordingHealth,
+    onRecordingProgress,
+    onRecordingSaved,
+    onRecordingSaving,
+    onRecordingState,
+    onSteamArtworkUpdated,
+    videoSrc,
+    imgSrc,
+};
 
 /** Pick a single file (WAV for the save-success sound). */
-export function selectFile(): Promise<string | null> {
-    return import("@tauri-apps/plugin-dialog").then((dialog) => dialog.open({ multiple: false }));
+export async function selectFile(): Promise<string | null> {
+    const dialog = await import("@tauri-apps/plugin-dialog");
+    return dialog.open({ multiple: false });
 }
 
 export function selectDirectory(): Promise<string | null> {
-    return invoke<string | null>("select_directory");
+    return backend().library.selectDirectory().then(expectOk);
 }
 
 export function addLibraryRoot(path: string): Promise<ScanResult> {
-    return invoke<ScanResult>("add_library_root", { path });
+    return backend().library.addRoot(path).then(expectOk);
 }
 
 export function scanLibrary(): Promise<ScanResult> {
-    return invoke<ScanResult>("scan_library");
+    return backend().library.scan().then(expectOk);
 }
 
 export function getLibraryRoots(): Promise<string[]> {
-    return invoke<string[]>("get_library_roots");
+    return backend().library.getRoots().then(expectOk);
 }
 
 export function getClips(): Promise<VideoFile[]> {
-    return invoke<VideoFile[]>("get_clips");
+    return backend().clips.list().then(expectOk);
 }
 
 export function getClipMetadata(path: string): Promise<VideoMetadata> {
-    return invoke<VideoMetadata>("get_clip_metadata", { path });
+    return backend().clips.metadata(path).then(expectOk);
 }
 
 export function getThumbnail(path: string): Promise<string> {
-    return invoke<string>("get_thumbnail", { path });
+    return backend().clips.thumbnail(path).then(expectOk);
 }
 
 export function getPlayableVideo(path: string): Promise<string> {
-    return invoke<string>("get_playable_video", { path });
+    return backend().clips.playableVideo(path).then(expectOk);
 }
 
 export function getWaveform(
     path: string,
     sampleCount?: number,
-    audioTrack?: number,
+    audioTrack?: number
 ): Promise<number[]> {
-    return invoke<number[]>("get_waveform", { path, sampleCount, audioTrack });
+    return backend()
+        .clips.waveform(path, sampleCount, audioTrack)
+        .then(expectOk);
 }
 
 export function deleteClips(paths: string[]): Promise<OpResult> {
-    return invoke<OpResult>("delete_clips", { paths });
+    return backend().clips.remove(paths).then(expectOk);
 }
 
-export function renameClip(path: string, newGameName: string): Promise<RenameResult> {
-    return invoke<RenameResult>("rename_clip", { path, newGameName });
+export function renameClip(
+    path: string,
+    newGameName: string
+): Promise<RenameResult> {
+    return backend().clips.rename(path, newGameName).then(expectOk);
 }
 
 export function showInFolder(path: string): Promise<void> {
-    return invoke("show_in_folder", { path });
+    return backend().clips.reveal(path).then(expectOk);
 }
 
 export function openFile(path: string): Promise<void> {
-    return invoke("open_file", { path });
+    return backend().clips.open(path).then(expectOk);
 }
 
 export function removeLibraryRoot(path: string): Promise<void> {
-    return invoke("remove_library_root", { path });
+    return backend().library.removeRoot(path).then(expectOk);
 }
 
-export function exportClip(path: string, options: ExportOptions): Promise<ExportResult> {
-    return invoke<ExportResult>("export_clip", { path, options });
+export function exportClip(
+    path: string,
+    options: ExportOptions
+): Promise<ExportResult> {
+    return backend().clips.export(path, options).then(expectOk);
 }
 
 export function getPreviousExports(path: string): Promise<ExportedClip[]> {
-    return invoke<ExportedClip[]>("get_previous_exports", { path });
+    return backend().clips.previousExports(path).then(expectOk);
 }
 
 export function removeExport(outputPath: string): Promise<void> {
-    return invoke("remove_export", { outputPath });
+    return backend().clips.removeExport(outputPath).then(expectOk);
 }
 
 export function copyFileToClipboard(path: string): Promise<void> {
-    return invoke("copy_file_to_clipboard", { path });
+    return backend().clips.copyToClipboard(path).then(expectOk);
 }
 
 export function listGroups(): Promise<VideoGroup[]> {
-    return invoke<VideoGroup[]>("list_groups");
+    return backend().groups.list().then(expectOk);
 }
 
-export function createGroup(name: string, color?: string | null): Promise<VideoGroup> {
-    return invoke<VideoGroup>("create_group", { name, color });
+export function createGroup(
+    name: string,
+    color?: string | null
+): Promise<VideoGroup> {
+    return backend().groups.create(name, color).then(expectOk);
 }
 
 export function deleteGroup(id: string): Promise<void> {
-    return invoke("delete_group", { id });
+    return backend().groups.remove(id).then(expectOk);
 }
 
 export function getGroupClips(groupId: string): Promise<VideoFile[]> {
-    return invoke<VideoFile[]>("get_group_clips", { groupId });
+    return backend().groups.clips(groupId).then(expectOk);
 }
 
-export function assignClipsToGroup(clipPaths: string[], groupId: string): Promise<void> {
-    return invoke("assign_clips_to_group", { clipPaths, groupId });
+export function assignClipsToGroup(
+    clipPaths: string[],
+    groupId: string
+): Promise<void> {
+    return backend().groups.assign(clipPaths, groupId).then(expectOk);
 }
 
-export function removeClipsFromGroup(clipPaths: string[], groupId: string): Promise<void> {
-    return invoke("remove_clips_from_group", { clipPaths, groupId });
-}
-
-export function getSettings(): Promise<SettingsMap> {
-    return invoke<SettingsMap>("get_settings");
-}
-
-export function setSetting(key: string, value: unknown): Promise<void> {
-    return invoke("set_setting", { key, value });
-}
-
-export function resetSettings(): Promise<void> {
-    return invoke("reset_settings");
+export function removeClipsFromGroup(
+    clipPaths: string[],
+    groupId: string
+): Promise<void> {
+    return backend().groups.unassign(clipPaths, groupId).then(expectOk);
 }
 
 export function importLegacyState(path?: string | null): Promise<ImportResult> {
-    return invoke<ImportResult>("import_legacy_state", { path });
+    return backend().legacy.importState(path).then(expectOk);
 }
 
 export function startReplayBuffer(): Promise<void> {
-    return invoke("start_replay_buffer");
+    return backend().recording.start().then(expectOk);
 }
 
 export function saveReplay(): Promise<void> {
-    return invoke("save_replay");
+    return backend().recording.save().then(expectOk);
 }
 
 export function stopReplayBuffer(): Promise<void> {
-    return invoke("stop_replay_buffer");
+    return backend().recording.stop().then(expectOk);
 }
 
 export function getRecordingState(): Promise<RecordingState> {
-    return invoke<RecordingState>("get_recording_state");
+    return backend().recording.state().then(expectOk);
 }
 
 export function getRecordingProfile(): Promise<RecordingProfile> {
-    return invoke<RecordingProfile>("get_recording_profile");
+    return backend().recording.profile().then(expectOk);
 }
 
 export function setRecordingProfile(profile: RecordingProfile): Promise<void> {
-    return invoke("set_recording_profile", { profile });
+    return backend().recording.setProfile(profile).then(expectOk);
 }
 
 export function refreshSteamData(): Promise<SteamDataResult> {
-    return invoke<SteamDataResult>("refresh_steam_data");
+    return backend().steam.refresh().then(expectOk);
 }
 
 export function getGames(): Promise<ListGamesResult> {
-    return invoke<ListGamesResult>("get_games");
+    return backend().steam.listGames().then(expectOk);
 }
 
 export function refreshSteamArtwork(appId: string): Promise<void> {
-    return invoke("refresh_steam_artwork", { appId });
+    return backend().steam.refreshArtwork(appId).then(expectOk);
 }
 
 export function addCustomGame(name: string): Promise<SteamGame> {
-    return invoke<SteamGame>("add_custom_game", { name });
+    return backend().steam.addCustomGame(name).then(expectOk);
 }
 
 export function removeCustomGame(appId: string): Promise<void> {
-    return invoke("remove_custom_game", { appId });
+    return backend().steam.removeCustomGame(appId).then(expectOk);
 }
 
-export function setCustomGameImage(appId: string, role: string, pathOrUrl: string): Promise<void> {
-    return invoke("set_custom_game_image", { appId, role, pathOrUrl });
+export function setCustomGameImage(
+    appId: string,
+    role: string,
+    pathOrUrl: string
+): Promise<void> {
+    return backend()
+        .steam.setCustomImage(appId, role, pathOrUrl)
+        .then(expectOk);
 }
 
 export function setGameAlias(alias: string, appId: string): Promise<void> {
-    return invoke("set_game_alias", { alias, appId });
+    return backend().steam.setAlias(alias, appId).then(expectOk);
 }
 
 export function removeGameAlias(alias: string): Promise<void> {
-    return invoke("remove_game_alias", { alias });
+    return backend().steam.removeAlias(alias).then(expectOk);
 }
-
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export const appWindow = getCurrentWindow();
 
@@ -281,30 +262,4 @@ export function isWindowMaximized(): Promise<boolean> {
     return appWindow.isMaximized();
 }
 
-let mediaServerPort: Promise<number> | null = null;
-
-/** Port of the embedded localhost media server (started in Rust setup). */
-function getMediaServerPort(): Promise<number> {
-    if (!mediaServerPort) {
-        mediaServerPort = invoke<number>("get_media_server_port").catch((e) => {
-            mediaServerPort = null;
-            throw e;
-        });
-    }
-    return mediaServerPort;
-}
-
-/** Local file URL for the `<video>` element. WebView2's intercepted protocols
- * (asset/custom schemes) play video but drop audio, so clips are streamed from
- * the embedded localhost HTTP server, which plays with sound. */
-export async function videoSrc(path: string): Promise<string> {
-    const port = await getMediaServerPort();
-    return `http://127.0.0.1:${port}/${encodeURIComponent(path)}`;
-}
-
-/** Local file via the asset protocol (thumbnails, artwork, exports). */
-export function imgSrc(path: string): string {
-    return convertFileSrc(path);
-}
-
-export type { UnlistenFn };
+export { convertFileSrc };

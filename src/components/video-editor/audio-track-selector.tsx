@@ -38,19 +38,29 @@ export function AudioTrackSelector({
                     <Button
                         variant="ghost"
                         size="icon-sm"
-                        className={cn("h-6 w-6 p-0", isSwitching && "opacity-70")}
+                        className={cn(
+                            "h-6 w-6 p-0",
+                            isSwitching && "opacity-70"
+                        )}
                         disabled={isSwitching}
                         aria-label="Select audio track"
                     />
                 }
             >
-                <Headphones className={cn("h-4 w-4", isSwitching && "animate-pulse text-accent")} />
+                <Headphones
+                    className={cn(
+                        "h-4 w-4",
+                        isSwitching && "animate-pulse text-accent"
+                    )}
+                />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center" side="top">
                 {tracks.map((track) => (
                     <DropdownMenuItem
                         key={track.index}
-                        className={selectedTrack === track.index ? "bg-muted" : ""}
+                        className={
+                            selectedTrack === track.index ? "bg-muted" : ""
+                        }
                         onClick={() => onTrackChange(track.index)}
                     >
                         {track.label || `Track ${track.index + 1}`}

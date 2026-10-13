@@ -1,79 +1,93 @@
-// Settings store: SQLite-backed via commands, mirrored in a module store with
-// subscription hooks (legacy `useSetting`/`useShortcutSetting` contract).
+import { useSelector } from "@tanstack/react-store";
+import { useEffect, useMemo, useRef } from "react";
 
-import { useEffect, useSyncExternalStore } from "react";
-
-import * as tauri from "@/lib/tauri";
+import type { SettingDefinition } from "@/lib/backend/protocol";
+import type {
+    SettingKey,
+    SettingsValues,
+} from "@/lib/settings/settings.generated";
+import {
+    getSetting as getStoreSetting,
+    setSetting as setStoreSetting,
+    settingsStore,
+} from "@/stores/settings-store";
 
 export type SettingValue = string | boolean | number | string[];
 export type SettingsMap = Record<string, SettingValue>;
 
-let settings: SettingsMap = {};
-const listeners = new Set<() => void>();
-
-function notify() {
-    for (const listener of listeners) {
-        listener();
+/**
+ * Compatibility layer over the schema-driven settings store for the ported
+ * components. Legacy keys use the `shortcut_<name>` form; the schema stores
+ * `<name>Shortcut`, so both resolve to the same key.
+ */
+function resolveKey(key: string): string {
+    if (key.startsWith("shortcut_")) {
+        return `${key.slice("shortcut_".length)}Shortcut`;
     }
+    return key;
 }
 
-function subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
+export function getSetting<T extends SettingValue = SettingValue>(
+    key: string
+): T | undefined {
+    return getStoreSetting(resolveKey(key) as SettingKey) as T | undefined;
 }
 
-function getSnapshot(): SettingsMap {
-    return settings;
+export function useSetting<T extends SettingValue = SettingValue>(
+    key: string
+): T | undefined {
+    const resolved = resolveKey(key);
+    return useSelector(
+        settingsStore,
+        (state) => state.values[resolved as SettingKey]
+    ) as T | undefined;
 }
 
-/** Load all settings from SQLite (call once at startup). */
-export async function loadSettings(): Promise<void> {
-    const loaded = await tauri.getSettings();
-    settings = loaded as SettingsMap;
-    notify();
-}
-
-export function getSetting<T extends SettingValue = SettingValue>(key: string): T | undefined {
-    return settings[key] as T | undefined;
-}
-
-/** Reactive setting value; re-renders on any settings change. */
-export function useSetting<T extends SettingValue = SettingValue>(key: string): T | undefined {
-    const snapshot = useSyncExternalStore(subscribe, getSnapshot);
-    return snapshot[key] as T | undefined;
-}
-
-/** The full settings map, reactive to any change. */
 export function useSettings(): SettingsMap {
-    return useSyncExternalStore(subscribe, getSnapshot);
+    return useSelector(
+        settingsStore,
+        (state) => state.values as unknown as SettingsMap
+    );
 }
 
-/** Persist a setting through SQLite and update the local mirror. */
-export async function setSetting(key: string, value: SettingValue): Promise<void> {
-    await tauri.setSetting(key, value);
-    settings = { ...settings, [key]: value };
-    notify();
+export function setSetting(key: string, value: SettingValue): Promise<void> {
+    setStoreSetting(resolveKey(key) as SettingKey, value as never);
+    return Promise.resolve();
 }
 
-/** Subscribe to settings changes (legacy `useSettingsChange`). */
+export function loadSettings(): Promise<void> {
+    // Bootstrap initializes the store before first render.
+    return Promise.resolve();
+}
+
 export function useSettingsChange(callback: () => void): void {
+    const ref = useRef(callback);
     useEffect(() => {
-        const listener = () => callback();
-        listeners.add(listener);
-        return () => {
-            listeners.delete(listener);
-        };
+        ref.current = callback;
     }, [callback]);
+    useEffect(() => {
+        const dispose = settingsStore.subscribe(() => ref.current());
+        return () => dispose.unsubscribe();
+    }, []);
 }
 
-/** Notify listeners after external changes (legacy `dispatchSettingsChange`). */
 export function dispatchSettingsChange(): void {
-    notify();
+    // The settings store is reactive; nothing to broadcast.
 }
 
-export async function resetAllSettingsToDefault(): Promise<void> {
-    await tauri.resetSettings();
-    await loadSettings();
+export function resetAllSettingsToDefault(): Promise<void> {
+    const schema = settingsStore.state.schema;
+    for (const tab of schema.tabs) {
+        for (const section of tab.sections) {
+            for (const definition of section.settings as SettingDefinition[]) {
+                setStoreSetting(
+                    definition.key as SettingKey,
+                    definition.defaultValue as never
+                );
+            }
+        }
+    }
+    return Promise.resolve();
 }
 
 export interface Shortcut {
@@ -86,7 +100,7 @@ export interface Shortcut {
 
 export function parseShortcut(text: string | undefined): Shortcut | null {
     if (!text) return null;
-    const parts = text.split("+").map((p) => p.trim());
+    const parts = text.split("+").map((part) => part.trim());
     let ctrl = false;
     let shift = false;
     let alt = false;
@@ -97,13 +111,17 @@ export function parseShortcut(text: string | undefined): Shortcut | null {
         if (upper === "CTRL" || upper === "CONTROL") ctrl = true;
         else if (upper === "SHIFT") shift = true;
         else if (upper === "ALT") alt = true;
-        else if (upper === "META" || upper === "CMD" || upper === "WIN") meta = true;
+        else if (upper === "META" || upper === "CMD" || upper === "WIN")
+            meta = true;
         else key = upper;
     }
     return { ctrl, shift, alt, meta, key };
 }
 
-export function shortcutMatches(shortcut: Shortcut | null, event: KeyboardEvent): boolean {
+export function shortcutMatches(
+    shortcut: Shortcut | null,
+    event: KeyboardEvent
+): boolean {
     if (!shortcut || !shortcut.key) return false;
     const modifiersMatch =
         event.ctrlKey === shortcut.ctrl &&
@@ -111,30 +129,37 @@ export function shortcutMatches(shortcut: Shortcut | null, event: KeyboardEvent)
         event.altKey === shortcut.alt &&
         event.metaKey === shortcut.meta;
     if (shortcut.key === "SPACE") {
-        // The spacebar's event.key is " " (or "Space" on some platforms), which
-        // toUpperCase() does not turn into "SPACE".
         return (event.key === " " || event.key === "Space") && modifiersMatch;
     }
     return event.key.toUpperCase() === shortcut.key && modifiersMatch;
 }
 
-/**
- * Bind a keyboard shortcut to a handler. The shortcut string comes from the
- * settings store (legacy `useShortcutSetting`).
- */
-export function useShortcutSetting(shortcutKey: string, handler: () => void): void {
+/** Bind a keyboard shortcut to a handler; the chord comes from the settings. */
+export function useShortcutSetting(
+    shortcutKey: string,
+    handler: () => void
+): void {
     const shortcutText = useSetting<string>(`shortcut_${shortcutKey}`);
-    const shortcut = shortcutText ? parseShortcut(shortcutText) : null;
+    const handlerRef = useRef(handler);
+    useEffect(() => {
+        handlerRef.current = handler;
+    }, [handler]);
+    const shortcut = useMemo(
+        () => (shortcutText ? parseShortcut(shortcutText) : null),
+        [shortcutText]
+    );
     useEffect(() => {
         if (!shortcut) return;
         const onKeyDown = (event: KeyboardEvent) => {
             if (event.repeat) return;
             if (shortcutMatches(shortcut, event)) {
                 event.preventDefault();
-                handler();
+                handlerRef.current();
             }
         };
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
-    }, [shortcut, handler]);
+    }, [shortcut]);
 }
+
+export type { SettingKey, SettingsValues };

@@ -16,7 +16,13 @@ interface VideoListProps {
     groupIds: string[];
 }
 
-export function VideoList({ video, isSelected, gameImage, groups, groupIds }: VideoListProps) {
+export function VideoList({
+    video,
+    isSelected,
+    gameImage,
+    groups,
+    groupIds,
+}: VideoListProps) {
     const navigate = useNavigate();
     const groupDots = groupIds
         .slice(0, 3)
@@ -26,8 +32,8 @@ export function VideoList({ video, isSelected, gameImage, groups, groupIds }: Vi
     return (
         <div
             className={cn(
-                "hover:bg-muted selectable-item flex h-9 cursor-pointer flex-row items-center gap-1 rounded-md px-2 transition-colors duration-200 scroll-mt-10",
-                { "bg-muted": isSelected },
+                "selectable-item flex h-9 cursor-pointer scroll-mt-10 flex-row items-center gap-1 rounded-md px-2 transition-colors duration-200 hover:bg-muted",
+                { "bg-muted": isSelected }
             )}
             onClick={() => {
                 rememberReturnToClip(video.path);
@@ -38,7 +44,11 @@ export function VideoList({ video, isSelected, gameImage, groups, groupIds }: Vi
             }}
             data-video-path={video.path}
         >
-            <GameIcon game={video.game} gameImage={gameImage} className="size-6" />
+            <GameIcon
+                game={video.game}
+                gameImage={gameImage}
+                className="size-6"
+            />
             <Separator orientation="vertical" className="h-8!" />
             {groupDots.length > 0 && (
                 <div className="flex gap-1">
@@ -46,24 +56,27 @@ export function VideoList({ video, isSelected, gameImage, groups, groupIds }: Vi
                         <span
                             key={group.id}
                             className="h-3 w-3 rounded-full"
-                            style={{ backgroundColor: group.color ?? "var(--accent-color)" }}
+                            style={{
+                                backgroundColor:
+                                    group.color ?? "var(--muted-foreground)",
+                            }}
                         />
                     ))}
                     {groupIds.length > 3 && (
-                        <span className="text-muted-foreground text-xs">
+                        <span className="text-xs text-muted-foreground">
                             +{groupIds.length - 3}
                         </span>
                     )}
                 </div>
             )}
             <div className="flex w-full min-w-0 items-center justify-between gap-1">
-                <h3 className="truncate">{video.name}</h3>
+                <h3 className="ui-selectable truncate">{video.name}</h3>
                 <div className="flex items-center gap-1">
-                    <p className="text-muted-foreground text-sm">
+                    <p className="font-mono text-sm text-muted-foreground">
                         {(video.size / (1024 * 1024)).toFixed(1)} MB
                     </p>
                     <Separator orientation="vertical" className="h-8!" />
-                    <p className="text-muted-foreground w-38 text-sm">
+                    <p className="w-38 font-mono text-sm text-muted-foreground">
                         {formatDateTime(video.lastModified)}
                     </p>
                 </div>

@@ -10,7 +10,11 @@ export function useSelection<T>(items: T[], getId: (item: T) => string) {
         (id: string, index: number, additive: boolean, range: boolean) => {
             setSelected((prev) => {
                 const next = new Set(prev);
-                if (range && lastIndexRef.current >= 0 && index !== lastIndexRef.current) {
+                if (
+                    range &&
+                    lastIndexRef.current >= 0 &&
+                    index !== lastIndexRef.current
+                ) {
                     const [from, to] = [
                         Math.min(lastIndexRef.current, index),
                         Math.max(lastIndexRef.current, index),
@@ -34,7 +38,7 @@ export function useSelection<T>(items: T[], getId: (item: T) => string) {
                 return next;
             });
         },
-        [getId, items],
+        [getId, items]
     );
 
     const clear = useCallback(() => setSelected(new Set()), []);
@@ -42,11 +46,13 @@ export function useSelection<T>(items: T[], getId: (item: T) => string) {
         (all: boolean) => {
             setSelected(all ? new Set(items.map(getId)) : new Set());
         },
-        [items, getId],
+        [items, getId]
     );
 
     const toggleAll = useCallback(() => {
-        setSelected((prev) => (prev.size === items.length ? new Set() : new Set(items.map(getId))));
+        setSelected((prev) =>
+            prev.size === items.length ? new Set() : new Set(items.map(getId))
+        );
     }, [items, getId]);
 
     const invert = useCallback(() => {
@@ -66,6 +72,6 @@ export function useSelection<T>(items: T[], getId: (item: T) => string) {
 
     return useMemo(
         () => ({ selected, toggle, clear, setAll, toggleAll, invert }),
-        [selected, toggle, clear, setAll, toggleAll, invert],
+        [selected, toggle, clear, setAll, toggleAll, invert]
     );
 }

@@ -22,15 +22,23 @@ export function useGamesStore(): GamesStoreState & {
     refreshArtwork: (appId: string) => Promise<void>;
     addCustomGame: (name: string) => Promise<SteamGame>;
     removeCustomGame: (appId: string) => Promise<void>;
-    setCustomImage: (appId: string, role: string, pathOrUrl: string) => Promise<void>;
+    setCustomImage: (
+        appId: string,
+        role: string,
+        pathOrUrl: string
+    ) => Promise<void>;
     setAlias: (alias: string, appId: string) => Promise<void>;
     removeAlias: (alias: string) => Promise<void>;
 } {
     const [games, setGames] = useState<SteamGame[]>(cachedGames?.games ?? []);
-    const [aliases, setAliases] = useState<GameAlias[]>(cachedGames?.aliases ?? []);
+    const [aliases, setAliases] = useState<GameAlias[]>(
+        cachedGames?.aliases ?? []
+    );
     const [loading, setLoading] = useState<boolean>(!cachedGames);
     const [error, setError] = useState<string | null>(null);
-    const [diagnostics, setDiagnostics] = useState<{ path: string; reason: string }[]>([]);
+    const [diagnostics, setDiagnostics] = useState<
+        { path: string; reason: string }[]
+    >([]);
 
     const reload = useCallback(async () => {
         try {
@@ -99,7 +107,7 @@ export function useGamesStore(): GamesStoreState & {
             await tauri.refreshSteamArtwork(appId);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const addCustomGame = useCallback(async (name: string) => {
@@ -113,7 +121,7 @@ export function useGamesStore(): GamesStoreState & {
             await tauri.removeCustomGame(appId);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const setCustomImage = useCallback(
@@ -121,7 +129,7 @@ export function useGamesStore(): GamesStoreState & {
             await tauri.setCustomGameImage(appId, role, pathOrUrl);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const setAlias = useCallback(
@@ -129,7 +137,7 @@ export function useGamesStore(): GamesStoreState & {
             await tauri.setGameAlias(alias, appId);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const removeAlias = useCallback(
@@ -137,7 +145,7 @@ export function useGamesStore(): GamesStoreState & {
             await tauri.removeGameAlias(alias);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     return {
@@ -162,7 +170,7 @@ export function useGamesStore(): GamesStoreState & {
 export function resolveGameName(
     games: SteamGame[],
     aliases: GameAlias[],
-    gameName: string,
+    gameName: string
 ): string {
     if (!gameName || gameName === "Unknown") return gameName;
     const alias = aliases.find((a) => a.alias === gameName);
@@ -177,7 +185,7 @@ export function resolveGameName(
 export function gameImageFor(
     games: SteamGame[],
     aliases: GameAlias[],
-    gameName: string,
+    gameName: string
 ): GameImage | null {
     if (!gameName || gameName === "Unknown") return null;
     const alias = aliases.find((a) => a.alias === gameName);

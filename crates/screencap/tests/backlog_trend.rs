@@ -87,8 +87,8 @@ struct Window {
 /// windows distinguishes "the writer got slower" from "the volume filled up".
 fn free_bytes(path: &std::path::Path) -> Option<u64> {
     use std::os::windows::ffi::OsStrExt;
-    use windows::core::PCWSTR;
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    use windows::core::PCWSTR;
 
     // Walk up to the volume root (`C:\`), which is what the API wants.
     let mut p = path;
@@ -108,14 +108,7 @@ fn free_bytes(path: &std::path::Path) -> Option<u64> {
     let mut free = 0u64;
     // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call,
     // and the out-parameter points at a live, correctly typed local.
-    let ok = unsafe {
-        GetDiskFreeSpaceExW(
-            PCWSTR(wide.as_ptr()),
-            Some(&mut free),
-            None,
-            None,
-        )
-    };
+    let ok = unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut free), None, None) };
     ok.is_ok().then_some(free)
 }
 
@@ -214,12 +207,7 @@ fn backlog_does_not_grow_over_a_long_run() {
     // segmenter muxer is configured with `max_interleave_delta=0`, so an audio
     // stream that arrives irregularly can stall video muxing. Running with zero
     // tracks would not reproduce that at all.
-    const TRACKS: [(u16, &str); 4] = [
-        (1, "discord"),
-        (2, "spotify"),
-        (3, "zen"),
-        (4, "system"),
-    ];
+    const TRACKS: [(u16, &str); 4] = [(1, "discord"), (2, "spotify"), (3, "zen"), (4, "system")];
     let block_samples = (sample_rate * block_ms / 1000) as usize * 2;
     let (track_txs, track_rxs): (Vec<_>, Vec<_>) = TRACKS
         .iter()
@@ -364,21 +352,25 @@ fn backlog_does_not_grow_over_a_long_run() {
     });
 
     // Sample the buffer volume's free space on the same 5 s grid as the writer's
-// delivery windows, so the table can show backlog against volume pressure.
-let free_samples: Arc<std::sync::Mutex<Vec<Option<u64>>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
-let sampler = {
-    let free_samples = free_samples.clone();
-    let work = work.clone();
-    std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(seconds);
-        while Instant::now() < deadline {
-            free_samples.lock().expect("free mutex").push(free_bytes(&work));
-            std::thread::sleep(Duration::from_secs(5));
-        }
-    })
-};
+    // delivery windows, so the table can show backlog against volume pressure.
+    let free_samples: Arc<std::sync::Mutex<Vec<Option<u64>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sampler = {
+        let free_samples = free_samples.clone();
+        let work = work.clone();
+        std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(seconds);
+            while Instant::now() < deadline {
+                free_samples
+                    .lock()
+                    .expect("free mutex")
+                    .push(free_bytes(&work));
+                std::thread::sleep(Duration::from_secs(5));
+            }
+        })
+    };
 
-let sent = producer.join().expect("producer joins");
+    let sent = producer.join().expect("producer joins");
     let audio_sent: u64 = audio_producers
         .into_iter()
         .map(|h| h.join().unwrap_or(0))
@@ -436,11 +428,36 @@ let sent = producer.join().expect("producer joins");
     let wmean_slope = slope_per_min(&wmean);
 
     println!("\nTREND (per minute, least squares over the run)");
-    println!("  max_queue_depth  {:+.3}   (first={:.0} last={:.0})", depth_slope, depths[0], depths[depths.len()-1]);
-    println!("  queue_depth_end  {:+.3}   (first={:.0} last={:.0})", slope_per_min(&ends), ends[0], ends[ends.len()-1]);
-    println!("  max_frame_age_ms {:+.3}   (first={:.0} last={:.0})", age_slope, ages[0], ages[ages.len()-1]);
-    println!("  write_mean_ms    {:+.3}   (first={:.2} last={:.2})", wmean_slope, wmean[0], wmean[wmean.len()-1]);
-    println!("  write_max_ms     {:+.3}   (first={:.2} last={:.2})", wmax_slope, wmax[0], wmax[wmax.len()-1]);
+    println!(
+        "  max_queue_depth  {:+.3}   (first={:.0} last={:.0})",
+        depth_slope,
+        depths[0],
+        depths[depths.len() - 1]
+    );
+    println!(
+        "  queue_depth_end  {:+.3}   (first={:.0} last={:.0})",
+        slope_per_min(&ends),
+        ends[0],
+        ends[ends.len() - 1]
+    );
+    println!(
+        "  max_frame_age_ms {:+.3}   (first={:.0} last={:.0})",
+        age_slope,
+        ages[0],
+        ages[ages.len() - 1]
+    );
+    println!(
+        "  write_mean_ms    {:+.3}   (first={:.2} last={:.2})",
+        wmean_slope,
+        wmean[0],
+        wmean[wmean.len() - 1]
+    );
+    println!(
+        "  write_max_ms     {:+.3}   (first={:.2} last={:.2})",
+        wmax_slope,
+        wmax[0],
+        wmax[wmax.len() - 1]
+    );
 
     // The live failure mode: a positive depth slope that outruns a flat write
     // time means the queue is growing for a reason the writer's own timing does

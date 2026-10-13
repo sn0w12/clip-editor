@@ -31,10 +31,16 @@ const SELECTABLE_ELEMENTS = [
 
 function modifiersHeld(
     shortcut: Shortcut | null,
-    e: { ctrlKey: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean },
+    e: {
+        ctrlKey: boolean;
+        shiftKey: boolean;
+        altKey: boolean;
+        metaKey: boolean;
+    }
 ): boolean {
     if (!shortcut) return false;
-    if (!shortcut.ctrl && !shortcut.shift && !shortcut.alt && !shortcut.meta) return false;
+    if (!shortcut.ctrl && !shortcut.shift && !shortcut.alt && !shortcut.meta)
+        return false;
     return (
         (!shortcut.shift || e.shiftKey) &&
         (!shortcut.ctrl || e.ctrlKey) &&
@@ -47,7 +53,7 @@ export function useDragSelection<T>(
     items: T[],
     getItemId: (item: T) => string,
     containerRef: RefObject<HTMLElement | null>,
-    onSelectionChange?: (selected: Set<string>) => void,
+    onSelectionChange?: (selected: Set<string>) => void
 ) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [box, setBox] = useState<Box | null>(null);
@@ -80,7 +86,7 @@ export function useDragSelection<T>(
             setSelected(next);
             onSelectionChange?.(next);
         },
-        [onSelectionChange],
+        [onSelectionChange]
     );
 
     // The modifier that extends a range during a drag, from the settings.
@@ -88,9 +94,11 @@ export function useDragSelection<T>(
     const continueModifier = useMemo(
         () =>
             parseShortcut(
-                typeof continueSelectionText === "string" ? continueSelectionText : undefined,
+                typeof continueSelectionText === "string"
+                    ? continueSelectionText
+                    : undefined
             ),
-        [continueSelectionText],
+        [continueSelectionText]
     );
 
     const handleMouseDown = useCallback(
@@ -99,7 +107,9 @@ export function useDragSelection<T>(
             const target = e.target as HTMLElement;
             if (target.closest(".selectable-item")) return;
             if (target.closest(SELECTABLE_ELEMENTS.join(", "))) return;
-            const containerRect = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+            const containerRect = (
+                e.currentTarget as HTMLElement | null
+            )?.getBoundingClientRect();
             const x = e.clientX - (containerRect?.left ?? 0);
             const y = e.clientY - (containerRect?.top ?? 0);
             startRef.current = {
@@ -111,7 +121,7 @@ export function useDragSelection<T>(
             setBox({ x, y, w: 0, h: 0 });
             setIsSelecting(true);
         },
-        [continueModifier],
+        [continueModifier]
     );
 
     useEffect(() => {
@@ -131,7 +141,7 @@ export function useDragSelection<T>(
         // the duration of the drag — no per-move DOM queries or layout reads.
         const containerRect = container.getBoundingClientRect();
         const elementRects = Array.from(
-            container.querySelectorAll<HTMLElement>(".selectable-item"),
+            container.querySelectorAll<HTMLElement>(".selectable-item")
         ).map((el) => {
             const r = el.getBoundingClientRect();
             return {
@@ -195,7 +205,9 @@ export function useDragSelection<T>(
                     }
                 });
 
-                const prev = start.shift ? new Set(selectedRef.current) : new Set<string>();
+                const prev = start.shift
+                    ? new Set(selectedRef.current)
+                    : new Set<string>();
                 if (start.shift && lastHit >= 0 && lastIndexRef.current >= 0) {
                     const [from, to] = [
                         Math.min(lastIndexRef.current, lastHit),
@@ -233,7 +245,14 @@ export function useDragSelection<T>(
             setIsSelecting(false);
             setBox(null);
             startRef.current = null;
-            if (start && box && box.w < 4 && box.h < 4 && !start.ctrl && !start.shift) {
+            if (
+                start &&
+                box &&
+                box.w < 4 &&
+                box.h < 4 &&
+                !start.ctrl &&
+                !start.shift
+            ) {
                 setSelection(new Set());
             }
         };
@@ -282,7 +301,8 @@ export function useDragSelection<T>(
         const container = containerRef.current;
         if (!container) return;
         container.addEventListener("mousedown", handleMouseDown);
-        return () => container.removeEventListener("mousedown", handleMouseDown);
+        return () =>
+            container.removeEventListener("mousedown", handleMouseDown);
     }, [containerRef, handleMouseDown, items]);
 
     return useMemo(
@@ -292,7 +312,7 @@ export function useDragSelection<T>(
             isSelecting,
             clear: () => setSelection(new Set()),
         }),
-        [selected, box, isSelecting, setSelection],
+        [selected, box, isSelecting, setSelection]
     );
 }
 
@@ -307,7 +327,8 @@ export function SelectionOverlay({ box }: { box: Box | null }) {
                 width: box.w,
                 height: box.h,
                 border: "2px dashed var(--primary)",
-                background: "color-mix(in srgb, var(--primary) 10%, transparent)",
+                background:
+                    "color-mix(in srgb, var(--primary) 10%, transparent)",
                 borderRadius: "0.5rem",
             }}
         />

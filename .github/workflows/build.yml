@@ -37,14 +37,11 @@ jobs:
 
             - name: install Rust stable
               uses: dtolnay/rust-toolchain@stable
-              with:
-                  # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-                  targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
             - name: Rust cache
               uses: Swatinem/rust-cache@v2
               with:
-                  workspaces: "./src-tauri -> target"
+                  workspaces: "-> target"
 
             - name: Install frontend dependencies
               run: npm install

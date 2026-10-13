@@ -101,26 +101,24 @@ fn reference_staging_readback(frame: &DxgiDuplicationFrame<'_>, w: u32, h: u32) 
         match context.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut mapped)) {
             Ok(()) => {
                 // SAFETY: the mapping is valid until `Unmap`.
-                unsafe {
-                    let pitch = mapped.RowPitch as usize;
-                    let (mut min, mut max, mut sum, mut n) = (255u8, 0u8, 0u64, 0u64);
-                    for y in 0..h as usize {
-                        let row = mapped.pData.cast::<u8>().add(y * pitch);
-                        for x in (0..w as usize).step_by(64) {
-                            // Blue channel of a BGRA texel.
-                            let b = *row.add(x * 4 + 2);
-                            min = min.min(b);
-                            max = max.max(b);
-                            sum += b as u64;
-                            n += 1;
-                        }
+                let pitch = mapped.RowPitch as usize;
+                let (mut min, mut max, mut sum, mut n) = (255u8, 0u8, 0u64, 0u64);
+                for y in 0..h as usize {
+                    let row = mapped.pData.cast::<u8>().add(y * pitch);
+                    for x in (0..w as usize).step_by(64) {
+                        // Blue channel of a BGRA texel.
+                        let b = *row.add(x * 4 + 2);
+                        min = min.min(b);
+                        max = max.max(b);
+                        sum += b as u64;
+                        n += 1;
                     }
-                    println!(
-                        "  reference readback (BGRA staging): blue min={min} max={max} mean={:.2}",
-                        sum as f64 / n.max(1) as f64
-                    );
-                    context.Unmap(&staging, 0);
                 }
+                println!(
+                    "  reference readback (BGRA staging): blue min={min} max={max} mean={:.2}",
+                    sum as f64 / n.max(1) as f64
+                );
+                context.Unmap(&staging, 0);
             }
             Err(e) => println!("  reference readback: map failed: {e}"),
         }

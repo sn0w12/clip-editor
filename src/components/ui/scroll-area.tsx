@@ -3,80 +3,65 @@
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
 import type React from "react";
 
-import { useIsWebKit } from "@/hooks/use-is-webkit";
 import { cn } from "@/lib/utils";
 
 export function ScrollArea({
     className,
     children,
-    ref,
+    viewportRef,
     scrollFade = false,
     scrollbarGutter = false,
     fill = false,
     clampContentMinWidth = true,
     overscrollContain = false,
-    overflowX = true,
-    overflowY = true,
+    scrollBar = true,
+    scrollX = true,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
+    viewportRef?: React.Ref<HTMLDivElement>;
     scrollFade?: boolean;
     scrollbarGutter?: boolean;
     fill?: boolean;
     clampContentMinWidth?: boolean;
     overscrollContain?: boolean;
-    overflowX?: boolean;
-    overflowY?: boolean;
+    scrollBar?: boolean;
+    /** When false, horizontal scrolling is disabled entirely (clipped). */
+    scrollX?: boolean;
 }): React.ReactElement {
-    const isWebkit = useIsWebKit();
-
-    if (isWebkit) {
-        return (
-            <div
-                className={cn(
-                    "size-full overflow-scroll min-h-0",
-                    !overflowX && "overflow-x-hidden",
-                    !overflowY && "overflow-y-hidden",
-                    scrollFade && "fade",
-                    scrollbarGutter && "scrollbar-gutter-stable",
-                    overscrollContain && "overscroll-y-contain overscroll-x-contain",
-                    className,
-                )}
-                ref={ref}
-                {...(props as React.ComponentProps<"div">)}
-            >
-                {children}
-            </div>
-        );
-    }
-
     return (
-        <ScrollAreaPrimitive.Root className={cn("size-full min-h-0", className)} {...props}>
+        <ScrollAreaPrimitive.Root
+            className={cn("h-full min-h-0 w-full", className)}
+            {...props}
+        >
             <ScrollAreaPrimitive.Viewport
+                ref={viewportRef}
                 className={cn(
-                    "h-full rounded-[inherit] outline-none transition-shadows focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                    "transition-shadows h-full rounded-[inherit] outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
+                    !scrollX && "overflow-x-hidden",
                     overscrollContain &&
-                        "data-has-overflow-y:overscroll-y-contain data-has-overflow-x:overscroll-x-contain",
+                        "data-has-overflow-x:overscroll-x-contain data-has-overflow-y:overscroll-y-contain",
                     scrollFade &&
-                        "mask-t-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-start)))] mask-b-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-end)))] mask-l-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-start)))] mask-r-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-end)))] [--fade-size:1.5rem]",
-                    scrollbarGutter && "data-has-overflow-y:pe-2.5 data-has-overflow-x:pb-2.5",
+                        "mask-t-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-start)))] mask-r-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-end)))] mask-b-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-y-end)))] mask-l-from-[calc(100%-min(var(--fade-size),var(--scroll-area-overflow-x-start)))] [--fade-size:1.5rem]",
+                    scrollbarGutter &&
+                        "data-has-overflow-x:pb-2.5 data-has-overflow-y:pe-2.5"
                 )}
-                ref={ref}
+                style={scrollX ? undefined : { overflowX: "hidden" }}
                 data-slot="scroll-area-viewport"
-                style={{
-                    ...(overflowX ? {} : { overflowX: "hidden" }),
-                    ...(overflowY ? {} : { overflowY: "hidden" }),
-                }}
             >
                 <ScrollAreaPrimitive.Content
                     className={cn(fill && "size-full")}
                     data-slot="scroll-area-content"
-                    style={clampContentMinWidth ? { minWidth: 0 } : undefined}
+                    style={
+                        clampContentMinWidth
+                            ? { minWidth: scrollX ? 0 : "100%" }
+                            : undefined
+                    }
                 >
                     {children}
                 </ScrollAreaPrimitive.Content>
             </ScrollAreaPrimitive.Viewport>
-            {overflowY && <ScrollBar orientation="vertical" />}
-            {overflowX && <ScrollBar orientation="horizontal" />}
+            {scrollBar && <ScrollBar orientation="vertical" />}
+            {scrollBar && scrollX && <ScrollBar orientation="horizontal" />}
             <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" />
         </ScrollAreaPrimitive.Root>
     );
@@ -90,15 +75,15 @@ export function ScrollBar({
     return (
         <ScrollAreaPrimitive.Scrollbar
             className={cn(
-                "m-1 flex opacity-0 transition-opacity delay-300 data-[orientation=horizontal]:h-1.5 data-[orientation=vertical]:w-1.5 data-[orientation=horizontal]:flex-col data-hovering:opacity-100 data-scrolling:opacity-100 data-hovering:delay-0 data-scrolling:delay-0 data-hovering:duration-100 data-scrolling:duration-100",
-                className,
+                "m-1 flex opacity-0 transition-opacity delay-300 data-hovering:opacity-100 data-hovering:delay-0 data-hovering:duration-100 data-scrolling:opacity-100 data-scrolling:delay-0 data-scrolling:duration-100 data-[orientation=horizontal]:h-1.5 data-[orientation=horizontal]:flex-col data-[orientation=vertical]:w-1.5",
+                className
             )}
             data-slot="scroll-area-scrollbar"
             orientation={orientation}
             {...props}
         >
             <ScrollAreaPrimitive.Thumb
-                className="bg-foreground/20 relative flex-1 rounded-full"
+                className="relative flex-1 rounded-full bg-foreground/20"
                 data-slot="scroll-area-thumb"
             />
         </ScrollAreaPrimitive.Scrollbar>

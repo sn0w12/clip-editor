@@ -5,7 +5,10 @@ import { getThumbnail } from "@/lib/tauri";
 const cache = new Map<string, string | null>();
 const inflight = new Map<string, Promise<string | null>>();
 
-export function useThumbnail(path: string | undefined, enabled = true): string | null {
+export function useThumbnail(
+    path: string | undefined,
+    enabled = true
+): string | null {
     // Read the module-scoped cache during render so a cache hit never needs a
     // synchronous setState in an effect. Only the async fetch (below) sets state.
     const cachedThumb = path ? (cache.get(path) ?? null) : null;

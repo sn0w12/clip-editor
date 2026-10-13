@@ -46,8 +46,12 @@ export function useClipsStore(): ClipsStoreState & {
     assignToGroup: (paths: string[], groupId: string) => Promise<void>;
     removeFromGroup: (paths: string[], groupId: string) => Promise<void>;
 } {
-    const [clips, setClips] = useState<VideoFile[]>(cachedSnapshot?.clips ?? []);
-    const [groups, setGroups] = useState<VideoGroup[]>(cachedSnapshot?.groups ?? []);
+    const [clips, setClips] = useState<VideoFile[]>(
+        cachedSnapshot?.clips ?? []
+    );
+    const [groups, setGroups] = useState<VideoGroup[]>(
+        cachedSnapshot?.groups ?? []
+    );
     const [loading, setLoading] = useState<boolean>(!cachedSnapshot);
     const [error, setError] = useState<string | null>(null);
     const [roots, setRoots] = useState<string[]>(cachedSnapshot?.roots ?? []);
@@ -142,7 +146,7 @@ export function useClipsStore(): ClipsStoreState & {
             await reload();
             return result;
         },
-        [reload],
+        [reload]
     );
 
     const renameClip = useCallback(
@@ -150,7 +154,7 @@ export function useClipsStore(): ClipsStoreState & {
             await tauri.renameClip(path, newGameName);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const createGroup = useCallback(async (name: string, color?: string) => {
@@ -169,7 +173,7 @@ export function useClipsStore(): ClipsStoreState & {
             await tauri.assignClipsToGroup(paths, groupId);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     const removeFromGroup = useCallback(
@@ -177,7 +181,7 @@ export function useClipsStore(): ClipsStoreState & {
             await tauri.removeClipsFromGroup(paths, groupId);
             await reload();
         },
-        [reload],
+        [reload]
     );
 
     return {

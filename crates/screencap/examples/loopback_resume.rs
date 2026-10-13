@@ -29,7 +29,7 @@ const BLOCK_FRAMES: usize = 960; // 20 ms
 const BLOCK_DUR: Duration = Duration::from_millis(20);
 
 fn main() {
-    initialize_mta().ok();
+    let _ = initialize_mta();
     let origin = Instant::now();
     let my_pid: u32 = std::process::id();
 
@@ -215,7 +215,7 @@ fn main() {
                         first_write_ms = Some(origin.elapsed().as_millis() as u64);
                     }
                     let mut data = vec![0u8; avail as usize * 8];
-                    for (i, frame) in data.chunks_exact_mut(8).enumerate() {
+                    for frame in data.chunks_exact_mut(8) {
                         let v = if on {
                             phase += 1.0 / RATE as f64;
                             (2.0 * std::f64::consts::PI * 440.0 * phase).sin() as f32 * 0.2
@@ -240,7 +240,7 @@ fn main() {
                 written
             );
         }
-        fn close(mut self) {
+        fn close(self) {
             let _ = self.client.stop_stream();
             drop(self.client);
         }

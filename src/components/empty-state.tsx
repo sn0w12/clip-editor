@@ -22,10 +22,16 @@ export function EmptyState({
         <Empty>
             <EmptyContent>
                 <EmptyMedia>
-                    <InboxIcon className="text-muted-foreground size-10" />
+                    <InboxIcon className="size-10 text-muted-foreground" />
                 </EmptyMedia>
-                <EmptyTitle>{title}</EmptyTitle>
-                {description ? <EmptyDescription>{description}</EmptyDescription> : null}
+                <EmptyTitle className="ui-selectable font-display text-3xl font-normal">
+                    {title}
+                </EmptyTitle>
+                {description ? (
+                    <EmptyDescription className="ui-selectable">
+                        {description}
+                    </EmptyDescription>
+                ) : null}
                 {children}
             </EmptyContent>
         </Empty>

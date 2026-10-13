@@ -23,7 +23,10 @@ let sharedSelectedGroupIds: string[] = [];
 
 /** Apply the library filters to a clip list. Shared by the home grid and the
  * edit header's filmstrip so both pages always show the same set. */
-export function filterClips(clips: VideoFile[], filters: LibraryFilters): VideoFile[] {
+export function filterClips(
+    clips: VideoFile[],
+    filters: LibraryFilters
+): VideoFile[] {
     let result = [...clips];
     if (filters.dateRange.start) {
         const start = dateKey(filters.dateRange.start.toISOString());
@@ -38,7 +41,7 @@ export function filterClips(clips: VideoFile[], filters: LibraryFilters): VideoF
     }
     if (filters.selectedGroupIds.length > 0) {
         result = result.filter((c) =>
-            c.groupIds.some((id) => filters.selectedGroupIds.includes(id)),
+            c.groupIds.some((id) => filters.selectedGroupIds.includes(id))
         );
     }
     return result;
@@ -51,8 +54,11 @@ export function useFiltersStore(): LibraryFilters & {
     clearFilters: () => void;
 } {
     const [dateRange, setDateRangeState] = useState(sharedDateRange);
-    const [selectedGames, setSelectedGamesState] = useState(sharedSelectedGames);
-    const [selectedGroupIds, setSelectedGroupIdsState] = useState(sharedSelectedGroupIds);
+    const [selectedGames, setSelectedGamesState] =
+        useState(sharedSelectedGames);
+    const [selectedGroupIds, setSelectedGroupIdsState] = useState(
+        sharedSelectedGroupIds
+    );
 
     const setDateRange = useCallback((range: { start?: Date; end?: Date }) => {
         sharedDateRange = range;

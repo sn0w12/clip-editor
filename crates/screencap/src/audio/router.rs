@@ -165,11 +165,8 @@ impl AudioRouter {
     /// every block can sit in a log for hours unnoticed: this makes the block
     /// count, the level, and the late/dropped totals visible unconditionally.
     fn log_summary(&mut self, late_worst: Duration) {
-        let mut rows: Vec<(String, SourceStats)> = self
-            .stats
-            .drain()
-            .map(|(k, v)| (k.0, v))
-            .collect();
+        let mut rows: Vec<(String, SourceStats)> =
+            self.stats.drain().map(|(k, v)| (k.0, v)).collect();
         rows.sort_by(|a, b| a.0.cmp(&b.0));
         for (key, s) in rows {
             info!(
@@ -601,10 +598,16 @@ mod tests {
 
         let stat = router.stats.get(&SourceKey("source:a".into())).unwrap();
         assert_eq!(stat.blocks, 1, "the block the source sent is counted");
-        assert!((stat.peak - 0.5).abs() < 1e-6, "peak tracks the block level");
+        assert!(
+            (stat.peak - 0.5).abs() < 1e-6,
+            "peak tracks the block level"
+        );
         assert_eq!(stat.salvaged, 0);
         assert_eq!(stat.dropped, 0);
-        assert!((router.track_peaks[0] - 0.5).abs() < 1e-6, "track peak is recorded");
+        assert!(
+            (router.track_peaks[0] - 0.5).abs() < 1e-6,
+            "track peak is recorded"
+        );
 
         // One window late: salvaged, and the lateness is recorded.
         router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));

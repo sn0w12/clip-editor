@@ -56,7 +56,9 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     const [isDraggingStart, setIsDraggingStart] = useState(false);
     const [isDraggingEnd, setIsDraggingEnd] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
-    const [contextMenuPoint, setContextMenuPoint] = useState<number | null>(null);
+    const [contextMenuPoint, setContextMenuPoint] = useState<number | null>(
+        null
+    );
     const [cutDragIndex, setCutDragIndex] = useState<{
         idx: number;
         edge: "start" | "end";
@@ -82,7 +84,8 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     } = useAudioWaveform(videoPath, 5000, audioTrack);
 
     const currentTimePercent = (currentTime / Math.max(0.1, duration)) * 100;
-    const startMarkerPercent = (timeRange.start / Math.max(0.1, duration)) * 100;
+    const startMarkerPercent =
+        (timeRange.start / Math.max(0.1, duration)) * 100;
     const endMarkerPercent = (timeRange.end / Math.max(0.1, duration)) * 100;
 
     const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -97,7 +100,8 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     };
 
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (e.button === 2 || isDraggingStart || isDraggingEnd || cutDragIndex) return;
+        if (e.button === 2 || isDraggingStart || isDraggingEnd || cutDragIndex)
+            return;
 
         setIsScrubbing(true);
 
@@ -144,7 +148,10 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             onTimeRangeChange({ ...timeRange, start: Math.max(0, newStart) });
         } else {
             const newEnd = Math.max(value, timeRange.start + 0.1);
-            onTimeRangeChange({ ...timeRange, end: Math.min(duration, newEnd) });
+            onTimeRangeChange({
+                ...timeRange,
+                end: Math.min(duration, newEnd),
+            });
         }
     };
 
@@ -152,12 +159,19 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         onCutsChange(cuts.filter((_, i) => i !== idx));
     };
 
-    const handleCutEdgeChange = (idx: number, edge: "start" | "end", value: number) => {
+    const handleCutEdgeChange = (
+        idx: number,
+        edge: "start" | "end",
+        value: number
+    ) => {
         const cut = cuts[idx];
         let newStart = cut.start;
         let newEnd = cut.end;
         if (edge === "start") {
-            newStart = Math.max(timeRange.start, Math.min(value, cut.end - 0.05));
+            newStart = Math.max(
+                timeRange.start,
+                Math.min(value, cut.end - 0.05)
+            );
         } else {
             newEnd = Math.min(timeRange.end, Math.max(value, cut.start + 0.05));
         }
@@ -168,7 +182,9 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                 return;
             }
         }
-        const updated = cuts.map((c, i) => (i === idx ? { start: newStart, end: newEnd } : c));
+        const updated = cuts.map((c, i) =>
+            i === idx ? { start: newStart, end: newEnd } : c
+        );
         onCutsChange(updated);
     };
 
@@ -176,7 +192,11 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         const handleMouseMove = (e: MouseEvent) => {
             if (
                 !containerRef.current ||
-                (!isDraggingStart && !isDraggingEnd && !isDragging && !isScrubbing && !cutDragIndex)
+                (!isDraggingStart &&
+                    !isDraggingEnd &&
+                    !isDragging &&
+                    !isScrubbing &&
+                    !cutDragIndex)
             )
                 return;
 
@@ -192,7 +212,11 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
             } else if (isDragging || isScrubbing) {
                 onTimeChange(newValue);
             } else if (cutDragIndex) {
-                handleCutEdgeChange(cutDragIndex.idx, cutDragIndex.edge, newValue);
+                handleCutEdgeChange(
+                    cutDragIndex.idx,
+                    cutDragIndex.edge,
+                    newValue
+                );
             }
         };
 
@@ -228,7 +252,8 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
 
     const isSetEndMarkerDisabled =
         contextMenuPoint !== null &&
-        (contextMenuPoint <= timeRange.start + 0.1 || contextMenuPoint > duration);
+        (contextMenuPoint <= timeRange.start + 0.1 ||
+            contextMenuPoint > duration);
 
     const getCutPercent = (t: number) => (t / Math.max(0.1, duration)) * 100;
 
@@ -242,7 +267,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         const cutWidth = 0.5;
         const cutStart = Math.max(
             timeRange.start,
-            Math.min(contextMenuPoint - cutWidth / 2, timeRange.end - cutWidth),
+            Math.min(contextMenuPoint - cutWidth / 2, timeRange.end - cutWidth)
         );
         const cutEnd = Math.min(timeRange.end, cutStart + cutWidth);
         for (const c of cuts) {
@@ -276,12 +301,17 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
         }
         if (bestIdx === -1) return;
 
-        const newEnd = Math.max(Math.min(currentTime, timeRange.end), cuts[bestIdx].start + 0.05);
+        const newEnd = Math.max(
+            Math.min(currentTime, timeRange.end),
+            cuts[bestIdx].start + 0.05
+        );
         if (bestIdx < cuts.length - 1 && newEnd > cuts[bestIdx + 1].start) {
             return;
         }
 
-        const updated = cuts.map((c, i) => (i === bestIdx ? { ...c, end: newEnd } : c));
+        const updated = cuts.map((c, i) =>
+            i === bestIdx ? { ...c, end: newEnd } : c
+        );
         onCutsChange(updated);
     });
 
@@ -292,7 +322,8 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
     });
 
     useShortcutSetting("setEndMarker", () => {
-        if (currentTime <= timeRange.start + 0.1 || currentTime > duration) return;
+        if (currentTime <= timeRange.start + 0.1 || currentTime > duration)
+            return;
         const newEnd = Math.max(currentTime, timeRange.start + 0.1);
         onTimeRangeChange({ ...timeRange, end: Math.min(duration, newEnd) });
     });
@@ -304,7 +335,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                     ref={containerRef}
                     className={cn(
                         "relative h-10 w-full cursor-pointer transition-all duration-200 hover:brightness-110",
-                        isScrubbing && "cursor-grabbing",
+                        isScrubbing && "cursor-grabbing"
                     )}
                     onClick={handleContainerClick}
                     onMouseDown={handleMouseDown}
@@ -323,7 +354,10 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                             minBarHeight={3}
                         />
                     </div>
-                    <div className="absolute top-0 left-0 h-full w-full" style={selectedClipStyles}>
+                    <div
+                        className="absolute top-0 left-0 h-full w-full"
+                        style={selectedClipStyles}
+                    >
                         <VideoWaveform
                             key={`selected-${waveformKey}`}
                             waveformData={waveformData}
@@ -331,22 +365,23 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                             error={waveformError}
                             height={waveformHeight}
                             width={4000}
-                            color="var(--accent-color)"
+                            color="var(--info)"
                             backgroundColor="transparent"
                             minBarHeight={3}
                         />
                     </div>
                     <div
                         className={cn(
-                            "bg-primary absolute top-0 z-10 h-full w-0.5",
-                            isScrubbing && "bg-primary/80",
+                            "absolute top-0 z-10 h-full w-0.5 bg-primary",
+                            isScrubbing && "bg-primary/80"
                         )}
                         style={{ left: `${currentTimePercent}%` }}
                     />
                     <div
                         className={cn(
-                            "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
-                            isDraggingStart && "border-opacity-100 border-primary w-[2px]",
+                            "absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l border-primary/70",
+                            isDraggingStart &&
+                                "border-opacity-100 w-[2px] border-primary"
                         )}
                         style={{ left: `${startMarkerPercent}%` }}
                         onMouseDown={(e) => {
@@ -355,13 +390,14 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                             setIsDraggingStart(true);
                         }}
                     >
-                        <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-                        <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                        <div className="absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2 bg-primary" />
+                        <div className="absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2 bg-primary" />
                     </div>
                     <div
                         className={cn(
-                            "border-primary/70 absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l",
-                            isDraggingEnd && "border-opacity-100 border-primary w-[2px]",
+                            "absolute top-0 z-20 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l border-primary/70",
+                            isDraggingEnd &&
+                                "border-opacity-100 w-[2px] border-primary"
                         )}
                         style={{ left: `${endMarkerPercent}%` }}
                         onMouseDown={(e) => {
@@ -370,16 +406,18 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                             setIsDraggingEnd(true);
                         }}
                     >
-                        <div className="bg-primary absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
-                        <div className="bg-primary absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2" />
+                        <div className="absolute top-0 left-0 h-0.5 w-1.5 -translate-x-1/2 bg-primary" />
+                        <div className="absolute bottom-0 left-0 h-0.5 w-1.5 -translate-x-1/2 bg-primary" />
                     </div>
                     {cuts.map((cut, idx) => {
                         const cutStartPercent = getCutPercent(cut.start);
                         const cutEndPercent = getCutPercent(cut.end);
                         const isDraggingCutStart =
-                            cutDragIndex?.idx === idx && cutDragIndex?.edge === "start";
+                            cutDragIndex?.idx === idx &&
+                            cutDragIndex?.edge === "start";
                         const isDraggingCutEnd =
-                            cutDragIndex?.idx === idx && cutDragIndex?.edge === "end";
+                            cutDragIndex?.idx === idx &&
+                            cutDragIndex?.edge === "end";
 
                         return (
                             <Fragment key={idx}>
@@ -394,7 +432,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                                     className={cn(
                                         "absolute top-0 z-25 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l border-red-500/70",
                                         isDraggingCutStart &&
-                                            "border-opacity-100 w-[2px] border-red-500",
+                                            "border-opacity-100 w-[2px] border-red-500"
                                     )}
                                     style={{ left: `${cutStartPercent}%` }}
                                     onMouseDown={(e) => {
@@ -410,7 +448,7 @@ export const WaveformPlaybar = memo(function WaveformPlaybar({
                                     className={cn(
                                         "absolute top-0 z-25 h-full w-0.5 -translate-x-1/2 cursor-col-resize border-r border-l border-red-500/70",
                                         isDraggingCutEnd &&
-                                            "border-opacity-100 w-[2px] border-red-500",
+                                            "border-opacity-100 w-[2px] border-red-500"
                                     )}
                                     style={{ left: `${cutEndPercent}%` }}
                                     onMouseDown={(e) => {

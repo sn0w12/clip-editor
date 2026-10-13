@@ -1,10 +1,20 @@
-import { FilterIcon, FolderOpenIcon, Grid2X2Icon, ListIcon, XIcon } from "lucide-react";
+import {
+    FilterIcon,
+    FolderOpenIcon,
+    Grid2X2Icon,
+    ListIcon,
+    XIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import {
     Select,
     SelectContent,
@@ -14,11 +24,13 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn, displayPath } from "@/lib/utils";
-import type { ViewMode } from "@/pages/home-page";
 import type { GameImage } from "@/types";
 import type { VideoGroup } from "@/types";
 
 import { GameIcon } from "../game-icon";
+import type { ViewMode } from "./types";
+
+export type { ViewMode };
 
 export interface FilterHeaderProps {
     directoryPath: string;
@@ -35,13 +47,17 @@ export function FilterHeader({
 }: FilterHeaderProps): React.ReactElement {
     return (
         <div className="min-w-0">
-            <h1 className="text-3xl font-bold">Clips</h1>
+            <h1 className="ui-selectable font-display text-4xl tracking-tight">
+                Clips
+            </h1>
             <div className="mt-1 flex items-center gap-2">
-                <p className="text-muted-foreground truncate text-sm">
+                <p className="truncate font-mono text-sm text-muted-foreground">
                     {displayPath(directoryPath)}
                 </p>
                 {totalSize !== undefined && totalSize > 0 && (
-                    <span className="text-muted-foreground text-sm">({formatSize(totalSize)})</span>
+                    <span className="font-mono text-sm text-muted-foreground">
+                        ({formatSize(totalSize)})
+                    </span>
                 )}
                 {filteredCount !== totalCount && (
                     <Badge variant="secondary" className="shrink-0">
@@ -94,10 +110,12 @@ export function FilterHeaderControls({
     const gameOptions = useMemo(
         () =>
             games.map((game) => {
-                const image = steamGames.find((g) => g.displayName === game)?.artwork ?? null;
+                const image =
+                    steamGames.find((g) => g.displayName === game)?.artwork ??
+                    null;
                 return { label: game, value: game, image };
             }),
-        [games, steamGames],
+        [games, steamGames]
     );
 
     const activeFilterCount =
@@ -138,7 +156,11 @@ export function FilterHeaderControls({
                 onDateRangeChange={onDateRangeChange}
                 onClearFilters={onClearFilters}
             />
-            <Button variant="outline" className="gap-2" onClick={() => void onChangeDirectory()}>
+            <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => void onChangeDirectory()}
+            >
                 <FolderOpenIcon className="size-4" />
                 Change Directory
             </Button>
@@ -187,11 +209,16 @@ function FilterPanel({
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>
-            <PopoverTrigger render={<Button variant="outline" className="gap-2" />}>
+            <PopoverTrigger
+                render={<Button variant="outline" className="gap-2" />}
+            >
                 <FilterIcon className="size-4" />
                 Filters
                 {activeFilterCount > 0 && (
-                    <Badge variant="secondary" className="ml-1 rounded-full px-1.5 py-0.5">
+                    <Badge
+                        variant="secondary"
+                        className="ml-1 rounded-full px-1.5 py-0.5"
+                    >
                         {activeFilterCount}
                     </Badge>
                 )}
@@ -214,7 +241,7 @@ function FilterPanel({
                     )}
                 </div>
                 <div className="mb-4">
-                    <p className="text-muted-foreground mb-1.5 text-sm">Game</p>
+                    <p className="mb-1.5 text-sm text-muted-foreground">Game</p>
                     <Select
                         multiple
                         value={selectedGames}
@@ -231,7 +258,10 @@ function FilterPanel({
                             {games.map((game) => (
                                 <SelectItem key={game.value} value={game.value}>
                                     <span className="flex items-center gap-2">
-                                        <GameIcon game={game.value} gameImage={game.image} />
+                                        <GameIcon
+                                            game={game.value}
+                                            gameImage={game.image}
+                                        />
                                         {game.label}
                                     </span>
                                 </SelectItem>
@@ -243,7 +273,9 @@ function FilterPanel({
                 {groups.length > 0 && (
                     <>
                         <div className="mb-4">
-                            <p className="text-muted-foreground mb-1.5 text-sm">Group</p>
+                            <p className="mb-1.5 text-sm text-muted-foreground">
+                                Group
+                            </p>
                             <Select
                                 multiple
                                 value={selectedGroupIds}
@@ -258,13 +290,17 @@ function FilterPanel({
                                 </SelectTrigger>
                                 <SelectContent>
                                     {groupOptions.map((group) => (
-                                        <SelectItem key={group.value} value={group.value}>
+                                        <SelectItem
+                                            key={group.value}
+                                            value={group.value}
+                                        >
                                             <span className="flex items-center gap-2">
                                                 <span
                                                     className="inline-block size-3 rounded-full"
                                                     style={{
                                                         backgroundColor:
-                                                            group.icon ?? "var(--accent-color)",
+                                                            group.icon ??
+                                                            "var(--muted-foreground)",
                                                     }}
                                                 />
                                                 {group.label}
@@ -279,7 +315,9 @@ function FilterPanel({
                 )}
                 <div>
                     <div className="mb-1.5 flex items-center justify-between">
-                        <p className="text-muted-foreground text-sm">Date Range</p>
+                        <p className="text-sm text-muted-foreground">
+                            Date Range
+                        </p>
                         {(startDate || endDate) && (
                             <Button
                                 variant="ghost"
@@ -298,8 +336,12 @@ function FilterPanel({
                         mode="range"
                         selected={{ from: startDate, to: endDate }}
                         onSelect={(range) => {
-                            const from = range && "from" in range ? range.from : undefined;
-                            const to = range && "to" in range ? range.to : undefined;
+                            const from =
+                                range && "from" in range
+                                    ? range.from
+                                    : undefined;
+                            const to =
+                                range && "to" in range ? range.to : undefined;
                             onDateRangeChange(from, to);
                         }}
                         numberOfMonths={1}
@@ -307,11 +349,18 @@ function FilterPanel({
                         modifiers={{
                             withClips: (day: Date) => {
                                 const y = day.getFullYear();
-                                const m = (day.getMonth() + 1).toString().padStart(2, "0");
-                                const d = day.getDate().toString().padStart(2, "0");
+                                const m = (day.getMonth() + 1)
+                                    .toString()
+                                    .padStart(2, "0");
+                                const d = day
+                                    .getDate()
+                                    .toString()
+                                    .padStart(2, "0");
                                 const key = `${y}-${m}-${d}`;
                                 // Today has its own indicator; don't add a clip dot.
-                                return key !== todayKey && key in clipCountByDate;
+                                return (
+                                    key !== todayKey && key in clipCountByDate
+                                );
                             },
                         }}
                     />
@@ -324,9 +373,10 @@ function FilterPanel({
 function formatSize(sizeInBytes?: number): string {
     if (!sizeInBytes || sizeInBytes <= 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.min(Math.floor(Math.log(sizeInBytes) / Math.log(1024)), units.length - 1);
+    const i = Math.min(
+        Math.floor(Math.log(sizeInBytes) / Math.log(1024)),
+        units.length - 1
+    );
     const value = sizeInBytes / 1024 ** i;
     return `${value.toFixed(value >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
-
-export type { ViewMode };

@@ -17,9 +17,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type * as React from "react";
 
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSetting, useShortcutSetting } from "@/lib/settings";
 import { getPlayableVideo, videoSrc } from "@/lib/tauri";
 import type { Cut, TimeRange } from "@/types";
@@ -38,7 +46,7 @@ export function formatTime(
         padZeros?: boolean;
         separator?: string;
         msSeparator?: string;
-    } = {},
+    } = {}
 ): string {
     const {
         showMilliseconds = false,
@@ -151,7 +159,10 @@ function pathFromVideoSrc(src: string): string {
     return src;
 }
 
-function findActiveCut(currentTime: number, sortedCuts: Cut[]): Cut | undefined {
+function findActiveCut(
+    currentTime: number,
+    sortedCuts: Cut[]
+): Cut | undefined {
     let left = 0;
     let right = sortedCuts.length - 1;
 
@@ -215,8 +226,11 @@ export function ClipVideoPlayer({
     const [error, setError] = useState<string | null>(null);
     // Tracks come from the file metadata when available; otherwise fall back to
     // Chromium's DOM `audioTracks` discovered when the video loads.
-    const [domAudioTracks, setDomAudioTracks] = useState<{ index: number; label: string }[]>([]);
-    const audioTracks = metadataAudioTracks.length > 0 ? metadataAudioTracks : domAudioTracks;
+    const [domAudioTracks, setDomAudioTracks] = useState<
+        { index: number; label: string }[]
+    >([]);
+    const audioTracks =
+        metadataAudioTracks.length > 0 ? metadataAudioTracks : domAudioTracks;
     const [selectedAudioTrack, setSelectedAudioTrack] = useState<number>(0);
     const animationFrameId = useRef<number | null>(null);
     const audioSwitchTimeoutRef = useRef<number | null>(null);
@@ -257,7 +271,8 @@ export function ClipVideoPlayer({
 
     // Derived: only use a resolution that belongs to the current source, so a
     // source switch blanks the video immediately (no effect-driven reset).
-    const resolvedSrc = resolvedSrcResult?.basePath === basePath ? resolvedSrcResult.url : "";
+    const resolvedSrc =
+        resolvedSrcResult?.basePath === basePath ? resolvedSrcResult.url : "";
 
     useEffect(() => {
         sortedCutsRef.current = [...cuts].sort((a, b) => a.start - b.start);
@@ -273,7 +288,10 @@ export function ClipVideoPlayer({
         const currentVideoTime = video.currentTime;
         setCurrentTime(currentVideoTime);
 
-        const activeCut = findActiveCut(currentVideoTime, sortedCutsRef.current);
+        const activeCut = findActiveCut(
+            currentVideoTime,
+            sortedCutsRef.current
+        );
 
         if (activeCut) {
             const targetTime = activeCut.end;
@@ -283,7 +301,9 @@ export function ClipVideoPlayer({
             }
 
             if (!video.paused) {
-                animationFrameId.current = requestAnimationFrame(updateTimeSmoothRef.current);
+                animationFrameId.current = requestAnimationFrame(
+                    updateTimeSmoothRef.current
+                );
             }
             return;
         }
@@ -294,7 +314,9 @@ export function ClipVideoPlayer({
         }
 
         if (!video.paused) {
-            animationFrameId.current = requestAnimationFrame(updateTimeSmoothRef.current);
+            animationFrameId.current = requestAnimationFrame(
+                updateTimeSmoothRef.current
+            );
         }
     }, [playSelectedOnly, timeRange.start, timeRange.end]);
     useEffect(() => {
@@ -320,7 +342,8 @@ export function ClipVideoPlayer({
                     if (animationFrameId.current) {
                         cancelAnimationFrame(animationFrameId.current);
                     }
-                    animationFrameId.current = requestAnimationFrame(updateTimeSmooth);
+                    animationFrameId.current =
+                        requestAnimationFrame(updateTimeSmooth);
                 })
                 .catch(() => {
                     setIsPlaying(false);
@@ -347,7 +370,8 @@ export function ClipVideoPlayer({
     }, [isFullScreen, showControls]);
 
     const toggleFullScreen = useCallback(() => {
-        const playerContainer = playerContainerRef.current as HTMLElementWithFullscreen | null;
+        const playerContainer =
+            playerContainerRef.current as HTMLElementWithFullscreen | null;
         const doc = document as DocumentWithFullscreen;
 
         if (!playerContainer) return;
@@ -427,14 +451,20 @@ export function ClipVideoPlayer({
 
         const video = videoRef.current as HTMLVideoElementWithTracks | null;
         if (video) {
-            const defaultTrack = Number.parseInt(defaultAudioTrackSetting ?? "0", 10);
+            const defaultTrack = Number.parseInt(
+                defaultAudioTrackSetting ?? "0",
+                10
+            );
 
             const domTracks =
                 video.audioTracks && video.audioTracks.length > 0
-                    ? Array.from({ length: video.audioTracks.length }, (_, i) => ({
-                          index: i,
-                          label: `Track ${i + 1}`,
-                      }))
+                    ? Array.from(
+                          { length: video.audioTracks.length },
+                          (_, i) => ({
+                              index: i,
+                              label: `Track ${i + 1}`,
+                          })
+                      )
                     : null;
             const tracks =
                 metadataAudioTracks && metadataAudioTracks.length > 0
@@ -468,7 +498,9 @@ export function ClipVideoPlayer({
         }
     };
 
-    const handleVideoError = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const handleVideoError = (
+        e: React.SyntheticEvent<HTMLVideoElement, Event>
+    ) => {
         setIsLoading(false);
 
         const videoElement = e.currentTarget;
@@ -479,10 +511,15 @@ export function ClipVideoPlayer({
             if (videoElement.error.code === MediaError.MEDIA_ERR_NETWORK) {
                 errorMessage =
                     "Network error while loading video. Check your connection or the file path.";
-            } else if (videoElement.error.code === MediaError.MEDIA_ERR_DECODE) {
+            } else if (
+                videoElement.error.code === MediaError.MEDIA_ERR_DECODE
+            ) {
                 errorMessage =
                     "Error decoding video. The file may be corrupted or use an unsupported codec.";
-            } else if (videoElement.error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+            } else if (
+                videoElement.error.code ===
+                MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+            ) {
                 errorMessage = "Video format not supported by your browser.";
             }
         }
@@ -614,7 +651,10 @@ export function ClipVideoPlayer({
     }, [isMuted]);
 
     useEffect(() => {
-        localStorage.setItem(STORAGE_KEYS.PLAY_SELECTED_ONLY, JSON.stringify(playSelectedOnly));
+        localStorage.setItem(
+            STORAGE_KEYS.PLAY_SELECTED_ONLY,
+            JSON.stringify(playSelectedOnly)
+        );
     }, [playSelectedOnly]);
 
     useEffect(() => {
@@ -629,7 +669,8 @@ export function ClipVideoPlayer({
 
         if (isPlaying && video && !video.paused) {
             if (!animationFrameId.current) {
-                animationFrameId.current = requestAnimationFrame(updateTimeSmooth);
+                animationFrameId.current =
+                    requestAnimationFrame(updateTimeSmooth);
             }
         } else {
             if (animationFrameId.current) {
@@ -661,15 +702,26 @@ export function ClipVideoPlayer({
     useEffect(() => {
         const handleFullScreenChange = () => {
             const doc = document as DocumentWithFullscreen;
-            setIsFullScreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+            setIsFullScreen(
+                !!(doc.fullscreenElement || doc.webkitFullscreenElement)
+            );
         };
 
         document.addEventListener("fullscreenchange", handleFullScreenChange);
-        document.addEventListener("webkitfullscreenchange", handleFullScreenChange);
+        document.addEventListener(
+            "webkitfullscreenchange",
+            handleFullScreenChange
+        );
 
         return () => {
-            document.removeEventListener("fullscreenchange", handleFullScreenChange);
-            document.removeEventListener("webkitfullscreenchange", handleFullScreenChange);
+            document.removeEventListener(
+                "fullscreenchange",
+                handleFullScreenChange
+            );
+            document.removeEventListener(
+                "webkitfullscreenchange",
+                handleFullScreenChange
+            );
         };
     }, []);
 
@@ -689,7 +741,10 @@ export function ClipVideoPlayer({
             if (pendingPlayRef.current) {
                 pendingPlayRef.current = false;
                 video.play().catch((playError) => {
-                    console.warn("Failed to resume playback after scrubbing", playError);
+                    console.warn(
+                        "Failed to resume playback after scrubbing",
+                        playError
+                    );
                 });
             }
         }, 200);
@@ -779,7 +834,9 @@ export function ClipVideoPlayer({
                             onEnded={() => {
                                 setIsPlaying(false);
                                 if (animationFrameId.current) {
-                                    cancelAnimationFrame(animationFrameId.current);
+                                    cancelAnimationFrame(
+                                        animationFrameId.current
+                                    );
                                     animationFrameId.current = null;
                                 }
                             }}
@@ -794,7 +851,9 @@ export function ClipVideoPlayer({
                             }}
                             onPause={() => {
                                 if (animationFrameId.current) {
-                                    cancelAnimationFrame(animationFrameId.current);
+                                    cancelAnimationFrame(
+                                        animationFrameId.current
+                                    );
                                     animationFrameId.current = null;
                                 }
                             }}
@@ -803,22 +862,34 @@ export function ClipVideoPlayer({
                                     pendingPlayRef.current = false;
 
                                     if (audioSwitchTimeoutRef.current) {
-                                        window.clearTimeout(audioSwitchTimeoutRef.current);
+                                        window.clearTimeout(
+                                            audioSwitchTimeoutRef.current
+                                        );
                                     }
 
-                                    audioSwitchTimeoutRef.current = window.setTimeout(() => {
-                                        if (videoRef.current) {
-                                            videoRef.current.play().catch(() => {
-                                                window.setTimeout(() => {
-                                                    videoRef.current?.play().catch(() => {
-                                                        console.error(
-                                                            "Final attempt to resume playback failed",
+                                    audioSwitchTimeoutRef.current =
+                                        window.setTimeout(() => {
+                                            if (videoRef.current) {
+                                                videoRef.current
+                                                    .play()
+                                                    .catch(() => {
+                                                        window.setTimeout(
+                                                            () => {
+                                                                videoRef.current
+                                                                    ?.play()
+                                                                    .catch(
+                                                                        () => {
+                                                                            console.error(
+                                                                                "Final attempt to resume playback failed"
+                                                                            );
+                                                                        }
+                                                                    );
+                                                            },
+                                                            250
                                                         );
                                                     });
-                                                }, 250);
-                                            });
-                                        }
-                                    }, 300);
+                                            }
+                                        }, 300);
                                 }
                             }}
                             preload="auto"
@@ -828,7 +899,9 @@ export function ClipVideoPlayer({
                         {isFullScreen && (
                             <div
                                 className={`pointer-events-none absolute inset-0 flex flex-col justify-between p-4 transition-opacity duration-300 ${
-                                    showFullscreenControls ? "opacity-100" : "opacity-0"
+                                    showFullscreenControls
+                                        ? "opacity-100"
+                                        : "opacity-0"
                                 }`}
                                 style={{
                                     background:
@@ -837,8 +910,11 @@ export function ClipVideoPlayer({
                             >
                                 <div className="pointer-events-auto flex items-center justify-between">
                                     <div className="text-lg font-medium text-white">
-                                        {videoSrcProp.split("/").pop()?.split("\\").pop() ||
-                                            "Video"}
+                                        {videoSrcProp
+                                            .split("/")
+                                            .pop()
+                                            ?.split("\\")
+                                            .pop() || "Video"}
                                     </div>
                                 </div>
 
@@ -851,13 +927,17 @@ export function ClipVideoPlayer({
                                             step={0.01}
                                             onValueChange={(value) => {
                                                 if (videoRef.current) {
-                                                    const newTime = Array.isArray(value)
-                                                        ? value[0]
-                                                        : value;
-                                                    videoRef.current.currentTime = newTime;
+                                                    const newTime =
+                                                        Array.isArray(value)
+                                                            ? value[0]
+                                                            : value;
+                                                    videoRef.current.currentTime =
+                                                        newTime;
                                                     setCurrentTime(newTime);
 
-                                                    if (!videoRef.current.paused) {
+                                                    if (
+                                                        !videoRef.current.paused
+                                                    ) {
                                                         pendingPlayRef.current = true;
                                                         videoRef.current.pause();
                                                     }
@@ -888,14 +968,17 @@ export function ClipVideoPlayer({
                                                             variant="ghost"
                                                             size="icon-sm"
                                                             className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                                            onClick={skipBackward}
+                                                            onClick={
+                                                                skipBackward
+                                                            }
                                                         />
                                                     }
                                                 >
                                                     <SkipBack className="h-5 w-5" />
                                                 </TooltipTrigger>
                                                 <TooltipContent side="top">
-                                                    Skip back {seekIncrement} seconds
+                                                    Skip back {seekIncrement}{" "}
+                                                    seconds
                                                 </TooltipContent>
                                             </Tooltip>
 
@@ -906,7 +989,9 @@ export function ClipVideoPlayer({
                                                             variant="ghost"
                                                             size="icon-sm"
                                                             className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                                            onClick={togglePlayPause}
+                                                            onClick={
+                                                                togglePlayPause
+                                                            }
                                                         />
                                                     }
                                                 >
@@ -917,7 +1002,9 @@ export function ClipVideoPlayer({
                                                     )}
                                                 </TooltipTrigger>
                                                 <TooltipContent side="top">
-                                                    {isPlaying ? "Pause" : "Play"}
+                                                    {isPlaying
+                                                        ? "Pause"
+                                                        : "Play"}
                                                 </TooltipContent>
                                             </Tooltip>
 
@@ -928,14 +1015,17 @@ export function ClipVideoPlayer({
                                                             variant="ghost"
                                                             size="icon-sm"
                                                             className="h-8 w-8 p-0 text-white hover:bg-white/20"
-                                                            onClick={skipForward}
+                                                            onClick={
+                                                                skipForward
+                                                            }
                                                         />
                                                     }
                                                 >
                                                     <SkipForward className="h-5 w-5" />
                                                 </TooltipTrigger>
                                                 <TooltipContent side="top">
-                                                    Skip forward {seekIncrement} seconds
+                                                    Skip forward {seekIncrement}{" "}
+                                                    seconds
                                                 </TooltipContent>
                                             </Tooltip>
                                         </div>
@@ -959,7 +1049,9 @@ export function ClipVideoPlayer({
                                                     )}
                                                 </TooltipTrigger>
                                                 <TooltipContent side="top">
-                                                    {isMuted ? "Unmute" : "Mute"}
+                                                    {isMuted
+                                                        ? "Unmute"
+                                                        : "Mute"}
                                                 </TooltipContent>
                                             </Tooltip>
 
@@ -968,7 +1060,9 @@ export function ClipVideoPlayer({
                                                 min={0}
                                                 max={1}
                                                 step={0.01}
-                                                onValueChange={(value) => handleVolumeChange(value)}
+                                                onValueChange={(value) =>
+                                                    handleVolumeChange(value)
+                                                }
                                                 className="h-1.5 w-20"
                                             />
 
@@ -983,7 +1077,9 @@ export function ClipVideoPlayer({
                                                             }
                                                             size="icon-sm"
                                                             className="h-8 w-8 p-0"
-                                                            onClick={togglePlaySelectedOnly}
+                                                            onClick={
+                                                                togglePlaySelectedOnly
+                                                            }
                                                         />
                                                     }
                                                 >
@@ -1003,7 +1099,9 @@ export function ClipVideoPlayer({
                                                             variant="ghost"
                                                             size="icon-sm"
                                                             className="h-8 w-8 p-0"
-                                                            onClick={toggleFullScreen}
+                                                            onClick={
+                                                                toggleFullScreen
+                                                            }
                                                         />
                                                     }
                                                 >
@@ -1036,7 +1134,7 @@ export function ClipVideoPlayer({
                             onCutsChange={onCutsChange}
                         />
                     ) : (
-                        <div className="bg-background h-10 w-full" />
+                        <div className="h-10 w-full bg-background" />
                     )}
 
                     <div className="relative mb-0 flex justify-between text-xs">
@@ -1059,7 +1157,9 @@ export function ClipVideoPlayer({
                                 >
                                     <ChevronFirst className="h-4 w-4" />
                                 </TooltipTrigger>
-                                <TooltipContent side="bottom">Jump to clip start</TooltipContent>
+                                <TooltipContent side="bottom">
+                                    Jump to clip start
+                                </TooltipContent>
                             </Tooltip>
                         </div>
                         <div className="absolute left-1/2 flex -translate-x-1/2 flex-col items-center">
@@ -1137,7 +1237,11 @@ export function ClipVideoPlayer({
                                     <TooltipTrigger
                                         render={
                                             <Button
-                                                variant={playSelectedOnly ? "default" : "ghost"}
+                                                variant={
+                                                    playSelectedOnly
+                                                        ? "default"
+                                                        : "ghost"
+                                                }
                                                 size="icon-sm"
                                                 className="h-6 w-6 p-0"
                                                 onClick={togglePlaySelectedOnly}
@@ -1147,7 +1251,9 @@ export function ClipVideoPlayer({
                                         <Repeat className="h-4 w-4" />
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom">
-                                        {playSelectedOnly ? "Disable loop" : "Loop selection"}
+                                        {playSelectedOnly
+                                            ? "Disable loop"
+                                            : "Loop selection"}
                                     </TooltipContent>
                                 </Tooltip>
                                 <AudioTrackSelector
@@ -1155,7 +1261,10 @@ export function ClipVideoPlayer({
                                     selectedTrack={selectedAudioTrack}
                                     onTrackChange={handleAudioTrackChange}
                                 />
-                                <Popover open={showVolumeSlider} onOpenChange={setShowVolumeSlider}>
+                                <Popover
+                                    open={showVolumeSlider}
+                                    onOpenChange={setShowVolumeSlider}
+                                >
                                     <PopoverTrigger
                                         render={
                                             <Button
@@ -1164,9 +1273,11 @@ export function ClipVideoPlayer({
                                                 className="h-6 w-6 p-0"
                                                 onClick={toggleMute}
                                                 onMouseEnter={() => {
-                                                    if (hideVolumeSliderTimeoutRef.current) {
+                                                    if (
+                                                        hideVolumeSliderTimeoutRef.current
+                                                    ) {
                                                         window.clearTimeout(
-                                                            hideVolumeSliderTimeoutRef.current,
+                                                            hideVolumeSliderTimeoutRef.current
                                                         );
                                                     }
                                                     setShowVolumeSlider(true);
@@ -1174,11 +1285,16 @@ export function ClipVideoPlayer({
                                                 onMouseLeave={() => {
                                                     hideVolumeSliderTimeoutRef.current =
                                                         window.setTimeout(
-                                                            () => setShowVolumeSlider(false),
-                                                            500,
+                                                            () =>
+                                                                setShowVolumeSlider(
+                                                                    false
+                                                                ),
+                                                            500
                                                         );
                                                 }}
-                                                aria-label={isMuted ? "Unmute" : "Mute"}
+                                                aria-label={
+                                                    isMuted ? "Unmute" : "Mute"
+                                                }
                                             />
                                         }
                                     >
@@ -1192,19 +1308,24 @@ export function ClipVideoPlayer({
                                         align="center"
                                         side="top"
                                         className="w-5.5"
-                                        viewportClassName="py-1"
                                         onMouseEnter={() => {
-                                            if (hideVolumeSliderTimeoutRef.current) {
+                                            if (
+                                                hideVolumeSliderTimeoutRef.current
+                                            ) {
                                                 window.clearTimeout(
-                                                    hideVolumeSliderTimeoutRef.current,
+                                                    hideVolumeSliderTimeoutRef.current
                                                 );
                                             }
                                         }}
                                         onMouseLeave={() => {
-                                            hideVolumeSliderTimeoutRef.current = window.setTimeout(
-                                                () => setShowVolumeSlider(false),
-                                                500,
-                                            );
+                                            hideVolumeSliderTimeoutRef.current =
+                                                window.setTimeout(
+                                                    () =>
+                                                        setShowVolumeSlider(
+                                                            false
+                                                        ),
+                                                    500
+                                                );
                                         }}
                                     >
                                         <Slider
@@ -1213,7 +1334,9 @@ export function ClipVideoPlayer({
                                             min={0}
                                             max={1}
                                             step={0.01}
-                                            onValueChange={(value) => handleVolumeChange(value)}
+                                            onValueChange={(value) =>
+                                                handleVolumeChange(value)
+                                            }
                                         />
                                     </PopoverContent>
                                 </Popover>
@@ -1235,7 +1358,9 @@ export function ClipVideoPlayer({
                                         )}
                                     </TooltipTrigger>
                                     <TooltipContent side="bottom">
-                                        {isFullScreen ? "Exit fullscreen" : "Enter fullscreen"}
+                                        {isFullScreen
+                                            ? "Exit fullscreen"
+                                            : "Enter fullscreen"}
                                     </TooltipContent>
                                 </Tooltip>
                                 <Tooltip>
@@ -1251,7 +1376,9 @@ export function ClipVideoPlayer({
                                     >
                                         <ChevronLast className="h-4 w-4" />
                                     </TooltipTrigger>
-                                    <TooltipContent side="bottom">Jump to clip end</TooltipContent>
+                                    <TooltipContent side="bottom">
+                                        Jump to clip end
+                                    </TooltipContent>
                                 </Tooltip>
                             </div>
                         </div>

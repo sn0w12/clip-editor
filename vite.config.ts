@@ -1,29 +1,43 @@
-import path from "path";
+import { fileURLToPath } from "node:url";
 
 import babel from "@rolldown/plugin-babel";
 import tailwindcss from "@tailwindcss/vite";
-import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+import viteReact, { reactCompilerPreset } from "@vitejs/plugin-react";
+import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 
+// react-scan must evaluate before React to hook the DevTools global, and
+// prepending it here instead of in main.tsx keeps the import sorter from
+// moving it below React. apply: "serve" keeps it out of production builds.
+function reactScanDev(): Plugin {
+    return {
+        name: "seraphis:react-scan-dev",
+        apply: "serve",
+        transform(code, id) {
+            const path = id.split("?")[0].replace(/\\/g, "/");
+            if (!path.endsWith("/src/main.tsx")) return;
+            return `import { scan } from "react-scan";\nscan({ enabled: true });\n${code}`;
+        },
+    };
+}
+
 export default defineConfig({
-    plugins: [react(), babel({ presets: [reactCompilerPreset()] }), tailwindcss()],
     resolve: {
         alias: {
-            "@": path.resolve(import.meta.dirname, "./src"),
+            "@": fileURLToPath(new URL("./src", import.meta.url)),
         },
     },
-    clearScreen: false,
+    plugins: [
+        tailwindcss(),
+        babel({ presets: [reactCompilerPreset()] }),
+        viteReact(),
+        reactScanDev(),
+    ],
     server: {
-        port: 1420,
+        port: 3000,
         strictPort: true,
         watch: {
-            ignored: ["**/src-tauri/target/**"],
+            ignored: ["**/target/**"],
         },
-    },
-    envPrefix: ["VITE_", "TAURI_"],
-    build: {
-        target: "esnext",
-        minify: !process.env.TAURI_DEBUG ? "esbuild" : false,
-        sourcemap: !!process.env.TAURI_DEBUG,
     },
 });

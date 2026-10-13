@@ -17,7 +17,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PreviousExports } from "@/components/video-editor/previous-exports";
 import { useSetting } from "@/lib/settings";
 import { getPreviousExports } from "@/lib/tauri";
-import type { Cut, ExportedClip, ExportOptions, TimeRange, VideoMetadata } from "@/types";
+import type {
+    Cut,
+    ExportedClip,
+    ExportOptions,
+    TimeRange,
+    VideoMetadata,
+} from "@/types";
 
 import { ScrollArea } from "../ui/scroll-area";
 import { formatTime } from "./clip-video-player";
@@ -44,7 +50,10 @@ interface ExportSettingsProps {
     isExporting: boolean;
     audioTracks?: { index: number; label: string }[];
     videoPath: string;
-    onSelectClip: (clipPath: string | null, clipDuration: number | null) => void;
+    onSelectClip: (
+        clipPath: string | null,
+        clipDuration: number | null
+    ) => void;
     selectedClipPath: string | null;
     cuts: Cut[];
 }
@@ -61,17 +70,21 @@ export function ExportSettings({
     cuts = [],
 }: ExportSettingsProps) {
     const [outputFormat, setOutputFormat] = useState<string>(
-        useSetting<string>("defaultExportFormat") ?? "mp4",
+        useSetting<string>("defaultExportFormat") ?? "mp4"
     );
     const [quality, setQuality] = useState<string>(
-        useSetting<string>("defaultExportQuality") ?? "medium",
+        useSetting<string>("defaultExportQuality") ?? "medium"
     );
-    const [qualityMode, setQualityMode] = useState<"preset" | "targetSize">("preset");
+    const [qualityMode, setQualityMode] = useState<"preset" | "targetSize">(
+        "preset"
+    );
     const [targetSize, setTargetSize] = useState<number>(10);
     const [resolutionPercent, setResolutionPercent] = useState<number>(100);
     const [audioBitrate, setAudioBitrate] = useState<number>(128);
     const [trackOverrides, setTrackOverrides] = useState<number[] | null>(null);
-    const [fpsOverride, setFpsOverride] = useState<number | undefined>(undefined);
+    const [fpsOverride, setFpsOverride] = useState<number | undefined>(
+        undefined
+    );
     const [activeTab, setActiveTab] = useState<string>("settings");
     const [exports, setExports] = useState<ExportedClip[]>([]);
     const [isClipsLoading, setIsClipsLoading] = useState(true);
@@ -117,19 +130,27 @@ export function ExportSettings({
     const defaultAudioTrackIndex =
         audioTracks.length > 0
             ? Math.min(
-                  Math.max(Number.parseInt(defaultAudioTrackSetting ?? "0", 10) || 0, 0),
-                  audioTracks.length - 1,
+                  Math.max(
+                      Number.parseInt(defaultAudioTrackSetting ?? "0", 10) || 0,
+                      0
+                  ),
+                  audioTracks.length - 1
               )
             : 0;
     const selectedAudioTracks = useMemo(
-        () => (audioTracks.length === 0 ? [] : (trackOverrides ?? [defaultAudioTrackIndex])),
-        [audioTracks.length, trackOverrides, defaultAudioTrackIndex],
+        () =>
+            audioTracks.length === 0
+                ? []
+                : (trackOverrides ?? [defaultAudioTrackIndex]),
+        [audioTracks.length, trackOverrides, defaultAudioTrackIndex]
     );
 
     const handleAudioTrackChange = (trackIndex: number, checked: boolean) => {
         const current = selectedAudioTracks;
         setTrackOverrides(
-            checked ? [...current, trackIndex] : current.filter((index) => index !== trackIndex),
+            checked
+                ? [...current, trackIndex]
+                : current.filter((index) => index !== trackIndex)
         );
     };
 
@@ -172,7 +193,8 @@ export function ExportSettings({
             const targetSizeInBits = targetSize * 8 * 1024 * 1024;
             const hasAudio = selectedAudioTracks.length > 0;
             const audioBitrateToUse = hasAudio ? audioBitrate * 1000 : 0;
-            const availableBitsForVideo = targetSizeInBits - audioBitrateToUse * duration;
+            const availableBitsForVideo =
+                targetSizeInBits - audioBitrateToUse * duration;
             videoBitrate = availableBitsForVideo / duration;
             videoBitrate = Math.max(videoBitrate, 500000);
         }
@@ -187,7 +209,8 @@ export function ExportSettings({
         const hasAudio = selectedAudioTracks.length > 0;
         const audioBitrateValue = hasAudio ? audioBitrate * 1000 : 0;
 
-        const totalBitrate = videoBitrate * resolutionFactor + audioBitrateValue;
+        const totalBitrate =
+            videoBitrate * resolutionFactor + audioBitrateValue;
         const sizeInBytes = (totalBitrate * duration) / 8;
 
         const sizeInMB = sizeInBytes / (1024 * 1024);
@@ -225,16 +248,25 @@ export function ExportSettings({
         };
 
         if (partialOptions) {
-            if (partialOptions.outputFormat && partialOptions.outputFormat !== outputFormat) {
+            if (
+                partialOptions.outputFormat &&
+                partialOptions.outputFormat !== outputFormat
+            ) {
                 setOutputFormat(partialOptions.outputFormat);
             }
-            if (partialOptions.qualityMode && partialOptions.qualityMode !== qualityMode) {
+            if (
+                partialOptions.qualityMode &&
+                partialOptions.qualityMode !== qualityMode
+            ) {
                 setQualityMode(partialOptions.qualityMode);
             }
             if (partialOptions.quality && partialOptions.quality !== quality) {
                 setQuality(partialOptions.quality);
             }
-            if (partialOptions.targetSize && partialOptions.targetSize !== targetSize) {
+            if (
+                partialOptions.targetSize &&
+                partialOptions.targetSize !== targetSize
+            ) {
                 setTargetSize(partialOptions.targetSize);
             }
 
@@ -273,12 +305,15 @@ export function ExportSettings({
                             </TabsTrigger>
                         </TabsList>
                     </div>
-                    <TabsContent value="settings" className="flex h-full flex-1 flex-col">
+                    <TabsContent
+                        value="settings"
+                        className="flex h-full flex-1 flex-col"
+                    >
                         <CardContent className="flex h-full flex-grow flex-col justify-between overflow-hidden">
                             <div className="space-y-2">
-                                <div className="bg-muted/30 grid grid-cols-2 gap-4 rounded-md p-3 xl:grid-cols-4">
+                                <div className="grid grid-cols-2 gap-4 rounded-md bg-muted/30 p-3 xl:grid-cols-4">
                                     <div className="space-y-1">
-                                        <Label className="text-muted-foreground text-xs">
+                                        <Label className="text-xs text-muted-foreground">
                                             Start Time
                                         </Label>
                                         <div className="font-mono text-sm">
@@ -286,7 +321,7 @@ export function ExportSettings({
                                         </div>
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-muted-foreground text-xs">
+                                        <Label className="text-xs text-muted-foreground">
                                             End Time
                                         </Label>
                                         <div className="font-mono text-sm">
@@ -294,7 +329,7 @@ export function ExportSettings({
                                         </div>
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-muted-foreground text-xs">
+                                        <Label className="text-xs text-muted-foreground">
                                             Duration
                                         </Label>
                                         <div className="font-mono text-sm">
@@ -302,7 +337,7 @@ export function ExportSettings({
                                         </div>
                                     </div>
                                     <div className="space-y-1">
-                                        <Label className="text-muted-foreground text-xs">
+                                        <Label className="text-xs text-muted-foreground">
                                             Resolution
                                         </Label>
                                         <div className="font-mono text-sm">
@@ -319,36 +354,57 @@ export function ExportSettings({
                                     <Tabs
                                         value={qualityMode}
                                         onValueChange={(value) =>
-                                            setQualityMode(value as "preset" | "targetSize")
+                                            setQualityMode(
+                                                value as "preset" | "targetSize"
+                                            )
                                         }
                                     >
                                         <TabsList className="w-full">
-                                            <TabsTrigger value="preset" className="flex-1">
+                                            <TabsTrigger
+                                                value="preset"
+                                                className="flex-1"
+                                            >
                                                 Quality Preset
                                             </TabsTrigger>
-                                            <TabsTrigger value="targetSize" className="flex-1">
+                                            <TabsTrigger
+                                                value="targetSize"
+                                                className="flex-1"
+                                            >
                                                 Target Size
                                             </TabsTrigger>
                                         </TabsList>
                                         <TabsContent value="preset">
                                             <div className="space-y-2 pt-2">
-                                                <Label htmlFor="quality">Quality Preset</Label>
+                                                <Label htmlFor="quality">
+                                                    Quality Preset
+                                                </Label>
                                                 <Select
                                                     value={quality}
                                                     items={QUALITY_PRESETS}
                                                     onValueChange={(value) => {
-                                                        if (value !== null) setQuality(value);
+                                                        if (value !== null)
+                                                            setQuality(value);
                                                     }}
                                                 >
                                                     <SelectTrigger id="quality">
                                                         <SelectValue placeholder="Select quality" />
                                                     </SelectTrigger>
                                                     <SelectContent>
-                                                        {QUALITY_PRESETS.map(({ label, value }) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {label}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {QUALITY_PRESETS.map(
+                                                            ({
+                                                                label,
+                                                                value,
+                                                            }) => (
+                                                                <SelectItem
+                                                                    key={value}
+                                                                    value={
+                                                                        value
+                                                                    }
+                                                                >
+                                                                    {label}
+                                                                </SelectItem>
+                                                            )
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                             </div>
@@ -362,7 +418,10 @@ export function ExportSettings({
                                                         </Label>
                                                         <span className="font-mono">
                                                             {estimatedBitrate}{" "}
-                                                            {targetSize.toFixed(1)} MB
+                                                            {targetSize.toFixed(
+                                                                1
+                                                            )}{" "}
+                                                            MB
                                                         </span>
                                                     </div>
                                                     <Slider
@@ -371,11 +430,15 @@ export function ExportSettings({
                                                         max={100}
                                                         step={0.1}
                                                         value={[targetSize]}
-                                                        onValueChange={(value) =>
+                                                        onValueChange={(
+                                                            value
+                                                        ) =>
                                                             setTargetSize(
-                                                                Array.isArray(value)
+                                                                Array.isArray(
+                                                                    value
+                                                                )
                                                                     ? value[0]
-                                                                    : value,
+                                                                    : value
                                                             )
                                                         }
                                                     />
@@ -387,7 +450,7 @@ export function ExportSettings({
 
                                 <div className="space-y-1">
                                     <Label>Estimated Size</Label>
-                                    <div className="bg-muted/30 rounded-md p-2 font-mono text-sm">
+                                    <div className="rounded-md bg-muted/30 p-2 font-mono text-sm">
                                         {estimatedFileSize}
                                     </div>
                                 </div>
@@ -402,7 +465,8 @@ export function ExportSettings({
                                                     Resolution Scale
                                                 </Label>
                                                 <span className="font-mono">
-                                                    {width}x{height} {resolutionPercent}%
+                                                    {width}x{height}{" "}
+                                                    {resolutionPercent}%
                                                 </span>
                                             </div>
                                             <Slider
@@ -413,7 +477,9 @@ export function ExportSettings({
                                                 value={[resolutionPercent]}
                                                 onValueChange={(value) =>
                                                     setResolutionPercent(
-                                                        Array.isArray(value) ? value[0] : value,
+                                                        Array.isArray(value)
+                                                            ? value[0]
+                                                            : value
                                                     )
                                                 }
                                             />
@@ -423,7 +489,9 @@ export function ExportSettings({
 
                                 <div className="grid grid-cols-2 gap-2">
                                     <div className="space-y-2">
-                                        <Label htmlFor="fps">Frame Rate (FPS)</Label>
+                                        <Label htmlFor="fps">
+                                            Frame Rate (FPS)
+                                        </Label>
                                         <Input
                                             id="fps"
                                             type="number"
@@ -431,8 +499,11 @@ export function ExportSettings({
                                             onChange={(e) =>
                                                 setFpsOverride(
                                                     e.target.value
-                                                        ? Number.parseInt(e.target.value, 10)
-                                                        : undefined,
+                                                        ? Number.parseInt(
+                                                              e.target.value,
+                                                              10
+                                                          )
+                                                        : undefined
                                                 )
                                             }
                                             max={60}
@@ -441,23 +512,34 @@ export function ExportSettings({
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="format">Output Format</Label>
+                                        <Label htmlFor="format">
+                                            Output Format
+                                        </Label>
                                         <Select
                                             value={outputFormat}
                                             items={OUTPUT_FORMATS}
                                             onValueChange={(value) => {
-                                                if (value !== null) setOutputFormat(value);
+                                                if (value !== null)
+                                                    setOutputFormat(value);
                                             }}
                                         >
-                                            <SelectTrigger id="format" className="w-full">
+                                            <SelectTrigger
+                                                id="format"
+                                                className="w-full"
+                                            >
                                                 <SelectValue placeholder="Select format" />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {OUTPUT_FORMATS.map(({ label, value }) => (
-                                                    <SelectItem key={value} value={value}>
-                                                        {label}
-                                                    </SelectItem>
-                                                ))}
+                                                {OUTPUT_FORMATS.map(
+                                                    ({ label, value }) => (
+                                                        <SelectItem
+                                                            key={value}
+                                                            value={value}
+                                                        >
+                                                            {label}
+                                                        </SelectItem>
+                                                    )
+                                                )}
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -469,9 +551,10 @@ export function ExportSettings({
                                     {audioTracks.length > 0 && (
                                         <div className="space-y-2">
                                             <Label>Audio Tracks</Label>
-                                            <p className="text-muted-foreground mb-2 text-xs">
-                                                Selected tracks will be consolidated into a single
-                                                audio track.
+                                            <p className="mb-2 text-xs text-muted-foreground">
+                                                Selected tracks will be
+                                                consolidated into a single audio
+                                                track.
                                             </p>
                                             <div className="grid grid-cols-2 gap-2">
                                                 {audioTracks.map((track) => (
@@ -482,12 +565,15 @@ export function ExportSettings({
                                                         <Checkbox
                                                             id={`track-${track.index}`}
                                                             checked={selectedAudioTracks.includes(
-                                                                track.index,
+                                                                track.index
                                                             )}
-                                                            onCheckedChange={(checked) =>
+                                                            onCheckedChange={(
+                                                                checked
+                                                            ) =>
                                                                 handleAudioTrackChange(
                                                                     track.index,
-                                                                    checked === true,
+                                                                    checked ===
+                                                                        true
                                                                 )
                                                             }
                                                         />
@@ -521,7 +607,9 @@ export function ExportSettings({
                                                 value={[audioBitrate]}
                                                 onValueChange={(value) =>
                                                     setAudioBitrate(
-                                                        Array.isArray(value) ? value[0] : value,
+                                                        Array.isArray(value)
+                                                            ? value[0]
+                                                            : value
                                                     )
                                                 }
                                             />
@@ -539,9 +627,13 @@ export function ExportSettings({
                                     qualityMode,
                                     width,
                                     height,
-                                    ...(qualityMode === "preset" ? { quality } : { targetSize }),
+                                    ...(qualityMode === "preset"
+                                        ? { quality }
+                                        : { targetSize }),
                                     fps,
-                                    ...(selectedAudioTracks.length > 0 ? { audioBitrate } : {}),
+                                    ...(selectedAudioTracks.length > 0
+                                        ? { audioBitrate }
+                                        : {}),
                                     audioTracks: selectedAudioTracks,
                                 }}
                             />

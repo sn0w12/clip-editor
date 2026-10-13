@@ -1,0 +1,52 @@
+[package]
+name = "seraphis"
+version.workspace = true
+description = "Seraphis - game clip library, editor, and replay buffer"
+authors = ["sn0w12"]
+edition.workspace = true
+rust-version.workspace = true
+default-run = "seraphis"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name, which
+# otherwise collides on Windows (rust-lang/cargo#8519).
+name = "seraphis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The settings exporter is a developer tool, not an app binary. It lives
+# outside src/bin so the tauri bundler's disk scan never tries to bundle it
+# (tauri-apps/tauri#15325).
+[[bin]]
+name = "export_settings"
+path = "dev-bin/export_settings.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+seraphis-core.workspace = true
+chrono.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+pico-args.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+tauri.workspace = true
+tauri-plugin-autostart.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-log.workspace = true
+tauri-plugin-opener.workspace = true
+tauri-plugin-os.workspace = true
+tauri-plugin-prevent-default.workspace = true
+tauri-plugin-process.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-snap-layout.workspace = true
+tauri-plugin-updater.workspace = true

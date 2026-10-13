@@ -493,8 +493,10 @@ impl CaptureStats {
         // `AccumulatedFrames` counts the presents this frame represents, so the
         // ones that never existed as separate frames are all but the first.
         // Saturating: a reset or wrapped counter must never wrap the total.
-        self.coalesced_presents
-            .fetch_add(accumulated_frames.saturating_sub(1) as u64, Ordering::Relaxed);
+        self.coalesced_presents.fetch_add(
+            accumulated_frames.saturating_sub(1) as u64,
+            Ordering::Relaxed,
+        );
         // DXGI reports `LastPresentTime = 0` for a frame whose present it
         // cannot attribute, and the first stamp after such a frame is the
         // performance counter's value since boot — hundreds of millions of
@@ -805,7 +807,10 @@ mod capture_stats_tests {
                 2,
                 vec![i as u8; 6],
             ));
-            assert!(!dropped, "the queue holds {PENDING_FRAMES} frames before dropping");
+            assert!(
+                !dropped,
+                "the queue holds {PENDING_FRAMES} frames before dropping"
+            );
             assert_eq!(depth, i + 1);
         }
         let (dropped, depth) = latest.push(VideoFrame::new(

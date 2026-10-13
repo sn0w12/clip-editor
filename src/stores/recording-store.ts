@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
 import * as tauri from "@/lib/tauri";
-import type { RecordingHealth, RecordingProfile, RecordingState } from "@/types";
+import type {
+    RecordingHealth,
+    RecordingProfile,
+    RecordingState,
+} from "@/types";
 
 const IDLE: RecordingState = {
     running: false,
@@ -83,7 +87,9 @@ export function useRecordingStore(): RecordingState & {
 } {
     const [state, setState] = useState<RecordingState>(IDLE);
     const [health, setHealth] = useState<RecordingHealth | null>(null);
-    const [profile, setProfileState] = useState<RecordingProfile>(getLoadedRecordingProfile());
+    const [profile, setProfileState] = useState<RecordingProfile>(
+        getLoadedRecordingProfile()
+    );
 
     const refresh = useCallback(async () => {
         try {
@@ -128,18 +134,22 @@ export function useRecordingStore(): RecordingState & {
                     ...s,
                     availableSeconds: p.availableSeconds,
                     targetSeconds: p.targetSeconds,
-                })),
+                }))
             ),
             tauri.onRecordingHealth(setHealth),
-            tauri.onRecordingSaving(() => setState((s) => ({ ...s, saving: true }))),
-            tauri.onRecordingSaved(() => setState((s) => ({ ...s, saving: false }))),
+            tauri.onRecordingSaving(() =>
+                setState((s) => ({ ...s, saving: true }))
+            ),
+            tauri.onRecordingSaved(() =>
+                setState((s) => ({ ...s, saving: false }))
+            ),
             tauri.onRecordingError((p) =>
                 setState((s) => ({
                     ...s,
                     running: false,
                     saving: false,
                     error: p.message,
-                })),
+                }))
             ),
         ];
         return () => {
@@ -171,7 +181,7 @@ export function useRecordingStore(): RecordingState & {
             setProfileState(nextProfile);
             await refreshProfile();
         },
-        [refreshProfile],
+        [refreshProfile]
     );
 
     return {

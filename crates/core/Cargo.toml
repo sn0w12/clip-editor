@@ -1,0 +1,37 @@
+[package]
+name = "seraphis-core"
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+description = "Domain engine behind the shell: library, media, recording, Steam"
+
+[lib]
+name = "seraphis_core"
+path = "src/lib.rs"
+
+[dependencies]
+base64.workspace = true
+chrono.workspace = true
+log.workspace = true
+notify.workspace = true
+parking_lot.workspace = true
+percent-encoding.workspace = true
+reqwest.workspace = true
+rusqlite.workspace = true
+screencap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+thumbhash.workspace = true
+tiny_http.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tracing.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg.workspace = true
+windows.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true

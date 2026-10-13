@@ -902,7 +902,14 @@ pub fn spawn_segmenter(
                 }
             }
             // Final report on shutdown so the delivery metrics are observable.
-            report(consumed, max_depth, max_age, write_total, write_max, video_rx.len());
+            report(
+                consumed,
+                max_depth,
+                max_age,
+                write_total,
+                write_max,
+                video_rx.len(),
+            );
         })
         .map_err(|e| MediaError::General(format!("cannot spawn video writer: {e}")))?;
 

@@ -5,6 +5,7 @@
 use std::thread;
 use std::time::Duration;
 
+use cpal::ErrorKind;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::debug;
@@ -79,6 +80,19 @@ pub fn spawn_microphone(
             let err_cb = {
                 let err_tx = err_tx_thread.clone();
                 move |err: cpal::Error| {
+                    // Under/overruns, a busy device, and route changes are
+                    // transient: the stream keeps producing samples, so failing
+                    // here would tear the buffer down over a momentary glitch.
+                    if matches!(
+                        err.kind(),
+                        ErrorKind::Xrun
+                            | ErrorKind::DeviceBusy
+                            | ErrorKind::DeviceChanged
+                            | ErrorKind::RealtimeDenied
+                    ) {
+                        tracing::warn!(error = %err, "microphone stream glitch, continuing");
+                        return;
+                    }
                     // Device disappearance is terminal: a silent microphone
                     // would silently violate the no-leak invariant.
                     let _ = err_tx.send(RunError::Capture(crate::error::CaptureError::Audio(

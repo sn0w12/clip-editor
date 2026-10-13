@@ -12,6 +12,12 @@ pub fn play_sound(cue: &str, path: &str) {
         tracing::warn!(cue, path, "sound file not found");
         return;
     }
+    // `PlaySound` only decodes WAV; anything else (MP3 and friends) silently
+    // fails, so skip it with a message that names the real problem.
+    if !path.to_ascii_lowercase().ends_with(".wav") {
+        tracing::warn!(cue, path, "sound cue is not a WAV file; skipped");
+        return;
+    }
     let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
     unsafe {
         let ok = PlaySoundW(

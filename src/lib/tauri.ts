@@ -55,10 +55,20 @@ export {
     imgSrc,
 };
 
-/** Pick a single file (WAV for the save-success sound). */
+/** Pick a single file of any type. */
 export async function selectFile(): Promise<string | null> {
     const dialog = await import("@tauri-apps/plugin-dialog");
     return dialog.open({ multiple: false });
+}
+
+/** Pick a single WAV file. The save cues are played with the Win32
+ * `PlaySound` API, which only decodes WAV, so the picker filters to `.wav`. */
+export async function selectWavFile(): Promise<string | null> {
+    const dialog = await import("@tauri-apps/plugin-dialog");
+    return dialog.open({
+        multiple: false,
+        filters: [{ name: "WAV audio", extensions: ["wav"] }],
+    });
 }
 
 export function selectDirectory(): Promise<string | null> {

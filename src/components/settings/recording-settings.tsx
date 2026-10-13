@@ -33,7 +33,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toastManager } from "@/components/ui/toast";
 import { setSetting as persistSetting, useSetting } from "@/lib/settings";
-import { getLibraryRoots, selectFile } from "@/lib/tauri";
+import { getLibraryRoots, selectWavFile } from "@/lib/tauri";
 import { displayPath } from "@/lib/utils";
 import { useRecordingStore } from "@/stores/recording-store";
 import type {
@@ -64,6 +64,10 @@ const BASE_SELECTORS = ["all_processes", "all_nonmuted_processes"];
 
 const SELECTOR_BADGE_CLASS =
     "h-9 min-w-6.5 gap-1 rounded-lg px-[calc(--spacing(3)-1px)] pr-2 font-mono text-xs sm:h-8";
+
+function isWav(path: string): boolean {
+    return path.toLowerCase().endsWith(".wav");
+}
 
 function SettingsPanel({
     title,
@@ -182,8 +186,17 @@ export function RecordingSettings() {
     };
 
     const browseSound = async (key: "saveIntentSound" | "successSound") => {
-        const file = await selectFile();
-        if (file) update({ [key]: file });
+        const file = await selectWavFile();
+        if (!file) return;
+        if (!isWav(file)) {
+            toastManager.add({
+                title: "Unsupported sound file",
+                description: "Save cues only play WAV files.",
+                type: "error",
+            });
+            return;
+        }
+        update({ [key]: file });
     };
 
     return (
@@ -493,6 +506,12 @@ export function RecordingSettings() {
                                 </Button>
                             )}
                         </div>
+                        {profile.saveIntentSound &&
+                            !isWav(profile.saveIntentSound) && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    Not a WAV file, so it will not play.
+                                </p>
+                            )}
                     </SettingEntry>
                     <SettingEntry
                         label="Sound on save"
@@ -521,6 +540,12 @@ export function RecordingSettings() {
                                 </Button>
                             )}
                         </div>
+                        {profile.successSound &&
+                            !isWav(profile.successSound) && (
+                                <p className="mt-1 text-xs text-destructive">
+                                    Not a WAV file, so it will not play.
+                                </p>
+                            )}
                     </SettingEntry>
                 </div>
             </SettingsPanel>

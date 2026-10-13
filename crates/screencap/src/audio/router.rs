@@ -6,11 +6,18 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::audio::{AudioBlock, AudioEvent, SourceInfo, SourceKey, SourceKind, TrackAudioBlock};
 use crate::config::{ResolvedTrack, Selector};
 use crate::util::RateLimiter;
+
+/// How far behind the mixer a block may be and still be played, late, instead
+/// of being dropped. Sized so a source that hovers around the mixer's release
+/// latency is never punctured, while a source that has fallen genuinely behind
+/// (a restart, a long stall) is not allowed to desync its track by seconds.
+const LATE_SALVAGE: Duration = Duration::from_millis(500);
+
 /// Mixes per-source audio into per-track output.
 pub struct AudioRouter {
     block_ms: u32,
@@ -27,11 +34,26 @@ pub struct AudioRouter {
     mix_index: u64,
     late_drop: RateLimiter,
     mismatch_drop: RateLimiter,
-    /// Diagnostics: drops per source since the last summary log.
-    drop_counts: HashMap<SourceKey, u64>,
+    /// Per-source counters for the current summary window.
+    stats: HashMap<SourceKey, SourceStats>,
+    /// Per-track output peak for the current summary window.
+    track_peaks: Vec<f32>,
     last_summary: std::time::Instant,
     /// Verbose drop logging (SCREENCAP_AUDIO_DBG=1).
     dbg: bool,
+}
+
+/// What one source did during the current summary window. A source that is
+/// healthy holds a steady block count and a peak near its own level; a source
+/// that is being dropped shows `dropped` climbing, and one that has gone quiet
+/// or dead shows its peak fall away.
+#[derive(Debug, Default, Clone, Copy)]
+struct SourceStats {
+    blocks: u64,
+    salvaged: u64,
+    dropped: u64,
+    peak: f32,
+    worst_late: Duration,
 }
 
 impl AudioRouter {
@@ -42,6 +64,7 @@ impl AudioRouter {
         tracks: Vec<ResolvedTrack>,
         sources: Vec<SourceInfo>,
     ) -> Self {
+        let track_count = tracks.len();
         let mut router = AudioRouter {
             block_ms,
             sample_rate,
@@ -54,7 +77,8 @@ impl AudioRouter {
             mix_index: 0,
             late_drop: RateLimiter::new(Duration::from_secs(5)),
             mismatch_drop: RateLimiter::new(Duration::from_secs(5)),
-            drop_counts: HashMap::new(),
+            stats: HashMap::new(),
+            track_peaks: vec![0.0; track_count],
             last_summary: std::time::Instant::now(),
             dbg: std::env::var("SCREENCAP_AUDIO_DBG").as_deref() == Ok("1"),
         };
@@ -117,6 +141,10 @@ impl AudioRouter {
             return;
         }
         let queue = self.queues.entry(block.source.clone()).or_default();
+        let peak = block.samples.iter().fold(0.0f32, |a, s| a.max(s.abs()));
+        let stat = self.stats.entry(block.source.clone()).or_default();
+        stat.blocks += 1;
+        stat.peak = stat.peak.max(peak);
         // Timestamp-ordered insert: blocks are expected in order but a
         // reordered arrival must not corrupt the timeline.
         match queue.back() {
@@ -130,6 +158,48 @@ impl AudioRouter {
 
     fn block_frames(&self) -> usize {
         (self.block_ms as u64 * self.sample_rate as u64 / 1000) as usize
+    }
+
+    /// One line per source and per track, every summary window. The audio path
+    /// is otherwise silent when healthy, which is why a source quietly losing
+    /// every block can sit in a log for hours unnoticed: this makes the block
+    /// count, the level, and the late/dropped totals visible unconditionally.
+    fn log_summary(&mut self, late_worst: Duration) {
+        let mut rows: Vec<(String, SourceStats)> = self
+            .stats
+            .drain()
+            .map(|(k, v)| (k.0, v))
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        for (key, s) in rows {
+            info!(
+                source = %key,
+                blocks = s.blocks,
+                salvaged = s.salvaged,
+                dropped = s.dropped,
+                worst_late_ms = s.worst_late.as_millis() as u64,
+                peak_dbfs = peak_dbfs(s.peak),
+                "audio source (10s window)"
+            );
+        }
+        for (i, track) in self.tracks.iter().enumerate() {
+            let peak = self.track_peaks.get(i).copied().unwrap_or(0.0);
+            info!(
+                track = track.number,
+                name = %track.name,
+                peak_dbfs = peak_dbfs(peak),
+                "audio track (10s window)"
+            );
+        }
+        if late_worst > Duration::ZERO {
+            warn!(
+                worst_late_ms = late_worst.as_millis() as u64,
+                "stale audio block discarded (10s window)"
+            );
+        }
+        for p in self.track_peaks.iter_mut() {
+            *p = 0.0;
+        }
     }
 
     fn block_duration(&self) -> Duration {
@@ -168,40 +238,57 @@ impl AudioRouter {
         let win_start_dur = Duration::from_millis(self.mix_index as u64 * self.block_ms as u64);
         let win_end_dur = win_start_dur + self.block_duration();
 
-        // Drop blocks that are entirely before this window (we fell behind).
+        // Salvage blocks that are entirely before this window. A hole is audible
+        // as a click and a run of them is the crackle this used to produce, so a
+        // block that is only slightly late is re-stamped onto this window and
+        // played late rather than discarded. Past `LATE_SALVAGE` the audio is
+        // too stale to place without desyncing the track, so it is dropped.
+        let mut late_worst = Duration::ZERO;
         for (key, queue) in self.queues.iter_mut() {
             while let Some(front) = queue.front() {
                 let block_end = front.pts + front.duration();
-                if block_end <= win_start_dur {
-                    *self.drop_counts.entry(key.clone()).or_insert(0) += 1;
-                    if self.dbg {
-                        eprintln!(
-                            "[audiodbg] mixer LATE-DROP {} pts={}ms win={}ms",
-                            key.0,
-                            front.pts.as_millis(),
-                            win_start_dur.as_millis()
-                        );
-                    }
-                    if self.late_drop.should_emit() {
-                        warn!(
-                            source = %key.0,
-                            pts_ms = front.pts.as_millis() as u64,
-                            win_start_ms = win_start_dur.as_millis() as u64,
-                            "dropping late audio block; source is falling behind"
-                        );
-                    }
-                    queue.pop_front();
-                } else {
+                if block_end > win_start_dur {
                     break;
                 }
+                let late_by = win_start_dur.saturating_sub(block_end);
+                if let Some(stat) = self.stats.get_mut(key) {
+                    stat.worst_late = stat.worst_late.max(late_by);
+                }
+                if late_by <= LATE_SALVAGE {
+                    let block = queue.front_mut().expect("front exists");
+                    block.pts = win_start_dur;
+                    if let Some(stat) = self.stats.get_mut(key) {
+                        stat.salvaged += 1;
+                    }
+                    break;
+                }
+                if let Some(stat) = self.stats.get_mut(key) {
+                    stat.dropped += 1;
+                }
+                late_worst = late_worst.max(late_by);
+                if self.dbg {
+                    eprintln!(
+                        "[audiodbg] mixer LATE-DROP {} pts={}ms win={}ms late_by={}ms",
+                        key.0,
+                        front.pts.as_millis(),
+                        win_start_dur.as_millis(),
+                        late_by.as_millis()
+                    );
+                }
+                if self.late_drop.should_emit() {
+                    warn!(
+                        source = %key.0,
+                        pts_ms = front.pts.as_millis() as u64,
+                        win_start_ms = win_start_dur.as_millis() as u64,
+                        late_by_ms = late_by.as_millis() as u64,
+                        "dropping stale audio block; source is far behind the mixer"
+                    );
+                }
+                queue.pop_front();
             }
         }
         if self.last_summary.elapsed() >= Duration::from_secs(10) {
-            for (key, count) in self.drop_counts.drain() {
-                if count > 0 {
-                    warn!(source = %key.0, dropped = count, "late-drop summary (10s window)");
-                }
-            }
+            self.log_summary(late_worst);
             self.last_summary = std::time::Instant::now();
         }
 
@@ -282,8 +369,13 @@ impl AudioRouter {
                     *acc += *sample;
                 }
             }
+            let mut peak = 0.0f32;
             for sample in buf.iter_mut() {
                 *sample = sample.clamp(-1.0, 1.0);
+                peak = peak.max(sample.abs());
+            }
+            if let Some(slot) = self.track_peaks.get_mut(track_index) {
+                *slot = slot.max(peak);
             }
             output.push(TrackAudioBlock {
                 number: track.number,
@@ -308,6 +400,16 @@ impl AudioRouter {
 fn frame_offset(start: Duration, end: Duration, rate: u32) -> usize {
     let secs = end.as_secs_f64() - start.as_secs_f64();
     (secs * rate as f64).round() as usize
+}
+
+/// Peak amplitude as dBFS, floored at the smallest representable level so
+/// silence reads as a number rather than `-inf`.
+fn peak_dbfs(peak: f32) -> f32 {
+    if peak <= 0.0 {
+        -120.0
+    } else {
+        (20.0 * peak.log10()).max(-120.0)
+    }
 }
 
 #[cfg(test)]
@@ -461,26 +563,97 @@ mod tests {
     }
 
     #[test]
-    fn late_block_is_dropped() {
+    fn slightly_late_block_is_played_late_not_dropped() {
         let sources = vec![info("source:a", SourceKind::Process, &[])];
         let tracks = vec![track(1, "all", vec![Selector::AllProcesses], vec![])];
         let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
         router.mix();
         router.mix();
-        // A block for window 0 arriving after window 0 was mixed: dropped.
+        // A block for window 0 arriving after window 1 was mixed is only
+        // `block_ms` late: it must still be played, in the current window.
         router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
         let m2 = router.mix();
         assert!(
-            m2[0].samples.iter().all(|s| *s == 0.0),
-            "late block must not leak into later windows"
+            m2[0].samples.iter().all(|s| (*s - 0.5).abs() < 1e-6),
+            "a slightly late block must be heard, not silently discarded"
         );
-        assert_eq!(
+        assert!(
             router
                 .queues
                 .get(&SourceKey("source:a".into()))
                 .unwrap()
-                .len(),
-            0
+                .is_empty(),
+            "the salvaged block is consumed by the window it was re-stamped onto"
+        );
+    }
+
+    #[test]
+    fn summary_counters_track_each_source() {
+        let sources = vec![info("source:a", SourceKind::Process, &[])];
+        let tracks = vec![track(1, "all", vec![Selector::AllProcesses], vec![])];
+        let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
+        let mut b = block("source:a", 0, FRAMES, CH, RATE);
+        for s in b.samples.iter_mut() {
+            *s = 0.5;
+        }
+        router.apply_event(AudioEvent::Block(b));
+        router.mix();
+
+        let stat = router.stats.get(&SourceKey("source:a".into())).unwrap();
+        assert_eq!(stat.blocks, 1, "the block the source sent is counted");
+        assert!((stat.peak - 0.5).abs() < 1e-6, "peak tracks the block level");
+        assert_eq!(stat.salvaged, 0);
+        assert_eq!(stat.dropped, 0);
+        assert!((router.track_peaks[0] - 0.5).abs() < 1e-6, "track peak is recorded");
+
+        // One window late: salvaged, and the lateness is recorded.
+        router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
+        router.mix();
+        let stat = router.stats.get(&SourceKey("source:a".into())).unwrap();
+        assert_eq!(stat.salvaged, 1, "a slightly late block counts as salvaged");
+        assert_eq!(stat.dropped, 0);
+
+        // Past LATE_SALVAGE: dropped, with the magnitude recorded so the log
+        // can name how far behind the source actually was.
+        for _ in 0..60 {
+            router.mix();
+        }
+        router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
+        router.mix();
+        let stat = router.stats.get(&SourceKey("source:a".into())).unwrap();
+        assert_eq!(stat.dropped, 1, "a far stale block counts as dropped");
+        assert!(
+            stat.worst_late > LATE_SALVAGE,
+            "worst lateness is recorded, got {:?}",
+            stat.worst_late
+        );
+    }
+
+    #[test]
+    fn far_stale_block_is_dropped() {
+        let sources = vec![info("source:a", SourceKind::Process, &[])];
+        let tracks = vec![track(1, "all", vec![Selector::AllProcesses], vec![])];
+        let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
+        // Push the mixer well past the block's window by more than
+        // `LATE_SALVAGE` allows.
+        for _ in 0..60 {
+            router.mix();
+        }
+        // Window 0 is now 1200 ms behind the mixer.
+        router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
+        let m = router.mix();
+        assert!(
+            m[0].samples.iter().all(|s| *s == 0.0),
+            "a block far behind the mixer must not be spliced in; it would \
+             desync the track by more than a salvage is worth"
+        );
+        assert!(
+            router
+                .queues
+                .get(&SourceKey("source:a".into()))
+                .unwrap()
+                .is_empty(),
+            "the stale block is dropped rather than left to block the queue"
         );
     }
 

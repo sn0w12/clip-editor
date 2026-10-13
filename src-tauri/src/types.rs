@@ -235,7 +235,6 @@ pub struct RecordingHealthPayload {
     pub readback_ms: f64,
     pub readback_p95_ms: f64,
     pub acquires_per_sec: f64,
-    pub dirty_skips: u64,
     /// Read backs whose GPU wait threatened the frame interval.
     pub slow_map_waits: u64,
     /// p95 copy→map readback latency, in milliseconds.

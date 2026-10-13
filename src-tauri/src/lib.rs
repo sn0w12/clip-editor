@@ -58,6 +58,66 @@ fn is_autostart_launch() -> bool {
 /// Honors `RUST_LOG` when set, otherwise `screencap=info` — the capture module
 /// reports at `info` while the rest of the app is chatty at that level.
 /// Failure is non-fatal: the app must still start if the log cannot be opened.
+/// Record panics to `dir/logs/panic.log` before the process aborts.
+///
+/// The release profile sets `panic = "abort"`, so a panic takes the whole app
+/// down with no unwinding. The default hook prints to stderr, which a windowed
+/// app launched from Explorer does not have, so the one line that names the
+/// file, line and cause is thrown away and the only surviving evidence is a
+/// Windows Error Reporting event: `0xc0000409` and no indication of what
+/// panicked. `set_hook` still runs before the abort, so writing here costs
+/// nothing and turns the next occurrence into a diagnosable one.
+///
+/// Deliberately does not re-enter `tracing` (a panic while logging would
+/// recurse) and does not allocate on the failure path beyond the formatted
+/// message. The thread name is included because every worker in this app is
+/// named (`segmenter-video`, `video-capture`, `video-pacer`, …), which is
+/// usually enough to tell a capture-path panic from a segmenter one.
+///
+/// A separate file from `capture.log` so it survives that file's rotation and
+/// so the crash record is not lost when the process dies mid-write.
+fn install_panic_log(dir: &std::path::Path) {
+    use std::io::Write as _;
+
+    let path = dir.join("logs").join("panic.log");
+    // This runs before `install_file_logging`, which is what normally creates
+    // `logs/`, so the directory cannot be assumed to exist on a fresh install.
+    let _ = std::fs::create_dir_all(dir.join("logs"));
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("<unnamed>").to_string();
+        let location = match info.location() {
+            Some(l) => format!("{}:{}:{}", l.file(), l.line(), l.column()),
+            None => "<unknown location>".to_string(),
+        };
+        let payload = info.payload();
+        let message = if let Some(s) = payload.downcast_ref::<&'static str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<non-string panic payload>".to_string()
+        };
+        let record = format!(
+            "=== panic {} thread={name}\n{location}\n{message}\n",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        );
+        // Best effort: a failure to record must not mask the real panic, and
+        // the original hook still runs below so anything else watching (a test
+        // harness, a debugger) sees it too.
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            let _ = file.write_all(record.as_bytes());
+            let _ = file.flush();
+        }
+        previous(info);
+    }));
+}
+
 fn install_file_logging(dir: &std::path::Path) {
     use std::io::Write as _;
 
@@ -154,7 +214,10 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir).map_err(|e| format!("app data dir: {e}"))?;
             std::fs::create_dir_all(&cache_root).map_err(|e| format!("app cache dir: {e}"))?;
             // Before any worker starts: the replay buffer auto-starts further
-            // down, and its capture counters are the point of the log.
+            // down, and its capture counters are the point of the log. The
+            // panic hook goes first so a crash during startup is still
+            // recorded.
+            install_panic_log(&data_dir);
             install_file_logging(&data_dir);
             // The FFmpeg fallback downloads next to the db/caches: the data
             // dir is writable under both per-user NSIS and per-machine MSI
@@ -460,4 +523,41 @@ fn get_bool_setting(app: &tauri::AppHandle, key: &str) -> Option<bool> {
     let state = app.state::<commands::AppState>();
     let settings = db::get_all_settings(&state.db.lock()).ok()?;
     settings.get(key).and_then(|v| v.as_bool())
+}
+
+#[cfg(test)]
+mod panic_log_tests {
+    use super::install_panic_log;
+
+    /// A release build aborts on panic, and the default hook's stderr goes
+    /// nowhere in a windowed app, so this hook is the only record of why the
+    /// app died. Assert it captures the three things needed to act on that:
+    /// the message, the source location, and the name of the thread that died.
+    #[test]
+    fn panic_hook_records_message_location_and_thread_name() {
+        let dir = std::env::temp_dir().join(format!("clip-editor-panic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Deliberately does not pre-create `logs/`: the hook is installed
+        // before the logger that creates it, so it must make its own.
+        install_panic_log(&dir);
+
+        let worker = std::thread::Builder::new()
+            .name("segmenter-video".to_string())
+            .spawn(|| {
+                panic!("boom from a worker thread");
+            })
+            .expect("spawn worker");
+        let _ = worker.join();
+
+        let log = std::fs::read_to_string(dir.join("logs").join("panic.log"))
+            .expect("panic log written");
+        assert!(log.contains("boom from a worker thread"), "got: {log}");
+        // `panic::Location::file()` is the path rustc was given, which is the
+        // crate-relative file with no module component, so this can only ever
+        // narrow to the file — the line is what identifies the statement.
+        assert!(log.contains("lib.rs"), "source file missing: {log}");
+        assert!(log.contains("thread=segmenter-video"), "thread name missing: {log}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

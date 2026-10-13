@@ -129,8 +129,6 @@ pub struct CaptureHealth {
     pub readback_p95_ms: f64,
     /// Duplication acquires per second (should be ≈ `target_fps`).
     pub acquires_per_sec: f64,
-    /// Frames skipped because only a cursor-sized region changed.
-    pub dirty_skips: u64,
     /// Read backs whose GPU wait was long enough to threaten the frame
     /// interval (each one is a tick that may have to repeat a frame).
     pub slow_map_waits: u64,
@@ -180,9 +178,9 @@ fn saturation_warning(
         ));
     }
     // A readback that takes most of a frame interval means the next frame is
-    // already due when this one lands, so the pacer has to re-send frames and
-    // the clip plays them back as repeats. This is a *capture* limit, and it is
-    // invisible in the delivered rate, hence its own warning.
+    // already due when this one lands, so the feed thread has to re-send frames
+    // and the clip plays them back as repeats. This is a *capture* limit, and it
+    // is invisible in the delivered rate, hence its own warning.
     if readback_latency_p95_ms > frame_interval_ms * 0.9 {
         return Some(format!(
             "screen readback is taking {readback_latency_p95_ms:.1} ms per frame (frame \
@@ -234,7 +232,6 @@ impl HealthTracker {
             acquires_per_sec,
             readback_ms,
             readback_p95_ms,
-            dirty_skips,
             slow_map_waits,
             readback_latency_p95_ms,
         ) = match capture {
@@ -246,12 +243,11 @@ impl HealthTracker {
                     acquires,
                     stats.readback_mean_ms(),
                     stats.readback_percentile_ms(0.95),
-                    snap.dirty_skips,
                     snap.slow_map_waits,
                     stats.readback_latency_percentile_ms(0.95),
                 )
             }
-            None => (0.0, 0.0, 0.0, 0, 0, 0.0),
+            None => (0.0, 0.0, 0.0, 0, 0.0),
         };
         let frame_age_ms = window.max_frame_age_micros / 1000;
         let write_ms_per_frame = if written == 0 {
@@ -277,7 +273,6 @@ impl HealthTracker {
             readback_ms,
             readback_p95_ms,
             acquires_per_sec,
-            dirty_skips,
             slow_map_waits,
             readback_latency_p95_ms,
             max_queue_depth: window.max_queue_depth,

@@ -8,16 +8,34 @@
 //! effect, which is why OBS-style recorders use it for display capture.
 //!
 //! The duplication delivers a frame only when the desktop changes (the
-//! dirty-region optimization for free); the shared FPS pacer turns that into
-//! the configured fixed-rate stream by re-sending the latest frame.
+//! dirty-region optimization for free); the shared fixed-rate feed thread turns
+//! that into the configured stream rate by re-sending the latest frame.
 //!
-//! Capture runs on its own tick grid (one acquire per stream interval) rather
-//! than spinning on `AcquireNextFrame` at whatever rate the compositor
-//! produces: a 400 fps game would otherwise be handed to the duplication ~400
-//! times a second, which is compositor work the stream never uses and costs the
-//! game frames. Each tick converts exactly one acquired frame before the tick
-//! ends, so every stream frame is a distinct desktop frame one tick old (never a
-//! duplicate the pacer had to invent).
+//! Capture runs on its own tick grid, converting at most one frame per stream
+//! interval, rather than converting at whatever rate the compositor produces: a
+//! 400 fps game would otherwise be converted ~400 times a second, which is work
+//! the stream never uses and costs the game frames.
+//!
+//! How long a tick may spend *waiting* is the delicate part, and it is not the
+//! interval. `AcquireNextFrame` blocks until the compositor presents, which on
+//! a 60 Hz display can be a full 16.7 ms — the entire budget of a 60 fps tick,
+//! leaving nothing for the conversion and readback that must follow. A tick
+//! that waits therefore overruns, the grid slips, and because a slipped tick
+//! finds a frame waiting it recovers without ever counting the slip, the loop
+//! settles quietly below its configured rate and the presents it can no longer
+//! reach are folded into the frames it does get. Measured on a 60 fps stream
+//! that was 51 polls/s with 2781 presents coalesced away per two minutes.
+//!
+//! So a tick waits only for what is left after reserving the readback, and
+//! retries inside that budget instead of blocking through it. Every tick then
+//! fits its period, the poll rate matches the configured rate, and the capture
+//! reaches essentially every present the compositor makes — measured at the full
+//! 60 polls/s with coalescing down ~20x. What remains as
+//! `acquire_timeouts` is then truthful rather than alarming: it counts polls
+//! that found nothing because the desktop genuinely did not change, which is
+//! the expected reading whenever the stream rate exceeds the desktop's own
+//! update rate. `coalesced_presents` is the counter that says whether presents
+//! were missed, and it is the one to watch.
 //!
 //! The acquired texture is converted to NV12 on the GPU (see [`nv12`]) and read
 //! back as `width * height * 3 / 2` bytes, so no BGRA frame is ever staged or
@@ -26,9 +44,12 @@
 //! recorded as `CaptureStats::observe_map_wait` rather than hidden, so a
 //! contended GPU shows up as latency before it shows up as missing frames.
 //!
-//! Ticks are skipped when the duplication reports a negligible changed area (a
-//! cursor- or clock-sized region): there is nothing to convert, and the pacer
-//! re-sends the previous frame to keep the stream cadence.
+//! A frame that carries only a pointer move is not published: the pointer is
+//! composited separately, so such a frame is byte-identical to the previous
+//! one, and a mouse reports far more often than the desktop updates. The feed
+//! thread re-sends the last desktop image on a tick that publishes nothing, so
+//! the only frames the stream repeats are the ones no tick had a new desktop
+//! image for.
 
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -36,11 +57,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender};
-use tracing::info;
-use windows::Win32::Foundation::RECT;
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use tracing::{info, warn};
 use windows::Win32::Graphics::Dxgi::{
-    DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR, IDXGIOutputDuplication,
+    DXGI_OUTDUPL_FRAME_INFO, DXGI_OUTDUPL_POINTER_SHAPE_INFO, DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR,
 };
 use windows_capture::dxgi_duplication_api::{
     DxgiDuplicationApi, DxgiDuplicationFrame, Error as DxgiError,
@@ -52,7 +72,7 @@ use crate::util::RateLimiter;
 use crate::video::nv12::{CursorUpload, Nv12Converter};
 use crate::video::{
     CaptureStats, Latest, MonitorSpec, StopState, VideoBackend, VideoError, VideoFrame, VideoInfo,
-    VideoSettings, nv12_frame_bytes,
+    VideoSettings, VIDEO_QUEUE_CAPACITY, PENDING_FRAMES, nv12_frame_bytes,
 };
 
 pub struct WindowsDxgiVideoBackend {
@@ -117,7 +137,11 @@ impl VideoBackend for WindowsDxgiVideoBackend {
         let latest = Arc::new(Mutex::new(Latest::default()));
         let stop = Arc::new(StopState::default());
 
-        // Pacer thread: shared fixed-rate re-sender (see `spawn_pacer`).
+        // Feed thread: emits one frame per tick, re-sending the last one when
+        // the desktop had nothing new (see `spawn_pacer`). It holds the only
+        // clone of the caller's sender, so the segmenter's video channel
+        // disconnects when it exits — which is how the writer learns to
+        // finalize the open segment on shutdown.
         let pacer_done = Arc::new(AtomicBool::new(false));
         crate::video::spawn_pacer(
             info,
@@ -171,57 +195,77 @@ impl VideoBackend for WindowsDxgiVideoBackend {
     }
 }
 
+/// Result of [`recreate_duplication`]: the duplication is live again, or the
+/// supervisor asked to stop while the rebuild was waiting.
+enum Rebuild {
+    Done,
+    Shutdown,
+}
+
 /// Rebuild the duplication after access is lost. DXGI allows only one
 /// Desktop Duplication client per output, so access loss happens on mode
 /// changes, fast user switch, the secure desktop (screen lock/UAC), or when
-/// another app (OBS, Discord, a game overlay) takes over duplication. In all
-/// of those cases recreation can transiently fail with `E_ACCESSDENIED`;
-/// retry with a short backoff and fall back to a fresh open instead of
-/// tearing down the whole capture on the first failure.
+/// another app (OBS, Discord, a game overlay) takes over duplication.
+///
+/// While the secure desktop is up, `DuplicateOutput` returns `E_ACCESSDENIED`
+/// until LOCAL_SYSTEM hands the desktop back, which is the entire duration of
+/// the lock or UAC prompt, minutes included. A bounded retry budget therefore
+/// ends the capture on every screen lock, so the loop instead waits until the
+/// rebuild succeeds or the supervisor stops it.
 fn recreate_duplication(
     api: &mut Option<DxgiDuplicationApi>,
     monitor: &Monitor,
-) -> Result<(), String> {
-    const ATTEMPTS: usize = 6;
+    stop: &StopState,
+    shutdown: &Receiver<()>,
+) -> Result<Rebuild, String> {
+    const MAX_WAIT: Duration = Duration::from_millis(500);
     let mut wait = Duration::from_millis(50);
-    let mut last_err = String::new();
+    let mut waiting = false;
 
-    for _ in 0..ATTEMPTS {
+    loop {
+        if stop.requested.load(Ordering::SeqCst) {
+            return Ok(Rebuild::Shutdown);
+        }
         // `recreate(self)` consumes the api and drops it on failure; a fresh
         // open is the fallback. `take` empties the slot first so the old
         // duplication interface is fully released before `DuplicateOutput`, in
         // case our own previous interface still holds the output.
         let rebuilt = match api.take() {
             Some(old) => match old.recreate() {
-                Ok(new) => new,
-                Err(e) => {
-                    last_err = format!("recreate: {e:?}");
-                    match DxgiDuplicationApi::new(*monitor) {
-                        Ok(new) => new,
-                        Err(e2) => {
-                            last_err = format!("{last_err}; fresh open: {e2:?}");
-                            thread::sleep(wait);
-                            wait = wait.saturating_mul(2);
-                            continue;
-                        }
-                    }
-                }
+                Ok(new) => Ok(new),
+                Err(e) => DxgiDuplicationApi::new(*monitor)
+                    .map_err(|e2| format!("recreate: {e:?}; fresh open: {e2:?}")),
             },
-            None => match DxgiDuplicationApi::new(*monitor) {
-                Ok(new) => new,
-                Err(e) => {
-                    last_err = format!("fresh open: {e:?}");
-                    thread::sleep(wait);
-                    wait = wait.saturating_mul(2);
-                    continue;
-                }
-            },
+            None => DxgiDuplicationApi::new(*monitor).map_err(|e| format!("fresh open: {e:?}")),
         };
-        *api = Some(rebuilt);
-        return Ok(());
-    }
 
-    Err(last_err)
+        match rebuilt {
+            Ok(new) => {
+                *api = Some(new);
+                if waiting {
+                    info!("DXGI duplication reacquired");
+                }
+                return Ok(Rebuild::Done);
+            }
+            Err(e) => {
+                if !waiting {
+                    waiting = true;
+                    warn!(
+                        error = %e,
+                        "DXGI duplication unavailable; waiting for the desktop"
+                    );
+                }
+            }
+        }
+
+        // Sleep on the shutdown channel rather than the clock, so a stop is
+        // never delayed by a wait of up to `MAX_WAIT`.
+        match shutdown.recv_timeout(wait) {
+            Ok(()) | Err(RecvTimeoutError::Disconnected) => return Ok(Rebuild::Shutdown),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        wait = (wait * 2).min(MAX_WAIT);
+    }
 }
 
 fn run_capture(
@@ -239,19 +283,10 @@ fn run_capture(
     let mut limiter = RateLimiter::new(Duration::from_secs(5));
     let mut last_log = Instant::now();
     let mut last_log_frames: u64 = 0;
-    // One acquire per stream interval: DXGI coalesces every compositor update
+    // One acquire per stream tick: DXGI coalesces every compositor update
     // since the last release, so a tick never needs to poll faster than the
-    // stream rate. The short timeout keeps the grid honest on a static desktop
-    // (the pacer re-sends the previous frame).
-    // The timeout must outlast one display refresh. The duplication only
-    // produces a new frame when the desktop changes, and on a 240 Hz display
-    // that is every ~4.2 ms — so the previous `interval / 4` (4 ms at 60 fps)
-    // raced the compositor and timed out on a large fraction of ticks. A
-    // timeout is not free: the pacer re-sends the previous frame, so each one
-    // is a duplicate in the saved clip rather than a new image. Waiting up to
-    // the stream interval costs nothing when the desktop is static (there is
-    // nothing to capture) and is capped at 50 ms so shutdown stays responsive.
-    let acquire_timeout_ms = interval.as_millis().clamp(4, 50) as u32;
+    // stream rate. What a tick *may* spend waiting is decided per attempt
+    // below, from the budget the conversion and readback leave behind.
     let mut next_tick = origin;
 
     loop {
@@ -271,8 +306,8 @@ fn run_capture(
         }
         next_tick += interval;
         // A tick that started late (a long readback, a duplication rebuild, a
-        // descheduled thread) is skipped rather than bursted: the pacer owns
-        // the stream cadence and duplicates the last frame instead.
+        // descheduled thread) is skipped rather than bursted: the feed thread
+        // owns the stream cadence and duplicates the last frame instead.
         let now = Instant::now();
         if next_tick <= now {
             let behind = (now - next_tick).as_nanos();
@@ -287,32 +322,102 @@ fn run_capture(
         // 2. Acquire at most one frame for this tick, read it back and publish
         //    it before the tick ends. The acquisition borrows `api`, so it is
         //    scoped to end before any recreation below.
+        //
+        //    The poll runs right up to the tick deadline, retrying for whatever
+        //    is left after each attempt. That deadline is the whole budget:
+        //    nothing is held back for the conversion.
+        //
+        //    Reserving readback time here is what silently halved the frame
+        //    rate. `readback_p99_ms` settles around 10 ms, so a reserve capped
+        //    at half the interval left the poll only ~8 ms of a 16.7 ms tick
+        //    and the remaining ~8 ms became a blind window that no present was
+        //    ever looked for. On a display presenting ~58 times a second that
+        //    discarded roughly half the available frames — measured 37.8
+        //    acquires/s from 58.2 presents/s — which is what made saved clips
+        //    stutter even though the feed was delivering a clean 60 fps of
+        //    mostly-duplicated frames.
+        //
+        //    A present missed because the poll stopped early is gone for good;
+        //    the conversion running a few ms past the deadline is not, because
+        //    the tick grid is absolute and simply resumes on the next
+        //    iteration. `tick_overruns` records the difference.
+        let tick_start = Instant::now();
+        // The readback is charged against the poll window, so stopping at the
+        // interval truncates it to `interval - readback` and loses any present
+        // that landed in the gap; a tick that publishes nothing is a frame the
+        // feed thread re-sends. Overrunning is the cheap direction — the grid is
+        // absolute, so a long tick only makes the next one start late.
+        let tick_budget = interval + interval / 2;
         let should_recreate = {
             let Some(current) = api.as_mut() else {
                 return Err("DXGI duplication unavailable".to_string());
             };
-            match current.acquire_next_frame(acquire_timeout_ms) {
-                Ok(frame) => {
-                    stats.acquires.fetch_add(1, Ordering::Relaxed);
-                    state.process(&frame, cursor, origin, &latest, &stats)?;
-                    // The frame is released on the next acquire.
-                    false
-                }
-                Err(DxgiError::Timeout) => {
-                    // Desktop unchanged: nothing to read back, and the pacer
-                    // re-sends the last frame for this tick.
-                    stats.acquire_timeouts.fetch_add(1, Ordering::Relaxed);
-                    false
-                }
-                Err(DxgiError::AccessLost) => true,
-                Err(e) => {
-                    return Err(format!("DXGI duplication error: {e:?}"));
+            let mut recreate = false;
+            loop {
+                // Whatever is left of this tick's budget. A 1 ms floor keeps
+                // the final attempt a cheap poll rather than an instant no-op,
+                // so a tick that is already out of budget stops instead of
+                // spinning.
+                let left = tick_budget
+                    .saturating_sub(tick_start.elapsed())
+                    .max(Duration::from_millis(1));
+                match current.acquire_next_frame(left.as_millis().clamp(1, 50) as u32) {
+                    Ok(frame) => {
+                        // A cursor move is a frame to DXGI but not a picture.
+                        // With pointer compositing off, publishing it repeats
+                        // the previous frame, and a mouse reports far more often
+                        // than the desktop updates, so on a moving pointer most
+                        // ticks would be repeats. Keep polling inside this
+                        // tick's budget for a real update instead; a tick that
+                        // finds none publishes nothing and the feed thread
+                        // re-sends, which is what an unchanged desktop means.
+                        if state.is_pointer_only(frame.frame_info()) {
+                            stats.mouse_only_frames.fetch_add(1, Ordering::Relaxed);
+                            if tick_start.elapsed() >= tick_budget {
+                                break;
+                            }
+                            continue;
+                        }
+                        stats.acquires.fetch_add(1, Ordering::Relaxed);
+                        state.observe_present(frame.frame_info(), &stats);
+                        state.process(&frame, cursor, origin, &latest, &stats)?;
+                        // The frame is released on the next acquire.
+                        break;
+                    }
+                    Err(DxgiError::Timeout) => {
+                        // Nothing new within this attempt's slice. Either the
+                        // desktop is genuinely idle (the feed thread re-sends
+                        // the last frame for this tick) or the present landed
+                        // just after the slice expired, in which case the
+                        // budget check below hands the rest of the tick to
+                        // another attempt.
+                        stats.acquire_timeouts.fetch_add(1, Ordering::Relaxed);
+                        if tick_start.elapsed() >= tick_budget {
+                            break;
+                        }
+                    }
+                    Err(DxgiError::AccessLost) => {
+                        recreate = true;
+                        break;
+                    }
+                    Err(e) => {
+                        return Err(format!("DXGI duplication error: {e:?}"));
+                    }
                 }
             }
+            recreate
         };
         if should_recreate {
-            recreate_duplication(&mut api, &monitor)
-                .map_err(|e| format!("DXGI duplication recreate failed: {e}"))?;
+            // A rebuilt duplication restarts the compositor's present
+            // sequence, so the next interval would span the gap and read as a
+            // multi-second stall. The converter is not touched here: it
+            // compares devices and is rebuilt inside `process` when they differ.
+            state.reset_presents();
+            match recreate_duplication(&mut api, &monitor, &stop, &shutdown) {
+                Ok(Rebuild::Done) => {}
+                Ok(Rebuild::Shutdown) => return Ok(()),
+                Err(e) => return Err(format!("DXGI duplication recreate failed: {e}")),
+            }
         }
         if limiter.should_emit() {
             let elapsed = last_log.elapsed().as_secs_f64().max(0.001);
@@ -321,9 +426,14 @@ fn run_capture(
             info!(
                 delivered = format!("{delivered:.1}/s"),
                 acquires = snap.acquires,
+                mouse_only = snap.mouse_only_frames,
                 acquire_timeouts = snap.acquire_timeouts,
+                pending_drops = snap.pending_drops,
+                pending_max = snap.pending_depth_max,
+                duplicate_publishes = snap.duplicate_publishes,
+                coalesced_presents = snap.coalesced_presents,
+                present_every_ms = format!("{:.2}", snap.present_interval_ms),
                 readbacks = snap.callbacks,
-                dirty_skips = snap.dirty_skips,
                 slow_map_waits = snap.slow_map_waits,
                 map_wait_p95_ms = format!("{:.2}", stats.readback_latency_percentile_ms(0.95)),
                 tick_overruns = snap.tick_overruns,
@@ -355,17 +465,6 @@ pub fn take_buffer_arc(pool: &mut Vec<Arc<Vec<u8>>>, len: usize) -> Arc<Vec<u8>>
     Arc::new(vec![0u8; len])
 }
 
-/// Fraction of the frame that must change for a tick to pay for a GPU
-/// conversion and readback. Below it, the changed pixels are a cursor- or
-/// clock-sized region, and re-converting the whole desktop would produce a
-/// frame that is visually identical to the one already published.
-const DIRTY_SKIP_FRACTION: f64 = 0.005;
-
-/// Dirty rects inspected before the area heuristic gives up. A longer list is
-/// certainly a large change, and skipping is only allowed when the changed area
-/// is known to be small.
-const MAX_DIRTY_RECTS: usize = 256;
-
 /// A pointer position plus shape captured at acquire time, so a later tick can
 /// composite it into the frame it belongs to.
 struct CursorSample {
@@ -382,9 +481,16 @@ struct CaptureState {
     converter: Option<Nv12Converter>,
     /// Recycled CPU frame buffers, reused only while uniquely owned.
     pool: Vec<Arc<Vec<u8>>>,
-    /// Scratch buffers reused across ticks (dirty rects, pointer shape).
-    rects: Vec<RECT>,
+    /// The most recent published frame, kept only to tell whether the next one
+    /// is pixel-identical (see `CaptureStats::duplicate_publishes`).
+    last_publish: Option<Arc<Vec<u8>>>,
+    /// Scratch buffer reused across ticks (pointer shape).
     shape: Vec<u8>,
+    /// `LastPresentTime` of the previously acquired frame, in QPC ticks, and
+    /// whether one has been seen. Reset by `reset_presents` whenever the
+    /// duplication is rebuilt, because a fresh duplication restarts the
+    /// present sequence and a delta across that boundary would be meaningless.
+    last_present_ticks: Option<i64>,
     /// Frames published by this capture thread.
     frames: u64,
 }
@@ -394,10 +500,51 @@ impl CaptureState {
         CaptureState {
             converter: None,
             pool: Vec::new(),
-            rects: vec![RECT::default(); MAX_DIRTY_RECTS],
+            last_publish: None,
             shape: Vec::new(),
+            last_present_ticks: None,
             frames: 0,
         }
+    }
+
+    /// Forget the previous present stamp. Called after the duplication is
+    /// recreated so the next measured interval spans one continuous session.
+    fn reset_presents(&mut self) {
+        self.last_present_ticks = None;
+    }
+
+    /// Whether this acquisition carried only a pointer move.
+    ///
+    /// A cursor move is a frame to DXGI but not a picture: it reports
+    /// `AccumulatedFrames == 0` for one and leaves `LastPresentTime` where it
+    /// was. Both signals must agree that the desktop image did not change, so a
+    /// driver that reports either one loosely cannot turn every tick into a
+    /// dropped frame. The first frame of a session, and the first after a
+    /// duplication rebuild, compare against `None` and are never pointer-only.
+    fn is_pointer_only(&self, info: &DXGI_OUTDUPL_FRAME_INFO) -> bool {
+        info.AccumulatedFrames == 0 && self.last_present_ticks == Some(info.LastPresentTime)
+    }
+
+    /// Record what the compositor reported for this frame.
+    ///
+    /// `AccumulatedFrames` is how many presents DXGI folded into the frame it
+    /// just handed us, and `LastPresentTime` is when the newest of them hit the
+    /// screen. Together they separate the two causes of an acquire timeout,
+    /// which are otherwise indistinguishable: presents being coalesced away
+    /// means the compositor is producing frames this capture is dropping, while
+    /// a stretched interval between stamps means the compositor itself slowed
+    /// down. See [`crate::video::CaptureStats::coalesced_presents`].
+    fn observe_present(&mut self, info: &DXGI_OUTDUPL_FRAME_INFO, stats: &CaptureStats) {
+        let present = info.LastPresentTime;
+        let delta = self
+            .last_present_ticks
+            .map(|previous| present.saturating_sub(previous))
+            // A stamp that did not move forward is a compositor quirk, not a
+            // zero-length interval; report no sample rather than poison the
+            // mean with a zero.
+            .filter(|d| *d > 0);
+        self.last_present_ticks = Some(present);
+        stats.observe_present(info.AccumulatedFrames, delta);
     }
 
     /// Publish a converted frame. The buffer is recycled through the pool: the
@@ -410,22 +557,47 @@ impl CaptureState {
         height: u32,
         origin: Instant,
         latest: &Mutex<Latest>,
+        stats: &CaptureStats,
     ) {
-        latest.lock().frame = Some(VideoFrame {
-            pts: origin.elapsed(),
-            width,
-            height,
-            data: buffer.clone(),
-        });
-        if self.pool.len() < 4 {
+        // Compare against the previous publish: DXGI reports a present for a
+        // recomposition of an unchanged image, and publishing that puts a frame
+        // in the stream that repeats the one before it. The count is the
+        // measurement that says whether the repeats in a clip come from here or
+        // from the feed thread's re-sends.
+        if let Some(previous) = self.last_publish.as_ref() {
+            if previous.as_slice() == buffer.as_slice() {
+                stats.duplicate_publishes.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        self.last_publish = Some(buffer.clone());
+        {
+            let (dropped, depth) = latest.lock().push(VideoFrame {
+                pts: origin.elapsed(),
+                width,
+                height,
+                data: buffer.clone(),
+            });
+            if dropped {
+                stats.pending_drops.fetch_add(1, Ordering::Relaxed);
+            }
+            stats
+                .pending_depth_max
+                .fetch_max(depth as u64, Ordering::Relaxed);
+        }
+        // One pooled buffer per frame that can be queued or in flight: the
+        // pending queue, the writer's channel, and the conversion in progress.
+        // A smaller pool makes every publish allocate and zero a fresh 3 MB
+        // frame, which is pure cost once the queue can hold frames.
+        if self.pool.len() < PENDING_FRAMES + VIDEO_QUEUE_CAPACITY + 2 {
             self.pool.push(buffer);
         }
         self.frames += 1;
     }
 
-    /// Handle one acquired frame: skip it when the changed area is negligible,
-    /// otherwise convert it to NV12 on the GPU and publish it before the tick
-    /// ends.
+    /// Handle one frame the acquire loop accepted: convert it to NV12 on the
+    /// GPU and publish it before the tick ends. The loop only reaches here for a
+    /// frame that carries a desktop image update, so nothing published is a
+    /// repeat of the previous image.
     fn process(
         &mut self,
         frame: &DxgiDuplicationFrame<'_>,
@@ -436,7 +608,6 @@ impl CaptureState {
     ) -> Result<(), String> {
         let width = frame.width();
         let height = frame.height();
-        let fraction = dirty_area_fraction(frame.duplication(), width, height, &mut self.rects);
         // The pointer shape is only reported while the frame is held, so it is
         // sampled here and composited by the conversion pass.
         let sample = if cursor {
@@ -444,12 +615,6 @@ impl CaptureState {
         } else {
             None
         };
-        if fraction.is_some_and(|f| f <= DIRTY_SKIP_FRACTION) {
-            // A cursor- or clock-sized region changed: the pacer re-sends the
-            // previous frame, so no conversion is needed for this tick.
-            stats.dirty_skips.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
-        }
 
         let device = frame.device();
         let context = frame.device_context();
@@ -491,42 +656,9 @@ impl CaptureState {
         stats.observe_readback(cpu);
         stats.full_copies.fetch_add(1, Ordering::Relaxed);
         stats.callbacks.fetch_add(1, Ordering::Relaxed);
-        self.publish(buffer, width, height, origin, latest);
+        self.publish(buffer, width, height, origin, latest, stats);
         Ok(())
     }
-}
-
-/// Total changed area of the frame as a fraction of the frame, or `None` when
-/// the duplication reports more rects than the scratch buffer holds (certainly
-/// large) or the query fails. Callers may only skip a readback on a `Some` that
-/// is small, never on `None`.
-fn dirty_area_fraction(
-    duplication: &IDXGIOutputDuplication,
-    width: u32,
-    height: u32,
-    scratch: &mut [RECT],
-) -> Option<f64> {
-    if scratch.is_empty() {
-        return None;
-    }
-    let bytes = (scratch.len() * std::mem::size_of::<RECT>()) as u32;
-    let mut required = 0u32;
-    // SAFETY: `scratch` is a live buffer of `bytes` bytes and the duplication
-    // writes at most that many rects into it, reporting the needed size.
-    if unsafe { duplication.GetFrameDirtyRects(bytes, scratch.as_mut_ptr(), &mut required) }
-        .is_err()
-    {
-        return None;
-    }
-    let count = (required as usize / std::mem::size_of::<RECT>()).min(scratch.len());
-    let mut area: u64 = 0;
-    for rect in &scratch[..count] {
-        let w = (rect.right - rect.left).max(0) as u64;
-        let h = (rect.bottom - rect.top).max(0) as u64;
-        area += w * h;
-    }
-    let frame_area = (width as u64).max(1) * (height as u64).max(1);
-    Some((area as f64 / frame_area as f64).min(1.0))
 }
 
 /// Sample the pointer position and shape while the frame is held. Returns
@@ -575,6 +707,36 @@ fn fetch_cursor(frame: &DxgiDuplicationFrame<'_>, shape_buf: &mut Vec<u8>) -> Op
 #[cfg(test)]
 mod buffer_pool_tests {
     use super::*;
+
+    #[test]
+    fn pointer_only_requires_both_signals_to_agree() {
+        let mut state = CaptureState::new();
+        let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
+        // Nothing to compare the first frame of a session against, so it must
+        // never be withheld.
+        assert!(
+            !state.is_pointer_only(&info),
+            "the first frame is never pointer-only"
+        );
+        state.last_present_ticks = Some(1000);
+        info.LastPresentTime = 1000;
+        info.AccumulatedFrames = 0;
+        assert!(
+            state.is_pointer_only(&info),
+            "an unchanged stamp with no accumulated frame is a pointer move"
+        );
+        info.AccumulatedFrames = 1;
+        assert!(
+            !state.is_pointer_only(&info),
+            "an accumulated frame is a desktop update"
+        );
+        info.AccumulatedFrames = 0;
+        info.LastPresentTime = 2000;
+        assert!(
+            !state.is_pointer_only(&info),
+            "an advanced stamp is a desktop update"
+        );
+    }
 
     #[test]
     fn pool_reuses_uniquely_owned_buffer() {

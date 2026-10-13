@@ -35,6 +35,12 @@ const STALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long shutdown waits for FFmpeg to finalize the open segment.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// How long FFmpeg's muxer waits for a starved stream before writing video
+/// anyway, in microseconds. Must never be `0`: see the `-max_interleave_delta`
+/// note at the call site, where `0` means "buffer indefinitely" rather than
+/// "buffer never".
+const MAX_INTERLEAVE_DELTA_US: &str = "250000";
+
 /// Full URL for a named pipe (`\\.\pipe\` prefix on Windows).
 fn pipe_url(name: &str) -> String {
     #[cfg(windows)]
@@ -536,6 +542,15 @@ pub fn spawn_segmenter(
         &format!("{}x{}", params.video.width, params.video.height),
         "-framerate",
         &params.video.fps.to_string(),
+        // Timestamp video by frame count, not arrival time. The feed thread
+        // emits exactly one frame per tick and never skips one, so the frame
+        // count *is* the wall seconds elapsed and count-based stamps land on an
+        // exact grid. `-use_wallclock_as_timestamps` would trade that for
+        // arrival jitter of a few ms around each 16.7 ms tick, which is a
+        // needless A/V sync risk. Counting stays exact precisely because the
+        // feed re-sends the last frame on a tick the desktop had nothing new
+        // for, instead of leaving a hole that would shorten the timeline.
+        //
         // Read the pipes at native rate: the producers (capture, mixer) pace
         // the inputs themselves. `-re` on a raw-audio pipe is destructive: its
         // pacing cannot service 1024-byte packets (one every ~2.7ms), the input
@@ -676,14 +691,31 @@ pub fn spawn_segmenter(
     cmd.args([
         "-f",
         "segment",
-        // The muxer's interleave logic waits for every stream to have a
-        // buffered packet before writing. The audio demuxer delivers rare,
-        // large packets, so with the default delta the muxer holds video (and
-        // blocks the encoder, throttling the whole pipeline to a fraction of
-        // real-time). Zero disables the wait: packets are written as soon as
-        // they are produced, so segment files fill continuously.
+        // The muxer's interleave logic will not write *any* packet until every
+        // stream has one buffered, and `max_interleave_delta` is how long it will
+        // keep waiting before writing anyway:
+        //
+        //   "If set to 0, libavformat will continue buffering packets until it
+        //    has a packet for each stream, regardless of the maximum timestamp
+        //    difference between the buffered packets."
+        //
+        // So `0` does not mean "write immediately" — it means **wait forever**.
+        // With five streams (video plus four audio tracks) and a WASAPI source
+        // that hiccups, one starved track pins video in the muxing queue
+        // indefinitely. FFmpeg keeps draining our pipe into that queue, the
+        // 16 MB pipe fills, the video writer blocks, and the backlog grows for
+        // as long as the stall lasts — which is exactly the slow `max_queue_depth`
+        // / `max_frame_age_ms` climb seen in long runs, tracking the mixer dropping
+        // late audio blocks.
+        //
+        // A small non-zero delta keeps both properties that matter: while every
+        // stream is flowing the interleaver emits in DTS order regardless of this
+        // value (so A/V sync is unaffected), and when one stream does starve video
+        // is held for at most this long. The default 10 s is what previously
+        // throttled the pipeline; 250 ms is well inside one segment and inside the
+        // video queue's own absorption, so a transient no longer accumulates.
         "-max_interleave_delta",
-        "0",
+        MAX_INTERLEAVE_DELTA_US,
         "-segment_time",
         &params.segment_seconds.to_string(),
         // Each segment is an independent concat input. Reset timestamps at
@@ -695,7 +727,7 @@ pub fn spawn_segmenter(
         // Mirror the option into the per-segment mkv muxer (which wraps each
         // segment's container).
         "-segment_format_options",
-        "max_interleave_delta=0",
+        &format!("max_interleave_delta={MAX_INTERLEAVE_DELTA_US}"),
         "-segment_list_type",
         "csv",
         "-segment_list",
@@ -748,12 +780,37 @@ pub fn spawn_segmenter(
             let mut consumed: u64 = 0;
             let mut max_depth: usize = 0;
             let mut max_age: Duration = Duration::ZERO;
+            // Pipe-write timing, tracked here rather than read from
+            // `DeliveryStats`: the supervisor calls `take_snapshot` every
+            // second, and that swaps the maxima to zero, so the writer's own
+            // window would be reset out from under it every second.
+            //
+            // This is the only thing in the writer that can block. `write_all`
+            // pushes a whole NV12 frame (3 MB at 1080p) into the FFmpeg pipe,
+            // so when the backlog grows these are what say whether FFmpeg
+            // stopped reading or the writer got slower: a flat mean with a
+            // rising max means rare long stalls, a rising mean means a
+            // generally slower pipe.
+            let mut write_total: Duration = Duration::ZERO;
+            let mut write_max: Duration = Duration::ZERO;
             let mut last_report = std::time::Instant::now();
-            let report = |consumed: u64, max_depth: usize, max_age: Duration| {
+            let report = |consumed: u64,
+                          max_depth: usize,
+                          max_age: Duration,
+                          write_total: Duration,
+                          write_max: Duration,
+                          depth_end: usize| {
                 info!(
                     consumed = consumed,
                     max_queue_depth = max_depth,
                     max_frame_age_ms = max_age.as_millis() as u64,
+                    write_mean_ms = if consumed == 0 {
+                        0.0
+                    } else {
+                        write_total.as_secs_f64() * 1000.0 / consumed as f64
+                    },
+                    write_max_ms = format!("{:.2}", write_max.as_secs_f64() * 1000.0),
+                    queue_depth_end = depth_end,
                     "segmenter-video delivery"
                 );
             };
@@ -768,6 +825,9 @@ pub fn spawn_segmenter(
                         if writer.write_all(&frame.data).is_err() {
                             break; // ffmpeg closed the pipe; monitor reports exit
                         }
+                        let write = write_started.elapsed();
+                        write_total += write;
+                        write_max = write_max.max(write);
                         // Publish the delivery window: the supervisor turns it
                         // into the capture-health event (and the segment
                         // benchmark reads it directly).
@@ -778,10 +838,19 @@ pub fn spawn_segmenter(
                         );
                         last_write = std::time::Instant::now();
                         if last_report.elapsed() >= Duration::from_secs(5) {
-                            report(consumed, max_depth, max_age);
+                            report(
+                                consumed,
+                                max_depth,
+                                max_age,
+                                write_total,
+                                write_max,
+                                video_rx.len(),
+                            );
                             consumed = 0;
                             max_depth = 0;
                             max_age = Duration::ZERO;
+                            write_total = Duration::ZERO;
+                            write_max = Duration::ZERO;
                             last_report = std::time::Instant::now();
                         }
                     }
@@ -794,6 +863,22 @@ pub fn spawn_segmenter(
                         if last_write.elapsed() > STALL_TIMEOUT
                             && !writer_flag.load(Ordering::SeqCst)
                         {
+                            // The feed thread emits one frame per tick
+                            // regardless of whether the desktop changed, so
+                            // this gap means the feed itself stopped — not that
+                            // the screen went quiet. Log the delivery window
+                            // alongside it: a healthy depth and frame age up
+                            // to the break point mean the pipe was fine right
+                            // up to the wedge, which is what separates a
+                            // blocked feed from a struggling encoder.
+                            error!(
+                                quiet_secs = last_write.elapsed().as_secs_f64(),
+                                consumed = consumed,
+                                max_queue_depth = max_depth,
+                                max_frame_age_ms = max_age.as_millis() as u64,
+                                write_max_ms = format!("{:.2}", write_max.as_secs_f64() * 1000.0),
+                                "video feed thread stopped feeding the pipe"
+                            );
                             let _ = writer_err.send(RunError::media(
                                 "media pipeline stalled: no video frames for several seconds",
                             ));
@@ -817,7 +902,7 @@ pub fn spawn_segmenter(
                 }
             }
             // Final report on shutdown so the delivery metrics are observable.
-            report(consumed, max_depth, max_age);
+            report(consumed, max_depth, max_age, write_total, write_max, video_rx.len());
         })
         .map_err(|e| MediaError::General(format!("cannot spawn video writer: {e}")))?;
 

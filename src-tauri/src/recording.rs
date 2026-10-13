@@ -441,7 +441,6 @@ fn forward_event(event: &ReplayEvent, status: &Mutex<RecordingStatus>, app: &tau
                     readback_ms: health.readback_ms,
                     readback_p95_ms: health.readback_p95_ms,
                     acquires_per_sec: health.acquires_per_sec,
-                    dirty_skips: health.dirty_skips,
                     slow_map_waits: health.slow_map_waits,
                     readback_latency_p95_ms: health.readback_latency_p95_ms,
                     max_queue_depth: health.max_queue_depth,

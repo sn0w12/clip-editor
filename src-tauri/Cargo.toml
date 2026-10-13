@@ -59,7 +59,10 @@ opt-level = "s"
 panic = "abort"
 strip = true
 
-# The capture crate is the hot path (readback, pacer, mixing, segmenter
-# pacing); compile it for speed while the rest of the app stays size-optimized.
 [profile.release.package.screencap]
 opt-level = 3
+
+[profile.release-with-debug]
+inherits = "release"
+debug = 1
+strip = false

@@ -124,8 +124,26 @@ fn main() {
     // DXGI delivered a changed frame for every readback plus every frame
     // dropped before readback; timeouts (no desktop change) are not acquires.
     let acquired = callbacks + pre_readback_drops;
+    // `acquires + acquire_timeouts` is the number of polls made, so the pair
+    // says how often the duplication had nothing new for us. `coalesced` and
+    // `present_every_ms` say why: coalesced presents climbing means the
+    // compositor produced frames this run dropped, while a stretched present
+    // interval means the compositor itself went quiet.
+    let timeouts = snap.as_ref().map_or(0, |s| s.acquire_timeouts);
+    let mouse_only = snap.as_ref().map_or(0, |s| s.mouse_only_frames);
+    let pending_drops = snap.as_ref().map_or(0, |s| s.pending_drops);
+    let pending_max = snap.as_ref().map_or(0, |s| s.pending_depth_max);
+    let duplicate_publishes = snap.as_ref().map_or(0, |s| s.duplicate_publishes);
+    let coalesced = snap.as_ref().map_or(0, |s| s.coalesced_presents);
+    let present_every_ms = snap.as_ref().map_or(0.0, |s| s.present_interval_ms);
+    let polls = acquired + timeouts;
+    let timeout_pct = if polls == 0 {
+        0.0
+    } else {
+        100.0 * timeouts as f64 / polls as f64
+    };
     println!(
-        "RESULT wall={wall:.1}s pacer_delivered={frames} rate={:.1}fps acquired={acquired} readback={callbacks} pre_readback_drops={pre_readback_drops} non_zero_frames={non_zero} varied_frames={varied} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
+        "RESULT wall={wall:.1}s pacer_delivered={frames} rate={:.1}fps acquired={acquired} readback={callbacks} pre_readback_drops={pre_readback_drops} polls={polls} acquire_timeouts={timeouts} mouse_only={mouse_only} pending_drops={pending_drops} pending_max={pending_max} duplicate_publishes={duplicate_publishes} timeout_pct={timeout_pct:.1} coalesced_presents={coalesced} present_every_ms={present_every_ms:.2} non_zero_frames={non_zero} varied_frames={varied} full_copies={full} partial_copies={partial} skipped_empty_damage={skipped} readback_errors={errors}",
         frames as f64 / wall
     );
 }

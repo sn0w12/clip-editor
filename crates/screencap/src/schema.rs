@@ -52,6 +52,12 @@ const KEYS: &[KeyDoc] = &[
         notes: "Global hotkey, e.g. \"shift+alt+KeyQ\", \"ctrl+F12\"",
     },
     KeyDoc {
+        path: "replay.save_intent_sound",
+        kind: "string",
+        default: "—",
+        notes: "Path to a WAV file played when a save starts, before the file is written; omit for no sound",
+    },
+    KeyDoc {
         path: "replay.success_sound",
         kind: "string",
         default: "—",

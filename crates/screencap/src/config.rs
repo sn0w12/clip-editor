@@ -131,6 +131,9 @@ pub struct ReplayConfig {
     pub monitor: MonitorSpec,
     pub fps: u32,
     pub hotkey: String,
+    /// Path to a WAV played when a save starts, so a hotkey press has audible
+    /// feedback before the file is written; `None` for no sound.
+    pub save_intent_sound: Option<String>,
     /// Path to a WAV played after a successful save; `None` for no sound.
     pub success_sound: Option<String>,
     /// Where the rolling buffer lives; `None` picks the system temp directory
@@ -328,6 +331,8 @@ struct RawReplay {
     #[serde(default = "default_hotkey")]
     hotkey: String,
     #[serde(default)]
+    save_intent_sound: Option<String>,
+    #[serde(default)]
     success_sound: Option<String>,
     #[serde(default)]
     buffer_dir: Option<PathBuf>,
@@ -446,6 +451,7 @@ impl Default for RawReplay {
             monitor: default_monitor(),
             fps: default_fps(),
             hotkey: default_hotkey(),
+            save_intent_sound: None,
             success_sound: None,
             buffer_dir: None,
         }
@@ -799,7 +805,14 @@ impl RawConfig {
                 monitor,
                 fps: self.replay.fps,
                 hotkey: self.replay.hotkey,
-                success_sound: validated_success_sound(self.replay.success_sound)?,
+                save_intent_sound: validated_sound_path(
+                    "replay.save_intent_sound",
+                    self.replay.save_intent_sound,
+                )?,
+                success_sound: validated_sound_path(
+                    "replay.success_sound",
+                    self.replay.success_sound,
+                )?,
                 buffer_dir: validated_buffer_dir(self.replay.buffer_dir)?,
             },
             video: VideoConfig {
@@ -819,12 +832,13 @@ impl RawConfig {
     }
 }
 
-/// A success-sound path must be nonempty when present.
-fn validated_success_sound(sound: Option<String>) -> Result<Option<String>, ConfigError> {
+/// A sound path must be nonempty when present. `key` names the field so the
+/// error points at the key the user actually set.
+fn validated_sound_path(key: &str, sound: Option<String>) -> Result<Option<String>, ConfigError> {
     match sound {
-        Some(s) if s.trim().is_empty() => Err(ConfigError::Validation(
-            "replay.success_sound must be a file path, not empty".to_string(),
-        )),
+        Some(s) if s.trim().is_empty() => Err(ConfigError::Validation(format!(
+            "{key} must be a file path, not empty"
+        ))),
         other => Ok(other),
     }
 }
@@ -1034,24 +1048,25 @@ mod tests {
     }
 
     #[test]
-    fn success_sound_is_optional_path() {
+    fn sound_paths_are_optional() {
         assert!(load_from_str("[replay]\nsuccess_sound = \"\"\n").is_err());
+        assert!(load_from_str("[replay]\nsave_intent_sound = \"\"\n").is_err());
+        let cfg = load_from_str(
+            "[replay]\nsave_intent_sound = \"C:/sounds/start.wav\"\nsuccess_sound = \"C:/sounds/save.wav\"\n",
+        )
+        .unwrap();
         assert_eq!(
-            load_from_str("[replay]\nsuccess_sound = \"C:/sounds/save.wav\"\n")
-                .unwrap()
-                .replay
-                .success_sound
-                .as_deref(),
+            cfg.replay.save_intent_sound.as_deref(),
+            Some("C:/sounds/start.wav")
+        );
+        assert_eq!(
+            cfg.replay.success_sound.as_deref(),
             Some("C:/sounds/save.wav")
         );
         // omitted -> no sound
-        assert!(
-            load_from_str("[replay]\nfps = 30\n")
-                .unwrap()
-                .replay
-                .success_sound
-                .is_none()
-        );
+        let cfg = load_from_str("[replay]\nfps = 30\n").unwrap();
+        assert!(cfg.replay.save_intent_sound.is_none());
+        assert!(cfg.replay.success_sound.is_none());
     }
 
     #[test]
@@ -1083,6 +1098,7 @@ mod tests {
         assert_eq!(cfg.audio.tracks[0].number, 1);
         assert_eq!(cfg.audio.tracks[0].name, "all");
         assert_eq!(cfg.audio.tracks[0].include, vec![Selector::AllProcesses]);
+        assert!(cfg.replay.save_intent_sound.is_none());
         assert!(cfg.replay.success_sound.is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }

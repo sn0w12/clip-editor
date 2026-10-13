@@ -182,6 +182,9 @@ pub struct RecordingProfile {
     pub hotkey: String,
     pub output_dir: String,
     pub filename_base: String,
+    /// Path to a WAV played when a save starts; empty = none.
+    #[serde(default)]
+    pub save_intent_sound: String,
     /// Path to a WAV played after a successful save; empty = none.
     #[serde(default)]
     pub success_sound: String,
@@ -208,6 +211,7 @@ impl Default for RecordingProfile {
             hotkey: "ctrl+shift+KeyQ".to_string(),
             output_dir: String::new(),
             filename_base: "Replay".to_string(),
+            save_intent_sound: String::new(),
             success_sound: String::new(),
             audio_routing: "all".to_string(),
             processes: Vec::new(),

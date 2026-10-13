@@ -459,9 +459,9 @@ function RecordingSettings() {
         }
     };
 
-    const browseSound = async () => {
+    const browseSound = async (key: "saveIntentSound" | "successSound") => {
         const file = await selectFile();
-        if (file) update({ successSound: file });
+        if (file) update({ [key]: file });
     };
 
     return (
@@ -709,6 +709,34 @@ function RecordingSettings() {
                         />
                     </SettingEntry>
                     <SettingEntry
+                        label="Sound when a save starts"
+                        description="Optional WAV played as soon as a save begins, so a hotkey press has feedback while the clip is still being written."
+                    >
+                        <div className="flex gap-2">
+                            <Input
+                                value={displayPath(profile.saveIntentSound)}
+                                readOnly
+                                placeholder="None"
+                                className="font-mono text-xs"
+                            />
+                            <Button
+                                variant="outline"
+                                onClick={() => void browseSound("saveIntentSound")}
+                            >
+                                <FolderOpenIcon /> Browse
+                            </Button>
+                            {profile.saveIntentSound && (
+                                <Button
+                                    variant="ghost"
+                                    aria-label="Clear sound when a save starts"
+                                    onClick={() => update({ saveIntentSound: "" })}
+                                >
+                                    <XIcon />
+                                </Button>
+                            )}
+                        </div>
+                    </SettingEntry>
+                    <SettingEntry
                         label="Sound on save"
                         description="Optional WAV played after a successful save."
                     >
@@ -719,13 +747,16 @@ function RecordingSettings() {
                                 placeholder="None"
                                 className="font-mono text-xs"
                             />
-                            <Button variant="outline" onClick={() => void browseSound()}>
+                            <Button
+                                variant="outline"
+                                onClick={() => void browseSound("successSound")}
+                            >
                                 <FolderOpenIcon /> Browse
                             </Button>
                             {profile.successSound && (
                                 <Button
                                     variant="ghost"
-                                    aria-label="Clear sound"
+                                    aria-label="Clear sound on save"
                                     onClick={() => update({ successSound: "" })}
                                 >
                                     <XIcon />
@@ -1270,6 +1301,12 @@ function SearchSettings({ onNavigate }: { onNavigate: (tab: string) => void }) {
         { key: "sampleRate", label: "Sample rate", tab: "recording", value: profile.sampleRate },
         { key: "channels", label: "Audio channels", tab: "recording", value: profile.channels },
         { key: "hotkey", label: "Global save hotkey", tab: "recording", value: profile.hotkey },
+        {
+            key: "saveIntentSound",
+            label: "Sound when a save starts",
+            tab: "recording",
+            value: profile.saveIntentSound,
+        },
         {
             key: "successSound",
             label: "Sound on save",

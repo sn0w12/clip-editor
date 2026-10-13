@@ -696,6 +696,7 @@ fn supervise_inner(
                         duration_secs,
                         config.replay.segment_seconds,
                         origin,
+                        config.replay.save_intent_sound.as_deref(),
                         config.replay.success_sound.as_deref(),
                         &rec_event_tx,
                     );
@@ -716,6 +717,7 @@ fn supervise_inner(
                             duration_secs,
                             config.replay.segment_seconds,
                             origin,
+                            config.replay.save_intent_sound.as_deref(),
                             config.replay.success_sound.as_deref(),
                             &rec_event_tx,
                         );
@@ -738,6 +740,7 @@ fn supervise_inner(
                             duration_secs,
                             config.replay.segment_seconds,
                             origin,
+                            config.replay.save_intent_sound.as_deref(),
                             config.replay.success_sound.as_deref(),
                             &rec_event_tx,
                         );
@@ -758,6 +761,7 @@ fn supervise_inner(
                                 duration_secs,
                                 config.replay.segment_seconds,
                                 origin,
+                                config.replay.save_intent_sound.as_deref(),
                                 config.replay.success_sound.as_deref(),
                                 &rec_event_tx,
                             );
@@ -922,8 +926,10 @@ fn perform_save(
     Ok(path)
 }
 
-/// Run one save and publish `Saving`/`Saved`/`Error` events around it. A save
-/// failure never kills the run.
+/// Run one save and publish `Saving`/`Saved`/`Error` events around it. The start
+/// cue plays before the work begins and the success cue only once a complete file
+/// exists, so a press has audible feedback while the save is still running. A
+/// save failure never kills the run.
 #[allow(clippy::too_many_arguments)]
 fn handle_save(
     ffmpeg: &std::path::Path,
@@ -935,6 +941,7 @@ fn handle_save(
     duration_seconds: u32,
     segment_seconds: u32,
     origin: Instant,
+    save_intent_sound: Option<&str>,
     success_sound: Option<&str>,
     rec_event_tx: &Option<Sender<ReplayEvent>>,
 ) {
@@ -943,6 +950,9 @@ fn handle_save(
             let _ = tx.try_send(event);
         }
     };
+    if let Some(path) = save_intent_sound {
+        crate::sound::play_sound("replay.save_intent_sound", path);
+    }
     emit(ReplayEvent::Saving);
     match perform_save(
         ffmpeg,
@@ -958,7 +968,7 @@ fn handle_save(
         Ok(path) => {
             info!(path = %path.display(), "replay saved");
             if let Some(path) = success_sound {
-                crate::sound::play_sound(path);
+                crate::sound::play_sound("replay.success_sound", path);
             }
             emit(ReplayEvent::Saved { path });
         }

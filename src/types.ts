@@ -129,6 +129,7 @@ export interface RecordingProfile {
     hotkey: string;
     outputDir: string;
     filenameBase: string;
+    saveIntentSound: string;
     successSound: string;
     audioRouting: "all" | "all+mic";
     processes: AudioProcessConfig[];

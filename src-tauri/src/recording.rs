@@ -132,11 +132,8 @@ pub fn config_from_profile(p: &RecordingProfile) -> Result<Config, String> {
             monitor,
             fps: p.fps,
             hotkey: p.hotkey.clone(),
-            success_sound: if p.success_sound.trim().is_empty() {
-                None
-            } else {
-                Some(p.success_sound.trim().to_string())
-            },
+            save_intent_sound: optional_sound_path(&p.save_intent_sound),
+            success_sound: optional_sound_path(&p.success_sound),
             buffer_dir: None,
         },
         video: VideoConfig {
@@ -155,8 +152,16 @@ pub fn config_from_profile(p: &RecordingProfile) -> Result<Config, String> {
     })
 }
 
-fn parse_selector(s: &str) -> Result<Selector, String> {
-    match s {
+/// An unset or blank sound field means "no sound" rather than an empty path.
+fn optional_sound_path(sound: &str) -> Option<String> {
+    if sound.trim().is_empty() {
+        None
+    } else {
+        Some(sound.trim().to_string())
+    }
+}
+
+fn parse_selector(s: &str) -> Result<Selector, String> {    match s {
         "all_processes" => Ok(Selector::AllProcesses),
         "all_nonmuted_processes" => Ok(Selector::AllNonMutedProcesses),
         other if other.starts_with("source:") => Ok(Selector::Source(other[7..].to_string())),

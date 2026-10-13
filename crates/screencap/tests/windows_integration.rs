@@ -31,6 +31,7 @@ filename_base = "Replay"
 monitor = "primary"
 fps = 30
 hotkey = "ctrl+shift+KeyQ"
+save_intent_sound = "__SOUND__"
 success_sound = "__SOUND__"
 
 [video]

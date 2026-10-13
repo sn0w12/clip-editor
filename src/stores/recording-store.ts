@@ -24,6 +24,7 @@ const RECORDING_PROFILE_PLACEHOLDER: RecordingProfile = {
     hotkey: "ctrl+shift+KeyQ",
     outputDir: "",
     filenameBase: "Replay",
+    saveIntentSound: "",
     successSound: "",
     audioRouting: "all",
     processes: [],

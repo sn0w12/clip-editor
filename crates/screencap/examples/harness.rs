@@ -123,9 +123,12 @@ fn pacer_case(slots: usize, hold_ms: u64, seconds: f64) -> Case {
         seq += 1;
         let mut data = vec![0u8; nv12_frame_bytes(info.width, info.height)];
         data[..8].copy_from_slice(&seq.to_le_bytes());
-        let (dropped, depth) = latest
-            .lock()
-            .push(VideoFrame::new(origin.elapsed(), info.width, info.height, data));
+        let (dropped, depth) = latest.lock().push(VideoFrame::new(
+            origin.elapsed(),
+            info.width,
+            info.height,
+            data,
+        ));
         if dropped {
             drops += 1;
         }
@@ -332,7 +335,9 @@ fn run_live(seconds: u64, audio_tracks: usize, audio_lag_ms: u64) {
     let mut next_report = started + Duration::from_secs(5);
     let mut last_written = 0u64;
     println!();
-    println!("    t  publishes  pending_max  pending_drops  dup_publishes  write_mean_ms  write_max_ms  queue  frame_age_ms");
+    println!(
+        "    t  publishes  pending_max  pending_drops  dup_publishes  write_mean_ms  write_max_ms  queue  frame_age_ms"
+    );
     while Instant::now() < deadline {
         thread::sleep(Duration::from_millis(100));
         if Instant::now() < next_report {
@@ -432,7 +437,9 @@ fn report_segments(work: &Path, segments: &[PathBuf]) {
     let mut identical_pct = Vec::new();
     let mut near_pct = Vec::new();
     println!();
-    println!("segment            frames  changes(>=1.0)  identical(<0.05)  near(<0.5)  runs(<0.05)  runs(<0.5)");
+    println!(
+        "segment            frames  changes(>=1.0)  identical(<0.05)  near(<0.5)  runs(<0.05)  runs(<0.5)"
+    );
     for seg in &segments[start..end] {
         let deltas = frame_deltas("ffmpeg", seg, work);
         if deltas.is_empty() {
@@ -622,9 +629,12 @@ fn run_synthetic(seconds: u64, audio_tracks: usize, audio_lag_ms: u64, slots: us
         let mut data = vec![128u8; frame_len];
         let level = 16 + ((seq * 97) % 220) as u8;
         data[..luma].fill(level);
-        let (dropped, depth) = latest
-            .lock()
-            .push(VideoFrame::new(origin.elapsed(), info.width, info.height, data));
+        let (dropped, depth) = latest.lock().push(VideoFrame::new(
+            origin.elapsed(),
+            info.width,
+            info.height,
+            data,
+        ));
         if dropped {
             drops += 1;
         }

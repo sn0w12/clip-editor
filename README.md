@@ -59,16 +59,6 @@ After changing the Rust settings schema, regenerate the frontend contract:
 cargo run -p seraphis --bin export_settings
 ```
 
-## Architecture
-
-```
-React UI (src/)
-  → BackendClient (src/lib/backend/transport/client.ts)   ← only place with command names
-    → invokeCommand → Tauri IPC
-      → #[tauri::command] fns (crates/tauri/src/commands/) → Backend facade (crates/core/src/application/backend.rs)
-        → SQLite / FFmpeg / screencap replay buffer
-```
-
 - `crates/core/` is the domain library: SQLite persistence, library scanning
   and watching, the FFmpeg media pipeline, Steam scanning, the replay buffer,
   and the embedded localhost media server. It has no Tauri dependency; it
@@ -82,9 +72,3 @@ React UI (src/)
 Windows is the supported platform. The replay buffer relies on Windows capture
 APIs (Windows Graphics Capture and the Windows Audio Session API), and release
 builds are produced for Windows only.
-
-## License
-
-GPL-3.0, inherited from the project this app was built from. The vendored code
-in `src/components/ui/` and `src/components/window-controls/` keeps its
-upstream license.

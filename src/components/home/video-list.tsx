@@ -1,4 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
+import { memo } from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { rememberReturnToClip } from "@/lib/return-to-clip";
@@ -16,7 +17,7 @@ interface VideoListProps {
     groupIds: string[];
 }
 
-export function VideoList({
+export const VideoList = memo(function VideoList({
     video,
     isSelected,
     gameImage,
@@ -83,4 +84,4 @@ export function VideoList({
             </div>
         </div>
     );
-}
+});

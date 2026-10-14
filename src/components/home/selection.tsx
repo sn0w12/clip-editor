@@ -49,6 +49,13 @@ function modifiersHeld(
     );
 }
 
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+    if (a === b) return true;
+    if (a.size !== b.size) return false;
+    for (const value of a) if (!b.has(value)) return false;
+    return true;
+}
+
 export function useDragSelection<T>(
     items: T[],
     getItemId: (item: T) => string,
@@ -56,8 +63,8 @@ export function useDragSelection<T>(
     onSelectionChange?: (selected: Set<string>) => void
 ) {
     const [selected, setSelected] = useState<Set<string>>(new Set());
-    const [box, setBox] = useState<Box | null>(null);
     const [isSelecting, setIsSelecting] = useState(false);
+    const overlayRef = useRef<HTMLDivElement>(null);
     const startRef = useRef<{
         x: number;
         y: number;
@@ -67,19 +74,26 @@ export function useDragSelection<T>(
     const lastIndexRef = useRef(-1);
     const selectedRef = useRef(selected);
     const boxRef = useRef<Box | null>(null);
-    // Pending drag state, flushed once per animation frame so a fast mouse can
-    // never re-render the grid more than once per frame.
+    // Flushed once per animation frame so a fast mouse can't move the overlay
+    // or update React more than once per frame. The box is written straight to
+    // the overlay node, so dragging never re-renders the grid.
     const pendingBoxRef = useRef<Box | null>(null);
     const pendingSelectionRef = useRef<Set<string> | null>(null);
     const rafIdRef = useRef<number | null>(null);
+    // Read through refs inside the drag listeners so a new array or callback
+    // identity can't tear the listeners down and re-read every card rect
+    // mid-drag.
+    const itemsRef = useRef(items);
+    const getItemIdRef = useRef(getItemId);
+    useEffect(() => {
+        itemsRef.current = items;
+        getItemIdRef.current = getItemId;
+    }, [items, getItemId]);
 
     // Keep latest-value refs in sync outside of render (only read in handlers).
     useEffect(() => {
         selectedRef.current = selected;
     }, [selected]);
-    useEffect(() => {
-        boxRef.current = box;
-    }, [box]);
 
     const setSelection = useCallback(
         (next: Set<string>) => {
@@ -88,6 +102,19 @@ export function useDragSelection<T>(
         },
         [onSelectionChange]
     );
+
+    const updateOverlay = useCallback((box: Box | null) => {
+        const el = overlayRef.current;
+        if (!el) return;
+        if (!box) {
+            el.style.display = "none";
+            return;
+        }
+        el.style.display = "block";
+        el.style.transform = `translate(${box.x}px, ${box.y}px)`;
+        el.style.width = `${box.w}px`;
+        el.style.height = `${box.h}px`;
+    }, []);
 
     // The modifier that extends a range during a drag, from the settings.
     const continueSelectionText = useSetting("shortcut_continueSelection");
@@ -118,10 +145,12 @@ export function useDragSelection<T>(
                 ctrl: e.ctrlKey || e.metaKey,
                 shift: modifiersHeld(continueModifier, e),
             };
-            setBox({ x, y, w: 0, h: 0 });
+            const initial = { x, y, w: 0, h: 0 };
+            boxRef.current = initial;
+            updateOverlay(initial);
             setIsSelecting(true);
         },
-        [continueModifier]
+        [continueModifier, updateOverlay]
     );
 
     useEffect(() => {
@@ -155,7 +184,7 @@ export function useDragSelection<T>(
         const flush = () => {
             rafIdRef.current = null;
             if (pendingBoxRef.current !== null) {
-                setBox(pendingBoxRef.current);
+                updateOverlay(pendingBoxRef.current);
                 pendingBoxRef.current = null;
             }
             if (pendingSelectionRef.current !== null) {
@@ -188,6 +217,8 @@ export function useDragSelection<T>(
                     right: box.x + box.w,
                     bottom: box.y + box.h,
                 };
+                const currentItems = itemsRef.current;
+                const currentGetItemId = getItemIdRef.current;
                 const hit: string[] = [];
                 let lastHit = -1;
                 elementRects.forEach((r, index) => {
@@ -197,7 +228,7 @@ export function useDragSelection<T>(
                         r.top < dragRect.bottom &&
                         r.bottom > dragRect.top;
                     if (intersects) {
-                        const id = getItemId(items[index]);
+                        const id = currentGetItemId(currentItems[index]);
                         if (id) {
                             hit.push(id);
                             lastHit = index;
@@ -214,7 +245,7 @@ export function useDragSelection<T>(
                         Math.max(lastIndexRef.current, lastHit),
                     ];
                     for (let i = from; i <= to; i++) {
-                        const id = getItemId(items[i]);
+                        const id = currentGetItemId(currentItems[i]);
                         if (id) prev.add(id);
                     }
                 }
@@ -223,10 +254,12 @@ export function useDragSelection<T>(
                     else prev.add(id);
                 }
                 lastIndexRef.current = lastHit;
-                // Keep the ref current so the next move accumulates correctly;
-                // the state update is deferred to the rAF flush.
-                selectedRef.current = prev;
-                pendingSelectionRef.current = prev;
+                // Only touch state when the hit set actually changed; otherwise
+                // every mouse move would re-render the grid for no reason.
+                if (!setsEqual(prev, selectedRef.current)) {
+                    selectedRef.current = prev;
+                    pendingSelectionRef.current = prev;
+                }
             }
 
             if (rafIdRef.current === null) {
@@ -243,7 +276,8 @@ export function useDragSelection<T>(
             const start = startRef.current;
             const box = boxRef.current;
             setIsSelecting(false);
-            setBox(null);
+            updateOverlay(null);
+            boxRef.current = null;
             startRef.current = null;
             if (
                 start &&
@@ -266,8 +300,9 @@ export function useDragSelection<T>(
                 cancelAnimationFrame(rafIdRef.current);
                 rafIdRef.current = null;
             }
+            updateOverlay(null);
         };
-    }, [isSelecting, containerRef, items, getItemId, setSelection]);
+    }, [isSelecting, containerRef, setSelection, updateOverlay]);
 
     const selectAll = useCallback(() => {
         setSelection(new Set(items.map(getItemId)));
@@ -303,33 +338,35 @@ export function useDragSelection<T>(
         container.addEventListener("mousedown", handleMouseDown);
         return () =>
             container.removeEventListener("mousedown", handleMouseDown);
-    }, [containerRef, handleMouseDown, items]);
+    }, [containerRef, handleMouseDown]);
 
     return useMemo(
         () => ({
             selected,
-            box,
             isSelecting,
+            overlayRef,
             clear: () => setSelection(new Set()),
         }),
-        [selected, box, isSelecting, setSelection]
+        [selected, isSelecting, setSelection]
     );
 }
 
-export function SelectionOverlay({ box }: { box: Box | null }) {
-    if (!box) return null;
+export function SelectionOverlay({
+    overlayRef,
+}: {
+    overlayRef: RefObject<HTMLDivElement | null>;
+}) {
     return (
         <div
-            className="pointer-events-none absolute z-50"
+            ref={overlayRef}
+            className="pointer-events-none absolute top-0 left-0 z-50"
             style={{
-                left: box.x,
-                top: box.y,
-                width: box.w,
-                height: box.h,
+                display: "none",
                 border: "2px dashed var(--primary)",
                 background:
                     "color-mix(in srgb, var(--primary) 10%, transparent)",
                 borderRadius: "0.5rem",
+                willChange: "transform, width, height",
             }}
         />
     );

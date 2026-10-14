@@ -272,7 +272,7 @@ export function ClipsPage() {
                 ref={containerRef}
                 className="relative flex min-h-full flex-col gap-2 p-6"
             >
-                <SelectionOverlay box={selection.box} />
+                <SelectionOverlay overlayRef={selection.overlayRef} />
 
                 {storeError && (
                     <Alert variant="warning">
@@ -317,7 +317,7 @@ export function ClipsPage() {
                         <VideoGrid
                             isLoading={loading}
                             filteredVideos={displayClips}
-                            selectedVideos={[...selection.selected]}
+                            selectedVideos={selection.selected}
                             groups={groups}
                             videoGroupMap={videoGroupMap}
                             gameImages={resolvedGameImages}

@@ -13,7 +13,7 @@ import { VideoList } from "./video-list";
 interface VideoGridProps {
     isLoading: boolean;
     filteredVideos: VideoFile[];
-    selectedVideos: string[];
+    selectedVideos: ReadonlySet<string>;
     groups: VideoGroup[];
     videoGroupMap: Record<string, string[]>;
     gameImages: Record<string, GameImage | null>;
@@ -194,7 +194,7 @@ export function VideoGrid({
                                     {viewMode === "grid" ? (
                                         <VideoCard
                                             video={video}
-                                            isSelected={selectedVideos.includes(
+                                            isSelected={selectedVideos.has(
                                                 video.path
                                             )}
                                             gameImage={
@@ -206,7 +206,7 @@ export function VideoGrid({
                                     ) : (
                                         <VideoList
                                             video={video}
-                                            isSelected={selectedVideos.includes(
+                                            isSelected={selectedVideos.has(
                                                 video.path
                                             )}
                                             gameImage={

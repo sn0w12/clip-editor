@@ -3,7 +3,6 @@
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
 
-import { AboutCard } from "@/components/settings/about-card";
 import { RecordingSettings } from "@/components/settings/recording-settings";
 import { Frame } from "@/components/ui/frame";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -50,9 +49,8 @@ export function SettingsPage() {
         );
     }
 
-    const aboutTab = { id: "about", label: "About" };
     const recordingTab = { id: "recording", label: "Recording" };
-    const tabs = [...schema.tabs, recordingTab, aboutTab];
+    const tabs = [...schema.tabs, recordingTab];
     const activeTabId = selectedTabId ?? tabs[0].id;
 
     return (
@@ -111,12 +109,6 @@ export function SettingsPage() {
                                 className="min-h-0 space-y-1"
                             >
                                 <RecordingSettings />
-                            </TabsPanel>
-                            <TabsPanel
-                                value={aboutTab.id}
-                                className="min-h-0 space-y-1"
-                            >
-                                <AboutCard />
                             </TabsPanel>
                         </div>
                     </motion.div>

@@ -58,4 +58,5 @@ jobs:
                   releaseBody: ${{ steps.generate_release_notes.outputs.changelog }}
                   releaseDraft: true
                   prerelease: false
+                  retryAttempts: 3
                   args: ${{ matrix.args }}

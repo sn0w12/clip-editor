@@ -19,7 +19,7 @@ use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::{FfmpegEvent, LogLevel};
 use parking_lot::Mutex;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::audio::TrackAudioBlock;
 use crate::config::{ResolvedTrack, VideoCodec};
@@ -40,6 +40,16 @@ const FINISH_TIMEOUT: Duration = Duration::from_secs(15);
 /// note at the call site, where `0` means "buffer indefinitely" rather than
 /// "buffer never".
 const MAX_INTERLEAVE_DELTA_US: &str = "250000";
+
+/// How many consecutive quick FFmpeg exits the segmenter tolerates before it
+/// stops restarting and reports a terminal error. A session that survives
+/// [`RESTART_RESET_AFTER`] resets the count, so one crash after a long healthy
+/// run is never near the limit.
+const MAX_CONSECUTIVE_RESTARTS: u32 = 5;
+/// A session that lived at least this long clears the restart budget.
+const RESTART_RESET_AFTER: Duration = Duration::from_secs(30);
+/// Base delay before restarting FFmpeg, multiplied by the attempt number.
+const RESTART_BACKOFF: Duration = Duration::from_millis(250);
 
 /// Full URL for a named pipe (`\\.\pipe\` prefix on Windows).
 fn pipe_url(name: &str) -> String {
@@ -468,20 +478,76 @@ fn layout_for(channels: u16) -> &'static str {
     }
 }
 
-/// Start the FFmpeg segmenter: create every pipe before FFmpeg starts (so its
-/// input opens never race the writers), spawn it with the video and per-track
-/// audio inputs, then run the video/track writer threads, the stderr monitor,
-/// and the scan/prune loop. Returns a `Receiver` that resolves when the
-/// segmenter has finished finalizing the current segment.
+/// How one FFmpeg session ended.
+enum SessionEnd {
+    /// The global shutdown was requested; FFmpeg finalized its open segment.
+    Shutdown,
+    /// FFmpeg exited without a shutdown request. The payload is the last stderr
+    /// lines, kept for the terminal error once the restart budget is spent.
+    Exited(String),
+}
+
+struct LiveSession {
+    exit_rx: Receiver<SessionEnd>,
+    video: thread::JoinHandle<()>,
+    tracks: Vec<thread::JoinHandle<()>>,
+    monitor: thread::JoinHandle<()>,
+}
+
+impl LiveSession {
+    /// Join every session thread. The writers hold clones of the frame
+    /// receivers, so they must be gone before the next session starts its own
+    /// writers; otherwise a dead writer would steal frames from the live one.
+    fn join(self) {
+        let _ = self.video.join();
+        for track in self.tracks {
+            let _ = track.join();
+        }
+        let _ = self.monitor.join();
+    }
+}
+
+/// One past the highest `segment_%05d.mkv` index in the buffer dir, so a
+/// restarted FFmpeg continues the numbering instead of overwriting a recorded
+/// segment.
+fn highest_segment_index(buffer_dir: &std::path::Path) -> u32 {
+    let mut highest: Option<u32> = None;
+    if let Ok(entries) = std::fs::read_dir(buffer_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some(digits) = name
+                .strip_prefix("segment_")
+                .and_then(|rest| rest.strip_suffix(".mkv"))
+            else {
+                continue;
+            };
+            if let Ok(index) = digits.parse::<u32>() {
+                highest = Some(highest.map_or(index, |h| h.max(index)));
+            }
+        }
+    }
+    highest.map_or(0, |h| h + 1)
+}
+
+/// Run one FFmpeg segmenter session: create every pipe before FFmpeg starts (so
+/// its input opens never race the writers), spawn the child with the video and
+/// per-track audio inputs, then run the video/track writer threads and the
+/// stderr monitor. The returned [`LiveSession`] resolves when FFmpeg exits; the
+/// caller decides whether that is a shutdown or a restart. `input_offset`
+/// continues the stream clock and `segment_start_number` the segment files
+/// across a restart.
 #[allow(clippy::too_many_arguments)]
-pub fn spawn_segmenter(
-    params: SegmenterParams,
-    store: Arc<SegmentStore>,
-    video_rx: Receiver<VideoFrame>,
-    track_rxs: Vec<Receiver<TrackAudioBlock>>,
-    shutdown: Receiver<()>,
-    err_tx: Sender<RunError>,
-) -> Result<Receiver<()>, MediaError> {
+fn start_session(
+    params: &SegmenterParams,
+    video_rx: &Receiver<VideoFrame>,
+    track_rxs: &[Receiver<TrackAudioBlock>],
+    shutdown: &Receiver<()>,
+    err_tx: &Sender<RunError>,
+    shutdown_flag: Arc<AtomicBool>,
+    input_offset: f64,
+    segment_start_number: u32,
+) -> Result<LiveSession, MediaError> {
     // Unique pipe namespace per segmenter instance: two segmenters in the same
     // process (e.g. tests) or a pid reused after an earlier ffmpeg lingers
     // must not collide on `screencap_<pid>_video`.
@@ -523,6 +589,12 @@ pub fn spawn_segmenter(
         .map_err(|e| MediaError::General(format!("cannot create track pipe: {e}")))?;
 
     let mut cmd = FfmpegCommand::new_with_path(&params.ffmpeg);
+    // Continue the stream clock across a restart. The rawvideo and raw-audio
+    // inputs restart at timestamp 0, so every input is shifted by the newest
+    // buffered stream end (`-itsoffset` applies to the following `-i`).
+    if input_offset > 0.0 {
+        cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
+    }
     cmd.args([
         "-hide_banner",
         "-loglevel",
@@ -571,6 +643,9 @@ pub fn spawn_segmenter(
         match slot_for(*number) {
             Some(track_idx) => {
                 let url = &pipe_urls[track_idx];
+                if input_offset > 0.0 {
+                    cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
+                }
                 cmd.args([
                     "-f",
                     "f32le",
@@ -589,6 +664,9 @@ pub fn spawn_segmenter(
                     "anullsrc=channel_layout={layout}:sample_rate={}",
                     params.sample_rate
                 );
+                if input_offset > 0.0 {
+                    cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
+                }
                 cmd.args(["-f", "lavfi", "-i", &anull]);
             }
         }
@@ -730,6 +808,10 @@ pub fn spawn_segmenter(
         &format!("max_interleave_delta={MAX_INTERLEAVE_DELTA_US}"),
         "-segment_list_type",
         "csv",
+        // Continue the file numbering across a restart so a fresh FFmpeg
+        // cannot overwrite a segment the store has already recorded.
+        "-segment_start_number",
+        &segment_start_number.to_string(),
         "-segment_list",
         segments_txt.to_str().unwrap_or("segments.txt"),
     ]);
@@ -748,8 +830,6 @@ pub fn spawn_segmenter(
         .take_stdin()
         .ok_or_else(|| MediaError::Ffmpeg("ffmpeg stdin unavailable".to_string()))?;
 
-    let shutdown_flag = Arc::new(AtomicBool::new(false));
-
     // Video writer: connects the video pipe (one write per frame), drains
     // frames; on shutdown writes `q` to ffmpeg stdin so it finalizes the
     // current segment (stdin is no longer an input, so ffmpeg reads commands).
@@ -760,7 +840,8 @@ pub fn spawn_segmenter(
     let writer_flag = shutdown_flag.clone();
     let writer_err = err_tx.clone();
     let writer_delivery = params.delivery.clone();
-    thread::Builder::new()
+    let video_rx: Receiver<VideoFrame> = video_rx.clone();
+    let video_writer = thread::Builder::new()
         .name("segmenter-video".to_string())
         .spawn(move || {
             let mut writer = video_pipe;
@@ -914,12 +995,13 @@ pub fn spawn_segmenter(
         .map_err(|e| MediaError::General(format!("cannot spawn video writer: {e}")))?;
 
     // Track writers: connect the pre-created pipes, then stream blocks.
-    for (i, (rx, pipe)) in track_rxs.into_iter().zip(track_pipes).enumerate() {
+    let mut track_writers = Vec::with_capacity(track_pipes.len());
+    for (i, (rx, pipe)) in track_rxs.iter().cloned().zip(track_pipes).enumerate() {
         let url = pipe_urls[i].clone();
         let track = params.tracks[i].clone();
         let writer_shutdown = shutdown.clone();
         let writer_err = err_tx.clone();
-        thread::Builder::new()
+        let handle = thread::Builder::new()
             .name(format!("segmenter-track-{}", track.number))
             .spawn(move || {
                 let mut writer = pipe;
@@ -966,19 +1048,19 @@ pub fn spawn_segmenter(
                 }
             })
             .map_err(|e| MediaError::General(format!("cannot spawn track writer: {e}")))?;
+        track_writers.push(handle);
     }
 
     // FFmpeg monitor: drains stderr, detects exit.
     let monitor_flag = shutdown_flag.clone();
-    let monitor_err = err_tx.clone();
-    let (exit_tx, exit_rx) = crossbeam_channel::bounded::<Option<std::process::ExitStatus>>(1);
-    thread::Builder::new()
+    let (exit_tx, exit_rx) = crossbeam_channel::bounded::<SessionEnd>(1);
+    let monitor = thread::Builder::new()
         .name("segmenter-monitor".to_string())
         .spawn(move || {
             let iter = match child.iter() {
                 Ok(it) => it,
                 Err(e) => {
-                    let _ = monitor_err.send(RunError::media(format!("ffmpeg event loop: {e}")));
+                    let _ = exit_tx.send(SessionEnd::Exited(format!("ffmpeg event loop: {e}")));
                     return;
                 }
             };
@@ -1007,53 +1089,110 @@ pub fn spawn_segmenter(
                     _ => {}
                 }
             }
-            // The monitor only reports unexpected exits: a shutdown-triggered
-            // "q" is the normal path and must not surface as an error.
-            if !monitor_flag.load(Ordering::SeqCst) {
-                if let Some(e) = event_error {
-                    let _ = monitor_err.send(RunError::media(format!("ffmpeg event error: {e}")));
-                } else if !last_lines.is_empty() {
-                    let _ = monitor_err.send(RunError::media(format!(
-                        "ffmpeg exited unexpectedly: {}",
-                        last_lines
-                            .iter()
-                            .map(|s| s.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" | ")
-                    )));
-                }
-            }
-            let _ = exit_tx.send(None);
+            // The monitor distinguishes a shutdown-triggered "q" (the normal
+            // path) from an unexpected exit, which the supervisor retries.
+            let end = if monitor_flag.load(Ordering::SeqCst) {
+                SessionEnd::Shutdown
+            } else if let Some(e) = event_error {
+                SessionEnd::Exited(format!("ffmpeg event error: {e}"))
+            } else if last_lines.is_empty() {
+                SessionEnd::Exited("ffmpeg exited unexpectedly".to_string())
+            } else {
+                SessionEnd::Exited(format!(
+                    "ffmpeg exited unexpectedly: {}",
+                    last_lines
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" | ")
+                ))
+            };
+            let _ = exit_tx.send(end);
         })
         .map_err(|e| MediaError::General(format!("cannot spawn ffmpeg monitor: {e}")))?;
 
+    Ok(LiveSession {
+        exit_rx,
+        video: video_writer,
+        tracks: track_writers,
+        monitor,
+    })
+}
+
+/// Start the FFmpeg segmenter and supervise its sessions. FFmpeg runs in a
+/// session that can be torn down and restarted with fresh pipes when it exits
+/// unexpectedly; the segment numbering and stream clock continue across the
+/// restart so the rolling buffer (and any save) survives. A shutdown request
+/// ends the current session normally. Returns a `Receiver` that resolves when
+/// the segmenter has finished finalizing its last segment.
+pub fn spawn_segmenter(
+    params: SegmenterParams,
+    store: Arc<SegmentStore>,
+    video_rx: Receiver<VideoFrame>,
+    track_rxs: Vec<Receiver<TrackAudioBlock>>,
+    shutdown: Receiver<()>,
+    err_tx: Sender<RunError>,
+) -> Result<Receiver<()>, MediaError> {
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
     let (done_tx, done_rx) = crossbeam_channel::bounded::<()>(1);
 
-    // Main loop: index closed segments from the list, prune, and wait for
-    // shutdown. Once shutdown arrives, wait for FFmpeg to finalize the open
-    // segment (the monitor signals when its stderr closes).
     thread::Builder::new()
         .name("segmenter".to_string())
         .spawn(move || {
+            let buffer_dir = params.buffer_dir.clone();
+            let keep = params.keep;
             let mut last_sizes_seen: HashMap<String, u64> = HashMap::new();
             let mut limiter = RateLimiter::new(Duration::from_secs(5));
-            let mut shutting_down = false;
+            let mut consecutive_restarts: u32 = 0;
+
             loop {
-                if shutting_down {
-                    match exit_rx.recv_timeout(FINISH_TIMEOUT) {
-                        Ok(_) | Err(RecvTimeoutError::Disconnected) => break,
-                        Err(RecvTimeoutError::Timeout) => break,
+                let session_started = Instant::now();
+                // Continue the stream clock and segment numbering across a
+                // restart so a fresh child resumes where the previous one died
+                // instead of resetting the buffer's timeline or overwriting a
+                // recorded segment.
+                let input_offset = store.newest_end_seconds();
+                let start_number = highest_segment_index(&buffer_dir);
+                let session = match start_session(
+                    &params,
+                    &video_rx,
+                    &track_rxs,
+                    &shutdown,
+                    &err_tx,
+                    shutdown_flag.clone(),
+                    input_offset,
+                    start_number,
+                ) {
+                    Ok(session) => session,
+                    Err(e) => {
+                        let _ = err_tx.send(RunError::Media(e));
+                        break;
                     }
-                }
-                scan_segments(
-                    &params.buffer_dir,
-                    &store,
-                    &params.ffmpeg,
-                    &mut last_sizes_seen,
-                    &mut limiter,
-                );
-                store.prune(params.keep);
-                if !shutting_down {
+                };
+
+                let mut shutting_down = false;
+                let end = loop {
+                    scan_segments(
+                        &buffer_dir,
+                        &store,
+                        &params.ffmpeg,
+                        &mut last_sizes_seen,
+                        &mut limiter,
+                    );
+                    store.prune(keep);
+                    if shutting_down {
+                        // Wait for FFmpeg to finalize its open segment (the
+                        // monitor signals when its stderr closes), then stop.
+                        let _ = session.exit_rx.recv_timeout(FINISH_TIMEOUT);
+                        break SessionEnd::Shutdown;
+                    }
+                    match session.exit_rx.try_recv() {
+                        Ok(end) => break end,
+                        Err(crossbeam_channel::TryRecvError::Empty) => {}
+                        Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                            break SessionEnd::Exited("ffmpeg monitor stopped".to_string());
+                        }
+                    }
                     match shutdown.recv_timeout(SCAN_INTERVAL) {
                         Ok(()) => {
                             shutdown_flag.store(true, Ordering::SeqCst);
@@ -1065,8 +1204,33 @@ pub fn spawn_segmenter(
                             shutting_down = true;
                         }
                     }
+                };
+                session.join();
+
+                match end {
+                    SessionEnd::Shutdown => break,
+                    SessionEnd::Exited(msg) => {
+                        if shutting_down {
+                            break;
+                        }
+                        if session_started.elapsed() >= RESTART_RESET_AFTER {
+                            consecutive_restarts = 0;
+                        }
+                        consecutive_restarts += 1;
+                        if consecutive_restarts > MAX_CONSECUTIVE_RESTARTS {
+                            let _ = err_tx.send(RunError::media(msg));
+                            break;
+                        }
+                        warn!(
+                            error = %msg,
+                            attempt = consecutive_restarts,
+                            "ffmpeg exited; restarting the segmenter"
+                        );
+                        std::thread::sleep(RESTART_BACKOFF * consecutive_restarts.min(8));
+                    }
                 }
             }
+
             let _ = done_tx.send(());
             info!("segmenter finished; final segment finalized");
         })
@@ -1373,5 +1537,28 @@ mod pipe_isolation_test {
         }
         println!("PIPE-ISO: {}", report.join(" | "));
         let _ = std::fs::remove_dir_all(&work);
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::highest_segment_index;
+
+    #[test]
+    fn next_segment_index_continues_past_the_highest_file() {
+        let dir = std::env::temp_dir().join(format!("screencap_idx_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            highest_segment_index(&dir),
+            0,
+            "an empty buffer starts at 0"
+        );
+        std::fs::write(dir.join("segments.txt"), "").unwrap();
+        std::fs::write(dir.join("segment_00000.mkv"), b"").unwrap();
+        std::fs::write(dir.join("segment_00012.mkv"), b"").unwrap();
+        std::fs::write(dir.join("segment_bad.mkv"), b"").unwrap();
+        assert_eq!(highest_segment_index(&dir), 13);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

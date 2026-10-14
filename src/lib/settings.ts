@@ -6,6 +6,7 @@ import type {
     SettingKey,
     SettingsValues,
 } from "@/lib/settings/settings.generated";
+import { isMac } from "@/lib/utils";
 import {
     getSetting as getStoreSetting,
     setSetting as setStoreSetting,
@@ -113,7 +114,13 @@ export function parseShortcut(text: string | undefined): Shortcut | null {
         else if (upper === "ALT") alt = true;
         else if (upper === "META" || upper === "CMD" || upper === "WIN")
             meta = true;
-        else key = upper;
+        // `Mod` is the app's platform modifier: Command on macOS, Control
+        // elsewhere. Without this it collapses to a bare key, so `Mod+A`
+        // would fire on a plain `a`.
+        else if (upper === "MOD") {
+            if (isMac()) meta = true;
+            else ctrl = true;
+        } else key = upper;
     }
     return { ctrl, shift, alt, meta, key };
 }

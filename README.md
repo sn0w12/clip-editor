@@ -59,14 +59,6 @@ After changing the Rust settings schema, regenerate the frontend contract:
 cargo run -p seraphis --bin export_settings
 ```
 
-- `crates/core/` is the domain library: SQLite persistence, library scanning
-  and watching, the FFmpeg media pipeline, Steam scanning, the replay buffer,
-  and the embedded localhost media server. It has no Tauri dependency; it
-  emits events through an `EventSink` the shell injects.
-- `crates/tauri/` holds the commands, the Tauri event sink, the native save
-  dialog, the tray, autostart, and the settings/session stores.
-- `crates/screencap/` is the Windows capture and replay-buffer engine.
-
 ## Platform support
 
 Windows is the supported platform. The replay buffer relies on Windows capture

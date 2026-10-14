@@ -264,9 +264,13 @@ export function GamesPage() {
                 );
                 const appId = game?.appId ?? gameName;
                 const gameImage = game?.artwork;
-                const image = gameImage?.library_600x900
-                    ? imgSrc(gameImage.library_600x900)
-                    : undefined;
+                // Prefer the portrait poster; fall back to the hero or header
+                // for games whose Steam page has no 600x900 asset yet.
+                const artwork =
+                    gameImage?.library_600x900 ??
+                    gameImage?.library_hero ??
+                    gameImage?.header;
+                const image = artwork ? imgSrc(artwork) : undefined;
                 return { name: gameName, appId, count, image };
             })
             .sort((a, b) => {

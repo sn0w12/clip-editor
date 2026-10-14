@@ -391,14 +391,23 @@ fn categorize_image(filename: &str) -> Option<&'static str> {
     if lower.contains("library_hero_blur") {
         return Some("library_hero_blur");
     }
-    if lower.contains("library_hero")
+    if lower.contains("library_hero") {
+        return Some("library_hero");
+    }
+    if lower.contains("library_600x900")
+        || lower.contains("capsule_600x900")
+        || lower.contains("library_capsule")
+    {
+        return Some("library_600x900");
+    }
+    // Wide art: the modern `library_header` and the legacy
+    // `capsule_616x353`/`capsule_467x181` read as the header role.
+    if lower.contains("library_header")
+        || lower.contains("header")
         || lower.contains("capsule_616x353")
         || lower.contains("capsule_467x181")
     {
-        return Some("library_hero");
-    }
-    if lower.contains("library_600x900") || lower.contains("capsule_600x900") {
-        return Some("library_600x900");
+        return Some("header");
     }
     if lower.contains("logo")
         || lower.contains("capsule_184x69")
@@ -406,15 +415,12 @@ fn categorize_image(filename: &str) -> Option<&'static str> {
     {
         return Some("logo");
     }
-    if lower.contains("header") {
-        return Some("header");
-    }
     if lower.ends_with("_icon") || lower.contains("_icon.") {
         return Some("icon");
     }
-    // Steam also stores the icon as a hash-named image (e.g.
-    // `8dbc7195....jpg`). The legacy app treated any unknown image file as
-    // the icon; match that so badges show the real icon. Only files with an
+    // Steam stores the icon as a hash-named image (e.g.
+    // `8dbc7195....jpg`, 32x32). The legacy app treated any unknown image file
+    // as the icon; match that so badges show the real icon. Only files with an
     // image extension qualify — extensionless hash blobs are skipped.
     if matches!(
         Path::new(filename)
@@ -429,11 +435,44 @@ fn categorize_image(filename: &str) -> Option<&'static str> {
     None
 }
 
-/// Collect local artwork for one app id from root and nested
-/// `appcache/librarycache` directories. Deterministic: nested `{appid}/` dir
-/// beats root files; jpg beats png; lexicographic within a bucket.
+/// Collect role-categorized files from one directory into `candidates`. When
+/// `prefix` is set, only names starting with it qualify (the legacy
+/// `<appid>_<type>.jpg` root files).
+fn collect_role_files(
+    dir: &Path,
+    prefix: Option<&str>,
+    candidates: &mut HashMap<&'static str, Vec<PathBuf>>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut files: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    files.sort();
+    for file in files {
+        let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if let Some(prefix) = prefix {
+            if !name.starts_with(prefix) {
+                continue;
+            }
+        }
+        if let Some(role) = categorize_image(name) {
+            candidates.entry(role).or_default().push(file);
+        }
+    }
+}
+
+/// Collect local artwork for one app id. Modern Steam stores each asset in its
+/// own content-hash directory (`librarycache/<appid>/<hash>/library_header.jpg`,
+/// `.../library_600x900.jpg`, `.../logo.png`); older installs keep
+/// `<appid>_<type>.jpg` at the cache root. Both layouts, plus the app's own
+/// directory, are scanned. Deterministic: jpg beats png, then name.
 pub fn resolve_local_artwork(steam_dir: &Path, app_id: &str) -> GameImage {
     let mut candidates: HashMap<&'static str, Vec<PathBuf>> = HashMap::new();
+    let prefix = format!("{app_id}_");
     for base in [
         steam_dir.join("appcache").join("librarycache"),
         steam_dir
@@ -441,38 +480,18 @@ pub fn resolve_local_artwork(steam_dir: &Path, app_id: &str) -> GameImage {
             .join("appcache")
             .join("librarycache"),
     ] {
-        // Root files: `{appid}_{type}.jpg`.
-        if let Ok(entries) = std::fs::read_dir(&base) {
-            let mut files: Vec<PathBuf> = entries
+        collect_role_files(&base, Some(&prefix), &mut candidates);
+        let app_dir = base.join(app_id);
+        collect_role_files(&app_dir, None, &mut candidates);
+        if let Ok(entries) = std::fs::read_dir(&app_dir) {
+            let mut subdirs: Vec<PathBuf> = entries
                 .flatten()
                 .map(|e| e.path())
-                .filter(|p| p.is_file())
+                .filter(|p| p.is_dir())
                 .collect();
-            files.sort();
-            for file in files {
-                let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if !name.starts_with(&format!("{app_id}_")) {
-                    continue;
-                }
-                if let Some(role) = categorize_image(name) {
-                    candidates.entry(role).or_default().push(file);
-                }
-            }
-        }
-        // Nested: `{appid}/` dir (preferred).
-        let nested = base.join(app_id);
-        if let Ok(entries) = std::fs::read_dir(&nested) {
-            let mut files: Vec<PathBuf> = entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file())
-                .collect();
-            files.sort();
-            for file in files {
-                let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if let Some(role) = categorize_image(name) {
-                    candidates.entry(role).or_default().push(file);
-                }
+            subdirs.sort();
+            for subdir in subdirs {
+                collect_role_files(&subdir, None, &mut candidates);
             }
         }
     }
@@ -481,12 +500,19 @@ pub fn resolve_local_artwork(steam_dir: &Path, app_id: &str) -> GameImage {
     for role in ARTWORK_ROLES {
         let mut pool = candidates.remove(role).unwrap_or_default();
         pool.sort_by_key(|p| {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_lowercase();
             let is_jpg = p
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg"));
-            // jpg first, then name.
-            (!is_jpg, p.file_name().unwrap_or_default().to_os_string())
+            // Prefer the canonical `library_header` over the capsule fallback.
+            let rank = u8::from(role == "header" && !name.contains("header"));
+            // jpg first, then canonical name, then name.
+            (!is_jpg, rank, name)
         });
         if let Some(path) = pool.into_iter().find(|p| readable(p)) {
             let value = path.to_string_lossy().into_owned();
@@ -518,6 +544,12 @@ pub fn missing_cdn_roles(image: &GameImage) -> Vec<String> {
     }
     if image.library_600x900.is_none() {
         missing.push("library_600x900".to_string());
+    }
+    if image.library_hero.is_none() {
+        missing.push("library_hero".to_string());
+    }
+    if image.logo.is_none() {
+        missing.push("logo".to_string());
     }
     missing
 }
@@ -559,26 +591,36 @@ fn images_for_app_id(conn: &rusqlite::Connection, app_id: &str) -> Option<GameIm
         .and_then(|g| g.artwork)
 }
 
-const CDN_BASE: &str = "https://cdn.cloudflare.steamstatic.com/steam/apps";
+const CDN_BASE: &str = "https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps";
 
-/// Fetch one known static CDN asset (`header.jpg`, `library_600x900.jpg`)
-/// into the app cache with a sidecar meta file (source URL + validator).
-/// Bounded timeout/retry; 404 is a permanent miss (no retry).
+/// CDN asset file name and cache extension for a role, or `None` when the role
+/// has no static asset (icons ship in the local librarycache instead).
+fn cdn_asset(role: &str) -> Option<(&'static str, &'static str)> {
+    match role {
+        "header" => Some(("header.jpg", "jpg")),
+        "library_600x900" => Some(("library_600x900.jpg", "jpg")),
+        "library_hero" => Some(("library_hero.jpg", "jpg")),
+        "library_hero_blur" => Some(("library_hero_blur.jpg", "jpg")),
+        "logo" => Some(("logo.png", "png")),
+        _ => None,
+    }
+}
+
+/// Fetch one known static CDN asset into the app cache with a sidecar meta
+/// file (source URL + validator). Bounded timeout/retry; 404 is a permanent
+/// miss (no retry).
 pub async fn fetch_cdn_artwork(
     client: &reqwest::Client,
     cache_root: &Path,
     app_id: &str,
     role: &str,
 ) -> Result<PathBuf, String> {
-    let file_name = match role {
-        "header" => "header.jpg",
-        "library_600x900" => "library_600x900.jpg",
-        other => return Err(err("steam.cdn", format!("no CDN asset for role `{other}`"))),
-    };
+    let (file_name, ext) = cdn_asset(role)
+        .ok_or_else(|| err("steam.cdn", format!("no CDN asset for role `{role}`")))?;
     let url = format!("{CDN_BASE}/{app_id}/{file_name}");
     let dir = cache_root.join("steam-cdn");
     std::fs::create_dir_all(&dir).map_err(|e| err("steam.cdn", e))?;
-    let dst = dir.join(format!("{app_id}_{role}.jpg"));
+    let dst = dir.join(format!("{app_id}_{role}.{ext}"));
     let meta_path = dir.join(format!("{app_id}_{role}.meta.json"));
 
     let mut attempts = 0;
@@ -736,10 +778,25 @@ mod tests {
         );
         assert_eq!(categorize_image("10_logo.png"), Some("logo"));
         assert_eq!(categorize_image("10_icon.jpg"), Some("icon"));
+        assert_eq!(categorize_image("10_capsule_616x353.jpg"), Some("header"));
+        // The modern content-hash layout names the assets directly.
+        assert_eq!(categorize_image("library_header.jpg"), Some("header"));
+        // `library_capsule.jpg` is the 300x450 portrait cover (the same asset
+        // as `library_600x900`), not a header.
         assert_eq!(
-            categorize_image("10_capsule_616x353.jpg"),
-            Some("library_hero")
+            categorize_image("library_capsule.jpg"),
+            Some("library_600x900")
         );
+        assert_eq!(categorize_image("library_hero.jpg"), Some("library_hero"));
+        assert_eq!(
+            categorize_image("library_hero_blur.jpg"),
+            Some("library_hero_blur")
+        );
+        assert_eq!(
+            categorize_image("library_600x900.jpg"),
+            Some("library_600x900")
+        );
+        assert_eq!(categorize_image("logo.png"), Some("logo"));
         assert_eq!(
             categorize_image("10_library_capsule_600x900.jpg"),
             Some("library_600x900")
@@ -760,12 +817,45 @@ mod tests {
     }
 
     #[test]
-    fn missing_cdn_roles_lists_header_and_poster() {
+    fn missing_cdn_roles_lists_header_poster_hero_and_logo() {
         let image = GameImage {
             logo: Some("x".into()),
             ..Default::default()
         };
         let missing = missing_cdn_roles(&image);
-        assert_eq!(missing, vec!["header", "library_600x900"]);
+        assert_eq!(missing, vec!["header", "library_600x900", "library_hero"]);
+    }
+
+    #[test]
+    fn resolves_modern_hash_directory_layout() {
+        let dir = std::env::temp_dir().join(format!("steam-cache-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = dir.join("appcache").join("librarycache").join("2994020");
+        // Each asset lives in its own content-hash directory.
+        for (hash, file) in [
+            ("aaa", "library_header.jpg"),
+            ("bbb", "library_600x900.jpg"),
+            ("ccc", "library_hero.jpg"),
+            ("ddd", "logo.png"),
+        ] {
+            let asset = app.join(hash);
+            std::fs::create_dir_all(&asset).unwrap();
+            std::fs::write(asset.join(file), b"image-bytes").unwrap();
+        }
+        // The 32x32 icon sits directly in the app directory.
+        std::fs::write(
+            app.join("f9804e43e719734d688023729f850080aa5bb2c3.jpg"),
+            b"icon",
+        )
+        .unwrap();
+
+        let image = resolve_local_artwork(&dir, "2994020");
+        assert!(image.header.is_some(), "header from hash dir");
+        assert!(image.library_600x900.is_some(), "poster from hash dir");
+        assert!(image.library_hero.is_some(), "hero from hash dir");
+        assert!(image.logo.is_some(), "logo from hash dir");
+        assert!(image.icon.is_some(), "icon from app dir");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

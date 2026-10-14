@@ -4517,7 +4517,7 @@ dependencies = [
 
 [[package]]
 name = "seraphis"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "log",
@@ -4550,7 +4550,7 @@ dependencies = [
 
 [[package]]
 name = "seraphis-core"
-version = "0.4.3"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

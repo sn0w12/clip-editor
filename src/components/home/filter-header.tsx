@@ -74,9 +74,9 @@ export interface FilterHeaderControlsProps {
     groups: VideoGroup[];
     selectedGroupIds: string[];
     selectedGames: string[];
-    games: string[];
-    /** Steam games (artwork) for the game-filter icons. */
-    steamGames: { displayName: string; artwork?: GameImage | null }[];
+    /** One entry per clip game name: `value` is the raw name clips store,
+     * `label` is the aliased display name shown in the menu. */
+    games: { value: string; label: string; image?: GameImage | null }[];
     clipCountByDate: Record<string, number>;
     viewMode: ViewMode;
     startDate: Date | undefined;
@@ -95,7 +95,6 @@ export function FilterHeaderControls({
     selectedGroupIds,
     selectedGames,
     games,
-    steamGames,
     clipCountByDate = {},
     viewMode,
     startDate,
@@ -109,13 +108,12 @@ export function FilterHeaderControls({
 }: FilterHeaderControlsProps): React.ReactElement {
     const gameOptions = useMemo(
         () =>
-            games.map((game) => {
-                const image =
-                    steamGames.find((g) => g.displayName === game)?.artwork ??
-                    null;
-                return { label: game, value: game, image };
-            }),
-        [games, steamGames]
+            games.map((game) => ({
+                label: game.label,
+                value: game.value,
+                image: game.image ?? null,
+            })),
+        [games]
     );
 
     const activeFilterCount =
@@ -259,7 +257,7 @@ function FilterPanel({
                                 <SelectItem key={game.value} value={game.value}>
                                     <span className="flex items-center gap-2">
                                         <GameIcon
-                                            game={game.value}
+                                            game={game.label}
                                             gameImage={game.image}
                                         />
                                         {game.label}

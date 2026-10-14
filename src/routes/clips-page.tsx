@@ -109,6 +109,22 @@ export function ClipsPage() {
         return map;
     }, [gameNames, resolvedGameNames, games.games, games.aliases]);
 
+    // The game filter lists one entry per raw clip game name, labelled with its
+    // aliased display name and carrying that game's artwork. The value stays
+    // the raw name so filtering still matches the stored clip rows.
+    const gameFilterOptions = useMemo(
+        () =>
+            gameNames.map((raw) => {
+                const label = resolvedGameNames[raw] ?? raw;
+                return {
+                    value: raw,
+                    label,
+                    image: resolvedGameImages[label] ?? null,
+                };
+            }),
+        [gameNames, resolvedGameNames, resolvedGameImages]
+    );
+
     const displayClips = useMemo(
         () =>
             filtered.map((c) => ({
@@ -283,8 +299,7 @@ export function ClipsPage() {
                         groups={groups}
                         selectedGroupIds={selectedGroupIds}
                         selectedGames={selectedGames}
-                        games={gameNames}
-                        steamGames={games.games}
+                        games={gameFilterOptions}
                         clipCountByDate={clipCountByDate}
                         viewMode={viewMode}
                         startDate={dateRange.start}

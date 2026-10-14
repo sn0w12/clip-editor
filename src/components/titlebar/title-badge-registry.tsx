@@ -1,12 +1,13 @@
 import type { ComponentType } from "react";
 
+import { EditorTabBadge } from "@/components/titlebar/editor-tab-badge";
 import type { TitleBadge } from "@/stores/app-store";
 
 // Bind persisted badge keys to component references here; hydration resolves
 // them before first paint after a restart. A key must keep pointing at the
 // same badge across releases, since the session document stores the key and
 // never the component reference.
-const BADGES: Array<[string, ComponentType]> = [];
+const BADGES: Array<[string, ComponentType]> = [["editor", EditorTabBadge]];
 
 const byKey = new Map<string, ComponentType>(BADGES);
 

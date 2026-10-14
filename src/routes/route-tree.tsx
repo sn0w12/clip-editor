@@ -74,7 +74,7 @@ export function createTabRouteTree(options: { tabId?: string } = {}) {
                 typeof search.videoName === "string" ? search.videoName : "",
         }),
         component: EditorPage,
-        loader: () => applyTitle("Editor"),
+        loader: () => applyTitle("Editor", "editor"),
     });
 
     const gamesRoute = createRoute({

@@ -619,9 +619,23 @@ export function ClipVideoPlayer({
         setPlaySelectedOnly((prev) => !prev);
     };
 
+    const lastResetSrcRef = useRef<string | null>(null);
+
     useEffect(() => {
         const video = videoRef.current;
         if (!video) return;
+
+        // <Activity> unmounts and re-runs this effect on each tab switch with
+        // the src unchanged, and loadeddata does not fire again for an element
+        // that is already loaded, so resetting here strands the spinner. Only
+        // reset when the source actually changed.
+        if (lastResetSrcRef.current === videoSrcProp) {
+            if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                setIsLoading(false);
+            }
+            return;
+        }
+        lastResetSrcRef.current = videoSrcProp;
 
         video.pause();
         setIsPlaying(false);

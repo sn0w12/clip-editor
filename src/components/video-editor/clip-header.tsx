@@ -1,11 +1,13 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-    Tooltip,
-    TooltipContent,
+    TooltipCreateHandle,
+    TooltipPayloadHost,
+    TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useThumbnail } from "@/hooks/use-thumbnails";
@@ -22,6 +24,24 @@ const THUMB_GAP = 8;
 /** Horizontal chrome (back button + prev/next) that the thumbs fit beside. */
 const WIDTH_PADDING = 336;
 
+/** One tooltip instance for the whole filmstrip; the payload host morphs it. */
+const tooltipHandle = TooltipCreateHandle<ComponentType>();
+
+function formatClipDate(iso: string): string {
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return "Unknown date";
+    const day = date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+    });
+    const time = date.toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
+    return `${day}, ${time}, ${date.getFullYear()}`;
+}
+
 function FilmstripThumb({
     video,
     current,
@@ -32,60 +52,48 @@ function FilmstripThumb({
     onNavigate: (video: VideoFile) => void;
 }) {
     const thumb = useThumbnail(video.path);
+    const payload = () => (
+        <p className="text-sm font-medium">
+            {video.game} | {formatClipDate(video.lastModified)}
+        </p>
+    );
 
     return (
-        <Tooltip>
-            <TooltipTrigger
-                render={
-                    <button
-                        type="button"
-                        className={cn(
-                            "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
-                            current
-                                ? "border-info opacity-100"
-                                : "border-primary/70 hover:opacity-100"
-                        )}
-                        style={{ width: `${THUMB_WIDTH}px` }}
-                        onClick={() => {
-                            rememberReturnToClip(video.path);
-                            onNavigate(video);
-                        }}
-                        disabled={current}
-                        aria-label={`Open ${video.name}`}
-                    />
-                }
-            >
-                {thumb ? (
-                    <img
-                        src={imgSrc(thumb)}
-                        alt={video.name}
-                        className="h-full w-full object-cover"
-                        onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                        }}
-                    />
-                ) : (
-                    <span className="block h-full w-full bg-muted" />
-                )}
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-                <p className="text-sm font-medium">
-                    {video.game} |{" "}
-                    {(() => {
-                        const date = new Date(video.lastModified);
-                        if (Number.isNaN(date.getTime())) return "Unknown date";
-                        return `${date.toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                        })}, ${date.toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            hour12: false,
-                        })}, ${date.getFullYear()}`;
-                    })()}
-                </p>
-            </TooltipContent>
-        </Tooltip>
+        <TooltipTrigger
+            handle={tooltipHandle}
+            payload={payload}
+            render={
+                <button
+                    type="button"
+                    className={cn(
+                        "h-10 flex-shrink-0 overflow-hidden rounded border-2 opacity-70 transition-all",
+                        current
+                            ? "border-info opacity-100"
+                            : "border-primary/70 hover:opacity-100"
+                    )}
+                    style={{ width: `${THUMB_WIDTH}px` }}
+                    onClick={() => {
+                        rememberReturnToClip(video.path);
+                        onNavigate(video);
+                    }}
+                    disabled={current}
+                    aria-label={`Open ${video.name}`}
+                >
+                    {thumb ? (
+                        <img
+                            src={imgSrc(thumb)}
+                            alt={video.name}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                                e.currentTarget.style.display = "none";
+                            }}
+                        />
+                    ) : (
+                        <span className="block h-full w-full bg-muted" />
+                    )}
+                </button>
+            }
+        />
     );
 }
 
@@ -238,55 +246,58 @@ function ClipHeaderLocal() {
     const headerIndex = surroundingVideos.currentIndex;
 
     return (
-        <div className="w-full pr-2 pl-4" ref={containerRef}>
-            <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1">
-                    <div className="flex justify-end gap-2">
-                        <Button
-                            variant="secondary"
-                            size="icon"
-                            className="group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end bg-sidebar"
-                            onClick={() => navigate({ to: "/" })}
-                            aria-label="Back to library"
-                        >
-                            <div className="mx-6 h-0.5 w-full bg-border transition-colors duration-200 group-hover:bg-secondary-foreground" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
-                            onClick={handlePrevious}
-                            disabled={headerIndex <= 0}
-                            aria-label="Previous video"
-                        >
-                            <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        {headerVideos.map((video, index) => (
-                            <FilmstripThumb
-                                key={video.path}
-                                video={video}
-                                current={index === headerIndex}
-                                onNavigate={handleNavigateToVideo}
-                            />
-                        ))}
+        <TooltipProvider>
+            <div className="w-full pr-2 pl-4" ref={containerRef}>
+                <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                        <div className="flex justify-end gap-2">
+                            <Button
+                                variant="secondary"
+                                size="icon"
+                                className="group mr-auto h-8 max-w-48 min-w-12 flex-grow self-end bg-sidebar"
+                                onClick={() => navigate({ to: "/" })}
+                                aria-label="Back to library"
+                            >
+                                <div className="mx-6 h-0.5 w-full bg-border transition-colors duration-200 group-hover:bg-secondary-foreground" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
+                                onClick={handlePrevious}
+                                disabled={headerIndex <= 0}
+                                aria-label="Previous video"
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            {headerVideos.map((video, index) => (
+                                <FilmstripThumb
+                                    key={video.path}
+                                    video={video}
+                                    current={index === headerIndex}
+                                    onNavigate={handleNavigateToVideo}
+                                />
+                            ))}
+                        </div>
                     </div>
-                </div>
 
-                <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
-                    onClick={handleNext}
-                    disabled={
-                        headerIndex < 0 ||
-                        headerIndex >= headerVideos.length - 1
-                    }
-                    aria-label="Next video"
-                >
-                    <ChevronRight className="h-3 w-3" />
-                </Button>
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-9.5 w-25 self-end sm:h-9.5 sm:w-25"
+                        onClick={handleNext}
+                        disabled={
+                            headerIndex < 0 ||
+                            headerIndex >= headerVideos.length - 1
+                        }
+                        aria-label="Next video"
+                    >
+                        <ChevronRight className="h-3 w-3" />
+                    </Button>
+                </div>
             </div>
-        </div>
+            <TooltipPayloadHost handle={tooltipHandle} side="bottom" />
+        </TooltipProvider>
     );
 }
 

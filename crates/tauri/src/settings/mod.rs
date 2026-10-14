@@ -338,6 +338,8 @@ mod tests {
                 path.display()
             )
         });
-        assert_eq!(committed, typescript_contract());
+        // The generator emits LF; a checkout on a machine with `core.autocrlf`
+        // can still hand back CRLF, so compare normalized.
+        assert_eq!(committed.replace("\r\n", "\n"), typescript_contract());
     }
 }

@@ -3,14 +3,20 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 
 import { EmptyState } from "@/components/empty-state";
+import { ClipSelectionItem } from "@/components/home/clip-selection-item";
 import { VideoCard } from "@/components/home/video-card";
 import { VideoContextMenu } from "@/components/home/video-context-menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+    Marquee,
+    MarqueeOverlay,
+    MarqueeSurface,
+} from "@/components/ui/marquee";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toastManager } from "@/components/ui/toast";
 import { useConfirm } from "@/contexts/confirm-context";
-import { useSelection } from "@/hooks/use-selection";
+import { useMarqueeSelection } from "@/hooks/use-marquee-selection";
 import { formatDuration } from "@/lib/utils";
 import { useClipsStore } from "@/stores/clips-store";
 import {
@@ -62,7 +68,7 @@ export function GroupDetailPage(): React.ReactElement {
         };
     }, [groupClips]);
 
-    const selection = useSelection(groupClips, (v) => v.path);
+    const selection = useMarqueeSelection();
 
     const openEditor = (video: VideoFile) => {
         void navigate({
@@ -147,49 +153,58 @@ export function GroupDetailPage(): React.ReactElement {
                         description="Right-click a clip and choose Add to group."
                     />
                 ) : (
-                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                        {displayClips.map((clip) => (
-                            <VideoContextMenu
-                                key={clip.path}
-                                video={clip}
-                                groupIds={clip.groupIds}
-                                groups={store.groups}
-                                games={games}
-                                onOpen={openEditor}
-                                onDelete={(paths) => void handleDelete(paths)}
-                                onRename={() => undefined}
-                                onAddToGroup={(video, groupId) =>
-                                    void store.assignToGroup(
-                                        [video.path],
-                                        groupId
-                                    )
-                                }
-                                onRemoveFromGroup={(video, groupId) =>
-                                    void store.removeFromGroup(
-                                        [video.path],
-                                        groupId
-                                    )
-                                }
-                                onCreateGroup={(name) =>
-                                    store.createGroup(name)
-                                }
-                            >
-                                <VideoCard
+                    <Marquee
+                        extendModifier={selection.extendModifier}
+                        handle={selection.handle}
+                        onValueChange={selection.onValueChange}
+                        value={selection.value}
+                    >
+                        <MarqueeSurface className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                            {displayClips.map((clip) => (
+                                <VideoContextMenu
+                                    key={clip.path}
                                     video={clip}
-                                    isSelected={selection.selected.has(
-                                        clip.path
-                                    )}
-                                    groups={store.groups}
                                     groupIds={clip.groupIds}
-                                    gameImage={gameImageFor(
-                                        games.games,
-                                        games.aliases,
-                                        clip.rawGame ?? clip.game
-                                    )}
-                                />
-                            </VideoContextMenu>
-                        ))}
-                    </div>
+                                    groups={store.groups}
+                                    games={games}
+                                    onOpen={openEditor}
+                                    onDelete={(paths) =>
+                                        void handleDelete(paths)
+                                    }
+                                    onRename={() => undefined}
+                                    onAddToGroup={(video, groupId) =>
+                                        void store.assignToGroup(
+                                            [video.path],
+                                            groupId
+                                        )
+                                    }
+                                    onRemoveFromGroup={(video, groupId) =>
+                                        void store.removeFromGroup(
+                                            [video.path],
+                                            groupId
+                                        )
+                                    }
+                                    onCreateGroup={(name) =>
+                                        store.createGroup(name)
+                                    }
+                                >
+                                    <ClipSelectionItem value={clip.path}>
+                                        <VideoCard
+                                            video={clip}
+                                            groups={store.groups}
+                                            groupIds={clip.groupIds}
+                                            gameImage={gameImageFor(
+                                                games.games,
+                                                games.aliases,
+                                                clip.rawGame ?? clip.game
+                                            )}
+                                        />
+                                    </ClipSelectionItem>
+                                </VideoContextMenu>
+                            ))}
+                            <MarqueeOverlay />
+                        </MarqueeSurface>
+                    </Marquee>
                 )}
             </div>
         </ScrollArea>

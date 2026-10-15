@@ -1,7 +1,9 @@
 import { useMemo } from "react";
 
+import { ClipSelectionItem } from "@/components/home/clip-selection-item";
 import { VideoContextMenu } from "@/components/home/video-context-menu";
 import { Button } from "@/components/ui/button";
+import { MarqueeOverlay, MarqueeSurface } from "@/components/ui/marquee";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { useGamesStore } from "@/stores/games-store";
@@ -13,7 +15,6 @@ import { VideoList } from "./video-list";
 interface VideoGridProps {
     isLoading: boolean;
     filteredVideos: VideoFile[];
-    selectedVideos: ReadonlySet<string>;
     groups: VideoGroup[];
     videoGroupMap: Record<string, string[]>;
     gameImages: Record<string, GameImage | null>;
@@ -31,7 +32,6 @@ interface VideoGridProps {
 export function VideoGrid({
     isLoading,
     filteredVideos,
-    selectedVideos,
     groups,
     videoGroupMap,
     gameImages,
@@ -139,7 +139,7 @@ export function VideoGrid({
     }
 
     return (
-        <div className="space-y-6">
+        <MarqueeSurface className="space-y-6">
             {videosByDate.map((dateGroup) => (
                 <div key={dateGroup.date} className="mb-0 space-y-4">
                     <div className="time-header sticky top-0 z-10 mb-0 flex items-center bg-background py-2">
@@ -191,37 +191,36 @@ export function VideoGrid({
                                     onRemoveFromGroup={onRemoveFromGroup}
                                     onCreateGroup={onCreateGroup}
                                 >
-                                    {viewMode === "grid" ? (
-                                        <VideoCard
-                                            video={video}
-                                            isSelected={selectedVideos.has(
-                                                video.path
-                                            )}
-                                            gameImage={
-                                                gameImages[video.game] ?? null
-                                            }
-                                            groups={groups}
-                                            groupIds={groupIds}
-                                        />
-                                    ) : (
-                                        <VideoList
-                                            video={video}
-                                            isSelected={selectedVideos.has(
-                                                video.path
-                                            )}
-                                            gameImage={
-                                                gameImages[video.game] ?? null
-                                            }
-                                            groups={groups}
-                                            groupIds={groupIds}
-                                        />
-                                    )}
+                                    <ClipSelectionItem value={video.path}>
+                                        {viewMode === "grid" ? (
+                                            <VideoCard
+                                                video={video}
+                                                gameImage={
+                                                    gameImages[video.game] ??
+                                                    null
+                                                }
+                                                groups={groups}
+                                                groupIds={groupIds}
+                                            />
+                                        ) : (
+                                            <VideoList
+                                                video={video}
+                                                gameImage={
+                                                    gameImages[video.game] ??
+                                                    null
+                                                }
+                                                groups={groups}
+                                                groupIds={groupIds}
+                                            />
+                                        )}
+                                    </ClipSelectionItem>
                                 </VideoContextMenu>
                             );
                         })}
                     </div>
                 </div>
             ))}
-        </div>
+            <MarqueeOverlay />
+        </MarqueeSurface>
     );
 }

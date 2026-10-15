@@ -3,7 +3,6 @@ import { memo } from "react";
 
 import { Separator } from "@/components/ui/separator";
 import { rememberReturnToClip } from "@/lib/return-to-clip";
-import { cn } from "@/lib/utils";
 import type { GameImage, VideoFile, VideoGroup } from "@/types";
 
 import { GameIcon } from "../game-icon";
@@ -11,7 +10,6 @@ import { formatDateTime } from "./video-card";
 
 interface VideoListProps {
     video: VideoFile;
-    isSelected: boolean;
     gameImage?: GameImage | null;
     groups: VideoGroup[];
     groupIds: string[];
@@ -19,7 +17,6 @@ interface VideoListProps {
 
 export const VideoList = memo(function VideoList({
     video,
-    isSelected,
     gameImage,
     groups,
     groupIds,
@@ -32,10 +29,7 @@ export const VideoList = memo(function VideoList({
 
     return (
         <div
-            className={cn(
-                "selectable-item flex h-9 cursor-pointer scroll-mt-10 flex-row items-center gap-1 rounded-md px-2 transition-colors duration-200 hover:bg-muted",
-                { "bg-muted": isSelected }
-            )}
+            className="flex h-9 cursor-pointer scroll-mt-10 flex-row items-center gap-1 rounded-md px-2 transition-colors duration-200 hover:bg-muted in-[[data-selected]]:bg-muted"
             onClick={() => {
                 rememberReturnToClip(video.path);
                 navigate({

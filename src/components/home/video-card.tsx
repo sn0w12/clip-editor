@@ -30,7 +30,6 @@ function previewDuration(
 
 interface VideoCardProps {
     video: VideoFile;
-    isSelected: boolean;
     gameImage?: GameImage | null;
     groups: VideoGroup[];
     groupIds: string[];
@@ -38,7 +37,6 @@ interface VideoCardProps {
 
 export const VideoCard = memo(function VideoCard({
     video,
-    isSelected,
     gameImage,
     groups,
     groupIds,
@@ -167,12 +165,7 @@ export const VideoCard = memo(function VideoCard({
 
     return (
         <Frame
-            className={cn(
-                "selectable-item cursor-pointer scroll-mt-11 border-2 border-transparent transition-colors duration-150 ease-snappy select-none",
-                isSelected
-                    ? "border-primary/70 hover:border-primary/90"
-                    : "hover:border-accent"
-            )}
+            className="cursor-pointer scroll-mt-11 border-2 border-transparent transition-colors duration-150 ease-snappy select-none hover:border-accent in-[[data-selected]]:border-primary/70 in-[[data-selected]]:hover:border-primary/90"
             onClick={handleCardClick}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}

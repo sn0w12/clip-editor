@@ -1,15 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import {
     FilterHeader,
     FilterHeaderControls,
 } from "@/components/home/filter-header";
-import {
-    SelectionOverlay,
-    useDragSelection,
-} from "@/components/home/selection";
 import type { ViewMode } from "@/components/home/types";
 import { VideoGrid } from "@/components/home/video-grid";
 import { Alert } from "@/components/ui/alert";
@@ -27,9 +23,11 @@ import {
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Form } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Marquee } from "@/components/ui/marquee";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toastManager } from "@/components/ui/toast";
 import { useConfirm } from "@/contexts/confirm-context";
+import { useMarqueeSelection } from "@/hooks/use-marquee-selection";
 import { rememberReturnToClip, takeReturnToClip } from "@/lib/return-to-clip";
 import { dateKey } from "@/lib/utils";
 import { useClipsStore } from "@/stores/clips-store";
@@ -59,7 +57,6 @@ export function ClipsPage() {
     const games = useGamesStore();
     const { confirm } = useConfirm();
     const navigate = useNavigate();
-    const containerRef = useRef<HTMLDivElement>(null);
 
     const [viewMode, setViewMode] = useState<ViewMode>(
         () => (localStorage.getItem("view-mode") as ViewMode) || "grid"
@@ -157,7 +154,7 @@ export function ClipsPage() {
         [filtered]
     );
 
-    const selection = useDragSelection(filtered, (v) => v.path, containerRef);
+    const selection = useMarqueeSelection();
 
     const setViewModePersisted = (mode: ViewMode) => {
         setViewMode(mode);
@@ -268,12 +265,7 @@ export function ClipsPage() {
 
     return (
         <ScrollArea className="size-full" scrollX={false}>
-            <div
-                ref={containerRef}
-                className="relative flex min-h-full flex-col gap-2 p-6"
-            >
-                <SelectionOverlay overlayRef={selection.overlayRef} />
-
+            <div className="relative flex min-h-full flex-col gap-2 p-6">
                 {storeError && (
                     <Alert variant="warning">
                         {storeError}
@@ -314,30 +306,36 @@ export function ClipsPage() {
                         onSetViewMode={setViewModePersisted}
                     />
                     <div className="col-span-2">
-                        <VideoGrid
-                            isLoading={loading}
-                            filteredVideos={displayClips}
-                            selectedVideos={selection.selected}
-                            groups={groups}
-                            videoGroupMap={videoGroupMap}
-                            gameImages={resolvedGameImages}
-                            games={games}
-                            viewMode={viewMode}
-                            onSelectDirectory={() => selectDirectory()}
-                            onOpen={openEditor}
-                            onDelete={(paths) => void handleDelete(paths)}
-                            onRename={(video) => {
-                                setRenaming(video);
-                                setRenameValue(video.game);
-                            }}
-                            onAddToGroup={(video, groupId) =>
-                                void assignToGroup([video.path], groupId)
-                            }
-                            onRemoveFromGroup={(video, groupId) =>
-                                void removeFromGroup([video.path], groupId)
-                            }
-                            onCreateGroup={(name) => createGroup(name)}
-                        />
+                        <Marquee
+                            extendModifier={selection.extendModifier}
+                            handle={selection.handle}
+                            onValueChange={selection.onValueChange}
+                            value={selection.value}
+                        >
+                            <VideoGrid
+                                isLoading={loading}
+                                filteredVideos={displayClips}
+                                groups={groups}
+                                videoGroupMap={videoGroupMap}
+                                gameImages={resolvedGameImages}
+                                games={games}
+                                viewMode={viewMode}
+                                onSelectDirectory={() => selectDirectory()}
+                                onOpen={openEditor}
+                                onDelete={(paths) => void handleDelete(paths)}
+                                onRename={(video) => {
+                                    setRenaming(video);
+                                    setRenameValue(video.game);
+                                }}
+                                onAddToGroup={(video, groupId) =>
+                                    void assignToGroup([video.path], groupId)
+                                }
+                                onRemoveFromGroup={(video, groupId) =>
+                                    void removeFromGroup([video.path], groupId)
+                                }
+                                onCreateGroup={(name) => createGroup(name)}
+                            />
+                        </Marquee>
                     </div>
                 </div>
 

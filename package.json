@@ -45,6 +45,7 @@
         "motion-panels": "^0.5.2",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
+        "react-marquee-select": "^0.1.0",
         "shadcn": "^4.21.0",
         "tailwind-merge": "^3.6.0",
         "tailwindcss": "^4",

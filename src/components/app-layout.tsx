@@ -7,6 +7,7 @@ import { useInsetBackdropClip } from "@/hooks/use-inset-backdrop-clip";
 import { AppShortcuts } from "./app-shortcuts";
 import { AppShortcutsHelp } from "./app-shortcuts-help";
 import { AppSidebar } from "./app-sidebar";
+import { RecordingErrorWatcher } from "./recording-error-watcher";
 import { Titlebar } from "./titlebar";
 import { SidebarInset, SidebarProvider } from "./ui/sidebar";
 import { ToastProvider } from "./ui/toast";
@@ -20,6 +21,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <ToastProvider>
                 <ConfirmProvider>
                     <AppShortcuts />
+                    <RecordingErrorWatcher />
                     <Titlebar />
                     <SidebarProvider open={false} className="min-h-0 flex-1">
                         <AppSidebar />

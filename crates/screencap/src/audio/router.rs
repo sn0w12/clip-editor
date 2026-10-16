@@ -391,6 +391,25 @@ impl AudioRouter {
         );
         output
     }
+
+    /// Jump the mix clock to `window_index` and drop queued source blocks. Used
+    /// when the mixer has fallen far behind wall time (a machine suspend makes
+    /// the elapsed-time target leap by hours): without it the catch-up loop
+    /// mixes every missed window and the track writers see no data long enough
+    /// to report a stall.
+    pub fn resync(&mut self, window_index: u64) {
+        self.mix_index = window_index;
+        for queue in self.queues.values_mut() {
+            queue.clear();
+        }
+    }
+}
+
+/// First window the mixer should produce when it has fallen behind wall time, or
+/// `None` when it is within `max_catchup` windows of the target. Pure so the
+/// threshold is unit tested.
+pub fn resync_window(mixed: u64, target: u64, max_catchup: u64) -> Option<u64> {
+    (target > mixed.saturating_add(max_catchup)).then(|| target - max_catchup)
 }
 
 /// Frames from `start` to `end` at `rate`.
@@ -836,5 +855,40 @@ mod tests {
         // Second half of window 1 (0..10 ms) is 1.0, rest silence.
         assert!(m1[0].samples[0..frames * ch / 2].iter().all(|s| *s == 1.0));
         assert!(m1[0].samples[frames * ch / 2..].iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn resync_skips_the_gap_and_drops_stale_blocks() {
+        let sources = vec![info("source:a", SourceKind::Process, &[])];
+        let tracks = vec![track(1, "all", vec![Selector::AllProcesses], vec![])];
+        let mut router = AudioRouter::new(BLOCK_MS, RATE, CH, tracks, sources);
+        router.apply_event(AudioEvent::Block(block("source:a", 0, FRAMES, CH, RATE)));
+        // Simulate a suspend: the mixer jumps to window 500 and discards the
+        // now-stale queued block instead of mixing the missed windows.
+        router.resync(500);
+        assert_eq!(router.mix_index, 500);
+        assert!(
+            router
+                .queues
+                .get(&SourceKey("source:a".into()))
+                .unwrap()
+                .is_empty(),
+            "queued blocks behind the new window are dropped"
+        );
+        let m = router.mix();
+        assert_eq!(m[0].pts, Duration::from_millis(500 * BLOCK_MS as u64));
+        assert!(m[0].samples.iter().all(|s| *s == 0.0));
+    }
+
+    #[test]
+    fn resync_window_only_triggers_past_the_catchup_budget() {
+        assert_eq!(resync_window(0, 0, 25), None);
+        assert_eq!(resync_window(10, 35, 25), None, "exactly at the budget");
+        assert_eq!(resync_window(10, 30, 25), None, "within budget");
+        assert_eq!(
+            resync_window(10, 40, 25),
+            Some(15),
+            "skip to target minus the budget"
+        );
     }
 }

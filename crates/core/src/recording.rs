@@ -16,8 +16,8 @@ use screencap::replay::{ReplayController, ReplayEvent};
 
 use crate::events::{emit, EventSink, SharedSink};
 use crate::types::{
-    err, RecordingHealthPayload, RecordingProfile, RecordingProgressPayload, RecordingSavedPayload,
-    RecordingStatePayload,
+    err, RecordingErrorPayload, RecordingHealthPayload, RecordingProfile, RecordingProgressPayload,
+    RecordingSavedPayload, RecordingStatePayload,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -283,8 +283,26 @@ impl RecordingHandle {
     /// Start the buffer with a validated profile. FFmpeg resolution and an
     /// explicitly requested encoder are preflighted synchronously so the
     /// command fails fast; monitor/capture failures arrive as
-    /// `recording-error` events.
+    /// `recording-error` events. A failed start is also recorded in
+    /// `status.error` so it survives to the settings page and the frontend's
+    /// startup fetch, not just the caller's return value.
     pub fn start(&self, profile: &RecordingProfile, sink: &SharedSink) -> Result<(), String> {
+        match self.start_inner(profile, sink) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let mut status = self.status.lock();
+                status.running = false;
+                status.saving = false;
+                status.error = Some(e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    fn start_inner(&self, profile: &RecordingProfile, sink: &SharedSink) -> Result<(), String> {
+        // A previous run that crashed on its own leaves a stale controller
+        // behind; reap it so a restart is not rejected as "already running".
+        self.reap_finished();
         if self.is_running() {
             return Err(err("recording.start", "a replay buffer is already running"));
         }
@@ -302,8 +320,8 @@ impl RecordingHandle {
 
         let controller = ReplayController::start(config, Some(crate::media::ffmpeg_dir()))
             .map_err(|e| err("recording.start", e))?;
-        // Swap the shared state through the Arc fields (interior mutability),
-        // then (re)spawn the forwarder against the new controller.
+        // Swap the shared state through the Arc fields (interior mutability);
+        // the forwarder polls this Arc, so it sees the new controller.
         *self.controller.lock() = Some(controller);
         {
             let mut status = self.status.lock();
@@ -312,19 +330,40 @@ impl RecordingHandle {
                 ..Default::default()
             };
         }
+        // Reuse a forwarder still running from a run that crashed without an
+        // explicit stop: it polls the shared controller, so it picks up the new
+        // one. Only an explicit stop joins it and clears the slot.
         self.stop_flag.store(false, Ordering::SeqCst);
-        let forwarder = spawn_forwarder(
-            self.controller.clone(),
-            self.status.clone(),
-            self.stop_flag.clone(),
-            sink.clone(),
-        );
-        *self.forwarder.lock() = Some(forwarder);
+        let mut forwarder = self.forwarder.lock();
+        if forwarder.is_none() {
+            *forwarder = Some(spawn_forwarder(
+                self.controller.clone(),
+                self.status.clone(),
+                self.stop_flag.clone(),
+                sink.clone(),
+            ));
+        }
         Ok(())
     }
 
+    /// Discard a controller whose supervisor thread already exited. Its final
+    /// error was reported through the event stream, so only the stale state
+    /// needs clearing.
+    fn reap_finished(&self) {
+        let mut guard = self.controller.lock();
+        if guard.as_ref().is_some_and(|c| c.is_finished()) {
+            guard.take();
+            let mut status = self.status.lock();
+            status.running = false;
+            status.saving = false;
+        }
+    }
+
     pub fn is_running(&self) -> bool {
-        self.controller.lock().as_ref().is_some()
+        self.controller
+            .lock()
+            .as_ref()
+            .is_some_and(|c| !c.is_finished())
     }
 
     /// Save the newest configured duration. Coalescing is handled by the
@@ -338,13 +377,18 @@ impl RecordingHandle {
     }
 
     /// Stop the buffer: join the supervisor (final segment finalized, no
-    /// workers remain) and the forwarder.
+    /// workers remain) and the forwarder. Stopping a buffer whose supervisor
+    /// already exited on its own is a no-op, since there is nothing to stop.
     pub fn stop(&self) -> Result<(), String> {
         let controller = self.controller.lock().take();
-        let Some(controller) = controller else {
-            return Ok(()); // already stopped
+        let result = match controller {
+            Some(controller) if !controller.is_finished() => {
+                controller.stop().map_err(|e| err("recording.stop", e))
+            }
+            _ => Ok(()),
         };
-        let result = controller.stop().map_err(|e| err("recording.stop", e));
+        // Always stop and join the forwarder: it may have cleared the
+        // controller itself after a terminal error and still be polling.
         self.stop_flag.store(true, Ordering::SeqCst);
         if let Some(forwarder) = self.forwarder.lock().take() {
             let _ = forwarder.join();
@@ -361,7 +405,7 @@ impl RecordingHandle {
     pub fn state(&self) -> RecordingStatePayload {
         let status = self.status.lock().clone();
         RecordingStatePayload {
-            running: status.running || self.is_running(),
+            running: self.is_running(),
             available_seconds: status.available_seconds,
             target_seconds: status.target_seconds,
             saving: status.saving,
@@ -383,12 +427,21 @@ fn spawn_forwarder(
                 break;
             }
             // try_lock: never block a stop() that is joining the supervisor.
-            if let Some(guard) = controller.try_lock() {
+            if let Some(mut guard) = controller.try_lock() {
                 let mut drained = Vec::new();
+                let mut finished = false;
                 if let Some(c) = guard.as_ref() {
                     while let Some(event) = c.try_recv() {
                         drained.push(event);
                     }
+                    finished = c.is_finished();
+                }
+                if finished {
+                    // The supervisor ended on its own (terminal worker error).
+                    // Drop the controller so is_running and getRecordingState
+                    // stop reporting a live buffer; the drained events already
+                    // carried the reason.
+                    guard.take();
                 }
                 drop(guard);
                 for event in drained {
@@ -474,26 +527,33 @@ fn forward_event(event: &ReplayEvent, status: &Mutex<RecordingStatus>, sink: &dy
                 },
             );
         }
-        ReplayEvent::Error { message } => {
+        ReplayEvent::Error { message, fatal } => {
             status.saving = false;
-            status.running = false;
-            status.error = Some(message.clone());
+            if *fatal {
+                status.running = false;
+                status.error = Some(message.clone());
+            }
             emit(
                 sink,
                 "recording-error",
-                serde_json::json!({ "message": message }),
-            );
-            emit(
-                sink,
-                "recording-state",
-                RecordingStatePayload {
-                    running: false,
-                    available_seconds: status.available_seconds,
-                    target_seconds: status.target_seconds,
-                    saving: false,
-                    error: Some(message.clone()),
+                RecordingErrorPayload {
+                    message: message.clone(),
+                    fatal: *fatal,
                 },
             );
+            if *fatal {
+                emit(
+                    sink,
+                    "recording-state",
+                    RecordingStatePayload {
+                        running: false,
+                        available_seconds: status.available_seconds,
+                        target_seconds: status.target_seconds,
+                        saving: false,
+                        error: Some(message.clone()),
+                    },
+                );
+            }
         }
         ReplayEvent::Stopped => {
             status.running = false;

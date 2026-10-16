@@ -262,6 +262,13 @@ pub struct RecordingStatePayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RecordingErrorPayload {
+    pub message: String,
+    pub fatal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecordingProgressPayload {
     pub available_seconds: f64,
     pub target_seconds: u32,

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use seraphis_core::{Backend, BackendConfig};
 use state::AppState;
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Listener, Manager};
 
 const AUTOSTART_ARG: &str = "--autostart";
 
@@ -132,6 +132,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -426,6 +427,14 @@ pub fn run() {
                 }
                 commands::clip::update_tray_recording_label(app.handle());
             }
+
+            // Keep the tray label honest when the buffer dies on its own: the
+            // start/stop commands update it, but a terminal worker error never
+            // goes through a command.
+            let tray_handle = app.handle().clone();
+            app.listen("recording-state", move |_event| {
+                commands::clip::update_tray_recording_label(&tray_handle);
+            });
 
             log::info!("setup complete in {:?}", started_at.elapsed());
             Ok(())

@@ -146,9 +146,9 @@ export function useRecordingStore(): RecordingState & {
             tauri.onRecordingError((p) =>
                 setState((s) => ({
                     ...s,
-                    running: false,
+                    running: p.fatal ? false : s.running,
                     saving: false,
-                    error: p.message,
+                    error: p.fatal ? p.message : s.error,
                 }))
             ),
         ];

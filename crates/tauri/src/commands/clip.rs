@@ -12,10 +12,11 @@ use seraphis_core::types::*;
 use crate::commands::CommandResult;
 use crate::state::AppState;
 
-/// Reflect the replay buffer's running state in the tray's toggle item label.
+/// Reflect the replay buffer's running state and last failure in the tray
+/// toggle label and the tray tooltip.
 pub fn update_tray_recording_label(app: &tauri::AppHandle) {
-    let running = app.state::<AppState>().backend.recording.is_running();
-    let text = if running {
+    let recording = app.state::<AppState>().backend.recording.state();
+    let text = if recording.running {
         "Stop Replay Buffer"
     } else {
         "Start Replay Buffer"
@@ -23,6 +24,15 @@ pub fn update_tray_recording_label(app: &tauri::AppHandle) {
     let item = app.state::<AppState>().tray_toggle.lock().clone();
     if let Some(item) = item {
         let _ = item.set_text(text);
+    }
+    if let Some(tray) = app.tray_by_id("seraphis-tray") {
+        let tooltip = match recording.error {
+            Some(error) if !recording.running => {
+                format!("Seraphis - replay buffer stopped: {error}")
+            }
+            _ => "Seraphis".to_string(),
+        };
+        let _ = tray.set_tooltip(Some(&tooltip));
     }
 }
 

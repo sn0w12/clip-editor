@@ -147,6 +147,12 @@ export interface RecordingState {
     error?: string | null;
 }
 
+export interface RecordingError {
+    message: string;
+    /** True when the failure stopped the buffer; false for a save failure. */
+    fatal: boolean;
+}
+
 /** Per-second capture health reported by the replay buffer. */
 export interface RecordingHealth {
     /** Resolved FFmpeg encoder, e.g. `h264_nvenc` or `libx264`. */

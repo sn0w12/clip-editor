@@ -489,6 +489,10 @@ enum SessionEnd {
 
 struct LiveSession {
     exit_rx: Receiver<SessionEnd>,
+    /// One message per stalled audio track, sent just before its writer drops
+    /// the pipe. The session is restarted rather than the run failed, so the
+    /// reason is only surfaced when the restart budget runs out.
+    stall_rx: Receiver<String>,
     video: thread::JoinHandle<()>,
     tracks: Vec<thread::JoinHandle<()>>,
     monitor: thread::JoinHandle<()>,
@@ -839,6 +843,9 @@ fn start_session(
     let writer_shutdown = shutdown.clone();
     let writer_flag = shutdown_flag.clone();
     let writer_err = err_tx.clone();
+    // Audio-track stalls restart the session instead of failing the run, so
+    // they report on a separate channel from the terminal `err_tx`.
+    let (stall_tx, stall_rx) = crossbeam_channel::bounded::<String>(8);
     let writer_delivery = params.delivery.clone();
     let video_rx: Receiver<VideoFrame> = video_rx.clone();
     let video_writer = thread::Builder::new()
@@ -1001,6 +1008,7 @@ fn start_session(
         let track = params.tracks[i].clone();
         let writer_shutdown = shutdown.clone();
         let writer_err = err_tx.clone();
+        let writer_stall = stall_tx.clone();
         let handle = thread::Builder::new()
             .name(format!("segmenter-track-{}", track.number))
             .spawn(move || {
@@ -1026,10 +1034,10 @@ fn start_session(
                                 break;
                             }
                             if last_write.elapsed() > STALL_TIMEOUT {
-                                let _ = writer_err.send(RunError::media(format!(
+                                let _ = writer_stall.send(format!(
                                     "media pipeline stalled: no audio for track {}",
                                     track.number
-                                )));
+                                ));
                                 break;
                             }
                         }
@@ -1113,6 +1121,7 @@ fn start_session(
 
     Ok(LiveSession {
         exit_rx,
+        stall_rx,
         video: video_writer,
         tracks: track_writers,
         monitor,
@@ -1205,6 +1214,11 @@ pub fn spawn_segmenter(
                         }
                     }
                 };
+                // A stalled audio track ends the session by closing its pipe
+                // (FFmpeg then EOFs and exits); restart instead of failing the
+                // run. The stall text is preferred over the generic exit text
+                // for the warning and, once the budget is spent, the error.
+                let stall = session.stall_rx.try_recv().ok();
                 session.join();
 
                 match end {
@@ -1213,16 +1227,17 @@ pub fn spawn_segmenter(
                         if shutting_down {
                             break;
                         }
+                        let reason = stall.unwrap_or(msg);
                         if session_started.elapsed() >= RESTART_RESET_AFTER {
                             consecutive_restarts = 0;
                         }
                         consecutive_restarts += 1;
                         if consecutive_restarts > MAX_CONSECUTIVE_RESTARTS {
-                            let _ = err_tx.send(RunError::media(msg));
+                            let _ = err_tx.send(RunError::media(reason));
                             break;
                         }
                         warn!(
-                            error = %msg,
+                            error = %reason,
                             attempt = consecutive_restarts,
                             "ffmpeg exited; restarting the segmenter"
                         );

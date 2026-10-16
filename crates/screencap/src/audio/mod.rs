@@ -125,7 +125,7 @@ pub fn burst_base_pts(wall: Duration, audio_back: Duration, grid_ms: u64) -> Dur
     Duration::from_millis(((start.as_millis() / grid_ms as u128) * grid_ms as u128) as u64)
 }
 
-pub use router::AudioRouter;
+pub use router::{AudioRouter, resync_window};
 
 pub mod microphone;
 pub mod resample;

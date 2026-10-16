@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, Sender};
 use tracing::{error, info, warn};
 
-use crate::audio::{AudioEvent, AudioRouter, SourceInfo, SourceKind, TrackAudioBlock};
+use crate::audio::{
+    AudioEvent, AudioRouter, SourceInfo, SourceKind, TrackAudioBlock, resync_window,
+};
 use crate::config::{Config, ProcessRule, ResolvedTrack};
 #[cfg(not(windows))]
 use crate::error::PlatformError;
@@ -106,8 +108,9 @@ pub enum ReplayEvent {
     /// Per-second capture and delivery health, so a host can tell "the buffer
     /// is keeping up" from "it is silently duplicating frames".
     CaptureHealth(CaptureHealth),
-    /// A terminal failure (setup, worker, or save failure).
-    Error { message: String },
+    /// A failure. `fatal` is true when the run ended (setup or worker); a save
+    /// failure is non-fatal and leaves the buffer running.
+    Error { message: String, fatal: bool },
     /// The supervisor shut down cleanly.
     Stopped,
 }
@@ -410,6 +413,13 @@ impl ReplayController {
         self.event_rx.try_recv().ok()
     }
 
+    /// Whether the supervisor thread has exited on its own (terminal worker
+    /// error or Ctrl-C) without Stop being requested. A finished controller has
+    /// nothing left to stop and must not be reported as running.
+    pub fn is_finished(&self) -> bool {
+        self.join.as_ref().is_none_or(|h| h.is_finished())
+    }
+
     /// Stop capture, finalize the current segment, and join the supervisor.
     /// Returns the supervisor outcome (an `Err` means the run failed).
     pub fn stop(mut self) -> Result<(), RunError> {
@@ -471,6 +481,7 @@ fn supervise(
         if let Some(tx) = rec_event_tx {
             let _ = tx.try_send(ReplayEvent::Error {
                 message: e.to_string(),
+                fatal: true,
             });
         }
     }
@@ -868,6 +879,18 @@ fn mix_loop(
                 target - mixed
             );
         }
+        // A time jump (suspend/resume) makes `target` leap by hours; grinding
+        // through every missed window would starve the track writers past
+        // STALL_TIMEOUT, so skip the gap and resync the router's clock instead.
+        const MAX_CATCHUP_WINDOWS: u64 = 25;
+        if let Some(resync) = resync_window(mixed, target, MAX_CATCHUP_WINDOWS) {
+            warn!(
+                skipped_windows = resync - mixed,
+                "audio mixer fell behind wall time; resyncing"
+            );
+            router.resync(resync);
+            mixed = resync;
+        }
         while mixed < target {
             for (block, (tx, rx)) in router.mix().into_iter().zip(track_channels.iter()) {
                 crate::util::send_drop_oldest(tx, rx, block, &mut limiter, "track");
@@ -976,6 +999,7 @@ fn handle_save(
             error!(error = %e, "replay save failed");
             emit(ReplayEvent::Error {
                 message: e.to_string(),
+                fatal: false,
             });
         }
     }

@@ -18,6 +18,7 @@
         "opener:default",
         "dialog:allow-open",
         "log:default",
+        "notification:default",
         "os:default",
         "snap-layout:default",
         "updater:default",

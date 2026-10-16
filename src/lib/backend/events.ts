@@ -5,6 +5,7 @@ import type {
     ExportComplete,
     ExportProgress,
     LibraryChanged,
+    RecordingError,
     RecordingHealth,
     RecordingState,
     SteamArtworkUpdated,
@@ -66,9 +67,9 @@ export function onRecordingSaved(
 }
 
 export function onRecordingError(
-    cb: (payload: { message: string }) => void
+    cb: (payload: RecordingError) => void
 ): Promise<UnlistenFn> {
-    return listen<{ message: string }>("recording-error", (e) => cb(e.payload));
+    return listen<RecordingError>("recording-error", (e) => cb(e.payload));
 }
 
 export function onSteamArtworkUpdated(

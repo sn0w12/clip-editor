@@ -12,7 +12,7 @@ use std::process::Command;
 use tracing::{info, warn};
 
 use crate::error::MediaError;
-use crate::media::segmenter::SegmentSnapshot;
+use crate::media::segmenter::{SegmentSnapshot, probe_duration_seconds};
 use crate::naming::{pick_output_path, sanitize_title, timestamp_stem};
 
 /// Save the replay. `foreground_title` is the window title captured when the
@@ -152,6 +152,21 @@ pub fn save_replay(
                 stderr.chars().take(400).collect::<String>()
             )));
         }
+        // A segment carrying a non-zero container timestamp makes the concat
+        // demuxer keep that offset (the `inpoint 0` entry then cannot rebase
+        // it), which turns a 90 s clip into a multi-hour file that seeks to
+        // arbitrary frames. The concat exit code stays zero in that case, so
+        // verify the timeline before the atomic rename and refuse to publish a
+        // file the editor cannot seek.
+        let probed = probe_duration_seconds(ffmpeg, &tmp).ok_or_else(|| {
+            MediaError::General("cannot read the saved clip's duration after concat".to_string())
+        })?;
+        let tolerance = 2.0 + actual * 0.05;
+        if (probed - actual).abs() > tolerance {
+            return Err(MediaError::General(format!(
+                "saved clip timeline is corrupt: expected {actual:.2}s but the container reports {probed:.2}s"
+            )));
+        }
         // Atomic rename: the output either appears complete or not at all.
         std::fs::rename(&tmp, &target).map_err(|e| {
             MediaError::General(format!(
@@ -175,6 +190,124 @@ pub fn save_replay(
         "replay saved"
     );
     Ok(target)
+}
+
+#[cfg(test)]
+mod corrupt_segment_test {
+    use std::path::PathBuf;
+    use std::process::Command;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use crate::media::SegmentInfo;
+    use crate::media::segmenter::SegmentStore;
+
+    /// A segment whose container start is not zero must not be published as a
+    /// clip: the concat demuxer keeps that offset (the list's `inpoint 0` does
+    /// not rebase it), so a two-second segment becomes a two-minute file that
+    /// seeks to arbitrary frames. This reproduces that shape and asserts the
+    /// duration check refuses it.
+    #[test]
+    fn save_refuses_a_clip_with_a_nonzero_segment_start() {
+        if std::env::var("SCREENCAP_CORRUPT_TEST").as_deref() != Ok("1") {
+            eprintln!("SKIP: set SCREENCAP_CORRUPT_TEST=1 to run the corrupt-segment guard test");
+            return;
+        }
+        let ffmpeg = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(if cfg!(debug_assertions) {
+                "debug"
+            } else {
+                "release"
+            })
+            .join("ffmpeg.exe");
+        assert!(
+            ffmpeg.exists(),
+            "ffmpeg.exe must sit at {}",
+            ffmpeg.display()
+        );
+        let work = std::env::temp_dir().join(format!("screencap_corrupt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&work);
+        let buffer_dir = work.join("buffer");
+        let out_dir = work.join("out");
+        std::fs::create_dir_all(&buffer_dir).unwrap();
+        std::fs::create_dir_all(&out_dir).unwrap();
+
+        let plain = work.join("plain.mkv");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=size=320x180:rate=30:duration=2",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000:duration=2",
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-g",
+                "30",
+                "-bf",
+                "0",
+                "-c:a",
+                "aac",
+            ])
+            .arg(&plain)
+            .status()
+            .expect("ffmpeg creates the source segment");
+        assert!(status.success());
+
+        let segment0 = buffer_dir.join("segment_00000.mkv");
+        std::fs::copy(&plain, &segment0).unwrap();
+        let segment1 = buffer_dir.join("segment_00001.mkv");
+        let status = Command::new(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+            .arg(&plain)
+            .args(["-map", "0", "-c", "copy", "-output_ts_offset", "100"])
+            .arg(&segment1)
+            .status()
+            .expect("ffmpeg shifts the segment start");
+        assert!(status.success());
+
+        let store = Arc::new(SegmentStore::new(buffer_dir.clone()));
+        for (name, path) in [
+            ("segment_00000.mkv", segment0),
+            ("segment_00001.mkv", segment1),
+        ] {
+            store.record(SegmentInfo {
+                name: name.to_string(),
+                path,
+                duration: Duration::from_secs(2),
+                stream_end: 2.0,
+            });
+        }
+        let err = super::save_replay(
+            &ffmpeg,
+            store.snapshot(),
+            &buffer_dir,
+            &out_dir,
+            "Corrupt",
+            "guard",
+            4,
+        )
+        .expect_err("a non-zero segment start must not be published");
+        assert!(
+            err.to_string().contains("timeline is corrupt"),
+            "unexpected error: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
 }
 
 #[cfg(test)]

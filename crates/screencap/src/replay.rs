@@ -237,6 +237,7 @@ impl HealthTracker {
             readback_p95_ms,
             slow_map_waits,
             readback_latency_p95_ms,
+            capture_lost,
         ) = match capture {
             Some(stats) => {
                 let snap = stats.snapshot();
@@ -248,9 +249,10 @@ impl HealthTracker {
                     stats.readback_percentile_ms(0.95),
                     snap.slow_map_waits,
                     stats.readback_latency_percentile_ms(0.95),
+                    snap.capture_lost,
                 )
             }
-            None => (0.0, 0.0, 0.0, 0, 0.0),
+            None => (0.0, 0.0, 0.0, 0, 0.0, false),
         };
         let frame_age_ms = window.max_frame_age_micros / 1000;
         let write_ms_per_frame = if written == 0 {
@@ -258,7 +260,13 @@ impl HealthTracker {
         } else {
             window.write_nanos as f64 / 1_000_000.0 / written as f64
         };
-        let warning = if self.samples > 2 {
+        let warning = if capture_lost {
+            Some(
+                "screen capture is unavailable (screen lock, UAC, or another capture app); \
+                 the buffer is holding the last frame"
+                    .to_string(),
+            )
+        } else if self.samples > 2 {
             saturation_warning(
                 self.target_fps,
                 delivered_fps,
@@ -706,7 +714,7 @@ fn supervise_inner(
                         foreground_title,
                         duration_secs,
                         config.replay.segment_seconds,
-                        origin,
+                        capture_stats.as_deref(),
                         config.replay.save_intent_sound.as_deref(),
                         config.replay.success_sound.as_deref(),
                         &rec_event_tx,
@@ -727,7 +735,7 @@ fn supervise_inner(
                             title,
                             duration_secs,
                             config.replay.segment_seconds,
-                            origin,
+                            capture_stats.as_deref(),
                             config.replay.save_intent_sound.as_deref(),
                             config.replay.success_sound.as_deref(),
                             &rec_event_tx,
@@ -750,7 +758,7 @@ fn supervise_inner(
                             title.clone(),
                             duration_secs,
                             config.replay.segment_seconds,
-                            origin,
+                            capture_stats.as_deref(),
                             config.replay.save_intent_sound.as_deref(),
                             config.replay.success_sound.as_deref(),
                             &rec_event_tx,
@@ -771,7 +779,7 @@ fn supervise_inner(
                                 title,
                                 duration_secs,
                                 config.replay.segment_seconds,
-                                origin,
+                                capture_stats.as_deref(),
                                 config.replay.save_intent_sound.as_deref(),
                                 config.replay.success_sound.as_deref(),
                                 &rec_event_tx,
@@ -915,27 +923,53 @@ fn perform_save(
     foreground_title: &str,
     duration_seconds: u32,
     segment_seconds: u32,
-    origin: Instant,
+    capture: Option<&crate::video::CaptureStats>,
 ) -> Result<PathBuf, RunError> {
-    // FFmpeg buffers the in-progress segment in memory; its content is not
-    // readable on disk until the segment closes. A save at wall time T can
-    // therefore only reach the last closed boundary, which lags T by up to a
-    // full segment. Wait until the newest recorded segment's stream-time end
-    // reaches the request moment so the clip's newest frame is the wall at
-    // save time, not `segment_seconds` early. Bounded: the current segment
-    // closes within `segment_seconds`, plus the scan interval and stability
-    // checks before it is recorded.
-    let request_stream = origin.elapsed().as_secs_f64();
-    let wait_deadline = Instant::now() + Duration::from_secs(segment_seconds as u64 + 3);
-    while store.newest_end_seconds() < request_stream && Instant::now() < wait_deadline {
+    if capture.is_some_and(|c| c.is_lost()) {
+        return Err(RunError::media(
+            "screen capture is unavailable; refusing to save a frozen frame",
+        ));
+    }
+    // The in-progress segment is only readable once FFmpeg closes it, so a save
+    // can reach the wall only after the next boundary. Wait for that boundary,
+    // but judge it by the newest closed file's mtime: the stream clock restarts
+    // or drifts whenever the encoder stalls, while the file time is always the
+    // wall time it closed. A buffer whose newest segment is older than a few
+    // segment lengths is stalled, and saving it would hand back a clip from
+    // minutes or hours ago.
+    let freshness = Duration::from_secs(segment_seconds as u64 + 4);
+    let wait_deadline = Instant::now() + Duration::from_secs(segment_seconds as u64 + 6);
+    let mut stale = false;
+    loop {
+        let fresh = store
+            .newest_segment_age()
+            .is_some_and(|age| age <= freshness);
+        if fresh {
+            break;
+        }
+        if Instant::now() >= wait_deadline {
+            stale = true;
+            break;
+        }
         std::thread::sleep(Duration::from_millis(50));
     }
 
     let snapshot = store.snapshot();
+    if capture.is_some_and(|c| c.is_lost()) {
+        return Err(RunError::media(
+            "screen capture is unavailable; refusing to save a frozen frame",
+        ));
+    }
     if snapshot.segments().is_empty() {
         return Err(RunError::media(
             "save requested but buffer not ready (no completed segments yet)",
         ));
+    }
+    if stale {
+        return Err(RunError::media(format!(
+            "buffer is stale: no segment closed in the last {}s, so capture or the encoder has stalled; refusing to save a clip from an old frame",
+            freshness.as_secs()
+        )));
     }
     let path = save_util::save_replay(
         ffmpeg,
@@ -963,7 +997,7 @@ fn handle_save(
     foreground_title: String,
     duration_seconds: u32,
     segment_seconds: u32,
-    origin: Instant,
+    capture: Option<&crate::video::CaptureStats>,
     save_intent_sound: Option<&str>,
     success_sound: Option<&str>,
     rec_event_tx: &Option<Sender<ReplayEvent>>,
@@ -986,7 +1020,7 @@ fn handle_save(
         &foreground_title,
         duration_seconds,
         segment_seconds,
-        origin,
+        capture,
     ) {
         Ok(path) => {
             info!(path = %path.display(), "replay saved");
@@ -1185,7 +1219,7 @@ mod save_window_test {
             "save-window",
             20,
             segment_seconds,
-            origin,
+            None,
         )
         .expect("perform_save succeeds");
         let save_done = Instant::now();
@@ -1453,7 +1487,7 @@ mod save_window_test {
             "save-window-audio",
             20,
             segment_seconds,
-            origin,
+            None,
         )
         .expect("perform_save succeeds");
         let save_done = Instant::now();
@@ -1712,7 +1746,7 @@ mod save_window_test {
             "tone-resume",
             20,
             segment_seconds,
-            origin,
+            None,
         )
         .expect("perform_save succeeds");
 

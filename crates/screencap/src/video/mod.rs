@@ -108,11 +108,12 @@ pub struct StopState {
 /// can never be saved from again. Emitting one frame per tick unconditionally
 /// makes frame arrival a faithful liveness signal for this thread: a gap in the
 /// stream now means the feed itself stopped, which is the only condition the
-/// watchdog should treat as fatal. It is also what keeps the count-based video
-/// timeline exact — the writer's frame count stays the wall seconds elapsed.
+/// watchdog should treat as fatal.
 ///
 /// A full video channel *blocks* until the writer drains a frame — it never
-/// drops, because a dropped frame is a hole the encoder cannot account for.
+/// drops, because a dropped frame is a gap in the captured content. A wedged
+/// encoder (not a slow one) is detected by the segmenter's blocked-write
+/// watchdog and restarted; blocking here keeps delivery honest until then.
 #[cfg(windows)]
 #[doc(hidden)]
 pub fn spawn_pacer(
@@ -155,6 +156,14 @@ pub fn spawn_pacer(
                         .recv_timeout((next_tick - now).min(Duration::from_millis(50)));
                     continue;
                 }
+                // A tick the pacer missed while the writer was blocked does not
+                // need to be replayed as a burst of duplicates: those advance
+                // the frame-count clock but write repeat frames, and the writer
+                // restarts the session once the count falls behind the wall
+                // clock. Resume on the current tick instead.
+                if now >= next_tick + interval * 10 {
+                    next_tick = now;
+                }
                 // What the capture published since the last tick, else the
                 // previous frame again. The duplication only delivers a frame
                 // when the desktop changes, so a quiet stretch re-sends rather
@@ -194,13 +203,12 @@ pub fn spawn_pacer(
 }
 
 /// Send one frame into the bounded pacer channel, blocking (never dropping)
-/// when the channel is full. The encoder timestamps rawvideo input by frame
-/// count at `-framerate`, so a dropped frame makes the segment shorter than
-/// the wall seconds it spans — the saved clip plays that stretch faster than
-/// real time. Blocking lets the writer/encoder catch up; the rolling buffer
-/// simply lags the wall for the stalled stretch. Returns `false` when the
-/// channel is gone or shutdown arrived, so the pacer exits instead of
-/// spinning against a stuck writer.
+/// when the channel is full. Dropping would shorten the captured content, and
+/// blocking keeps the frames that were captured. If the writer cannot keep the
+/// frame-count clock up with wall time, it restarts the session and both
+/// streams resynchronize at zero. Returns `false` when the channel is gone or
+/// shutdown arrived, so the pacer exits instead of spinning against a stuck
+/// writer.
 fn send_blocking(tx: &Sender<VideoFrame>, frame: VideoFrame, shutdown: &Receiver<()>) -> bool {
     loop {
         crossbeam_channel::select! {
@@ -222,11 +230,11 @@ fn send_blocking(tx: &Sender<VideoFrame>, frame: VideoFrame, shutdown: &Receiver
 /// The producer-to-segmenter video channel holds at most this many frames.
 /// The pacer blocks (never drops) when the channel is full, so the capacity
 /// bounds how much transient encoder slowness is absorbed before the pacer has
-/// to wait, while the count-based video timeline stays exact. In steady state
-/// the writer drains at exactly the stream rate, so a channel that filled never
-/// empties again and every frame in it is standing latency — at 16 that was
-/// ~200 ms of backlog held for a whole session. Four frames still spans several
-/// blocked pipe writes; muxer stalls are absorbed by the video pipe's buffer.
+/// to wait. In steady state the writer drains at exactly the stream rate, so a
+/// channel that filled never empties again and every frame in it is standing
+/// latency — at 16 that was ~200 ms of backlog held for a whole session. Four
+/// frames still spans several blocked pipe writes; muxer stalls are absorbed
+/// by the video pipe's buffer.
 pub const VIDEO_QUEUE_CAPACITY: usize = 4;
 
 /// Granularity of the readback-latency histogram, in microseconds.
@@ -298,8 +306,13 @@ pub struct CaptureStats {
     /// Frames with no desktop change (the feed thread re-sends the last frame,
     /// so no readback work is needed).
     pub skipped_empty_damage: AtomicU64,
-    /// GPU readback failures (the capture falls back to retrying).
+    /// Readback failures (the capture falls back to retrying).
     pub readback_errors: AtomicU64,
+    /// Set while DXGI duplication access is unavailable (screen lock, UAC,
+    /// another capture app) and the capture is waiting to rebuild it. The pacer
+    /// keeps emitting the last frame so the buffer looks alive; saves must not
+    /// treat that as current content.
+    pub capture_lost: AtomicBool,
     /// Successful duplication acquires. In steady state this tracks the
     /// configured FPS: one acquire per stream tick, not one per compositor
     /// update (`capbench`'s no-busy-spin assertion).
@@ -384,6 +397,7 @@ impl Default for CaptureStats {
             partial_copies: AtomicU64::new(0),
             skipped_empty_damage: AtomicU64::new(0),
             readback_errors: AtomicU64::new(0),
+            capture_lost: AtomicBool::new(false),
             acquires: AtomicU64::new(0),
             mouse_only_frames: AtomicU64::new(0),
             acquire_timeouts: AtomicU64::new(0),
@@ -415,6 +429,8 @@ pub struct CaptureStatsSnapshot {
     pub partial_copies: u64,
     pub skipped_empty_damage: u64,
     pub readback_errors: u64,
+    /// The capture currently has no duplication access and is emitting repeats.
+    pub capture_lost: bool,
     pub acquires: u64,
     /// Acquires that carried only a pointer move and were not published.
     pub mouse_only_frames: u64,
@@ -531,6 +547,11 @@ impl CaptureStats {
         ticks * 1_000.0 / qpc_hz()
     }
 
+    /// Whether the capture is currently waiting to regain duplication access.
+    pub fn is_lost(&self) -> bool {
+        self.capture_lost.load(Ordering::Relaxed)
+    }
+
     /// Read every counter once.
     pub fn snapshot(&self) -> CaptureStatsSnapshot {
         let load = |a: &AtomicU64| a.load(Ordering::Relaxed);
@@ -542,6 +563,7 @@ impl CaptureStats {
             partial_copies: load(&self.partial_copies),
             skipped_empty_damage: load(&self.skipped_empty_damage),
             readback_errors: load(&self.readback_errors),
+            capture_lost: self.capture_lost.load(Ordering::Relaxed),
             acquires: load(&self.acquires),
             mouse_only_frames: load(&self.mouse_only_frames),
             acquire_timeouts: load(&self.acquire_timeouts),

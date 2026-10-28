@@ -217,6 +217,7 @@ fn recreate_duplication(
     monitor: &Monitor,
     stop: &StopState,
     shutdown: &Receiver<()>,
+    stats: &CaptureStats,
 ) -> Result<Rebuild, String> {
     const MAX_WAIT: Duration = Duration::from_millis(500);
     let mut wait = Duration::from_millis(50);
@@ -242,12 +243,14 @@ fn recreate_duplication(
         match rebuilt {
             Ok(new) => {
                 *api = Some(new);
+                stats.capture_lost.store(false, Ordering::Relaxed);
                 if waiting {
                     info!("DXGI duplication reacquired");
                 }
                 return Ok(Rebuild::Done);
             }
             Err(e) => {
+                stats.capture_lost.store(true, Ordering::Relaxed);
                 if !waiting {
                     waiting = true;
                     warn!(
@@ -413,7 +416,7 @@ fn run_capture(
             // multi-second stall. The converter is not touched here: it
             // compares devices and is rebuilt inside `process` when they differ.
             state.reset_presents();
-            match recreate_duplication(&mut api, &monitor, &stop, &shutdown) {
+            match recreate_duplication(&mut api, &monitor, &stop, &shutdown, &stats) {
                 Ok(Rebuild::Done) => {}
                 Ok(Rebuild::Shutdown) => return Ok(()),
                 Err(e) => return Err(format!("DXGI duplication recreate failed: {e}")),

@@ -32,6 +32,15 @@ use crate::video::{VideoFrame, VideoInfo};
 const SCAN_INTERVAL: Duration = Duration::from_secs(1);
 /// A frame/block must arrive at least this often or the pipeline is stalled.
 const STALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// How far the delivered video frame count may fall behind the session's wall
+/// clock before the session is restarted. The count-based timeline cannot make
+/// up lost ticks: at 55 delivered fps a 60 fps stream loses five seconds of
+/// timeline per minute, and the video drifts minutes behind the audio over a
+/// long session (observed 65 minutes after eight hours). Restarting resets both
+/// streams to the same zero, so the drift stays bounded instead of silently
+/// corrupting every segment. The blocked-write watchdog catches a wedged pipe;
+/// this catches a slow but live one.
+const CLOCK_LAG_LIMIT: Duration = Duration::from_secs(5);
 /// How long shutdown waits for FFmpeg to finalize the open segment.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -62,6 +71,23 @@ fn pipe_url(name: &str) -> String {
         name.to_string()
     }
 }
+
+/// Forcibly end one FFmpeg child. Used only when its video pipe has stopped
+/// draining; the normal path writes `q` to stdin instead.
+#[cfg(windows)]
+fn kill_process(pid: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
+    if let Ok(handle) = unsafe { OpenProcess(PROCESS_TERMINATE, false, pid) } {
+        unsafe {
+            let _ = TerminateProcess(handle, 1);
+            let _ = CloseHandle(handle);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn kill_process(_pid: u32) {}
 
 /// Everything the segmenter needs to start encoding.
 pub struct SegmenterParams {
@@ -152,6 +178,9 @@ struct StoreInner {
     sizes: HashMap<String, u64>,
     /// Segment names already seen in the FFmpeg segment list (closed).
     listed: HashSet<String>,
+    /// Files that could not be probed after several scans (a partial segment
+    /// left by a killed FFmpeg). Skipped so they are not re-probed every second.
+    ignored: HashSet<String>,
     /// Current in-progress (open) segment, included in saves so the clip
     /// reaches the save moment instead of stopping at the last closed one.
     open: Option<SegmentInfo>,
@@ -180,6 +209,7 @@ impl SegmentStore {
                 total: Duration::ZERO,
                 sizes: HashMap::new(),
                 listed: HashSet::new(),
+                ignored: HashSet::new(),
                 open: None,
             }),
         }
@@ -274,12 +304,30 @@ impl SegmentStore {
 
     fn is_listed(&self, name: &str) -> bool {
         let inner = self.inner.lock();
-        inner.listed.contains(name)
+        inner.listed.contains(name) || inner.ignored.contains(name)
     }
 
     fn mark_listed(&self, name: &str) {
         let mut inner = self.inner.lock();
         inner.listed.insert(name.to_string());
+    }
+
+    fn mark_ignored(&self, name: &str) {
+        let mut inner = self.inner.lock();
+        inner.ignored.insert(name.to_string());
+    }
+
+    /// Age of the newest recorded segment's file, or `None` when nothing has
+    /// been recorded. The file mtime is the wall time the segment closed, which
+    /// is what a save must use to decide whether the buffer is current: the
+    /// stream clock can restart or drift and says nothing about freshness.
+    pub fn newest_segment_age(&self) -> Option<Duration> {
+        let inner = self.inner.lock();
+        let newest = inner.segments.back()?;
+        std::fs::metadata(&newest.path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
     }
 
     /// Delete the oldest segments that exceed `keep` and are not pinned by a
@@ -496,6 +544,8 @@ struct LiveSession {
     video: thread::JoinHandle<()>,
     tracks: Vec<thread::JoinHandle<()>>,
     monitor: thread::JoinHandle<()>,
+    watchdog: thread::JoinHandle<()>,
+    watchdog_done: Arc<AtomicBool>,
 }
 
 impl LiveSession {
@@ -503,11 +553,16 @@ impl LiveSession {
     /// receivers, so they must be gone before the next session starts its own
     /// writers; otherwise a dead writer would steal frames from the live one.
     fn join(self) {
+        // Join the video writer before stopping the watchdog: a wedged pipe
+        // leaves that writer inside `write_all`, and the watchdog is what kills
+        // FFmpeg to release it.
         let _ = self.video.join();
         for track in self.tracks {
             let _ = track.join();
         }
         let _ = self.monitor.join();
+        self.watchdog_done.store(true, Ordering::SeqCst);
+        let _ = self.watchdog.join();
     }
 }
 
@@ -538,9 +593,8 @@ fn highest_segment_index(buffer_dir: &std::path::Path) -> u32 {
 /// its input opens never race the writers), spawn the child with the video and
 /// per-track audio inputs, then run the video/track writer threads and the
 /// stderr monitor. The returned [`LiveSession`] resolves when FFmpeg exits; the
-/// caller decides whether that is a shutdown or a restart. `input_offset`
-/// continues the stream clock and `segment_start_number` the segment files
-/// across a restart.
+/// caller decides whether that is a shutdown or a restart. `segment_start_number`
+/// continues the segment files across a restart.
 #[allow(clippy::too_many_arguments)]
 fn start_session(
     params: &SegmenterParams,
@@ -549,7 +603,6 @@ fn start_session(
     shutdown: &Receiver<()>,
     err_tx: &Sender<RunError>,
     shutdown_flag: Arc<AtomicBool>,
-    input_offset: f64,
     segment_start_number: u32,
 ) -> Result<LiveSession, MediaError> {
     // Unique pipe namespace per segmenter instance: two segmenters in the same
@@ -593,12 +646,12 @@ fn start_session(
         .map_err(|e| MediaError::General(format!("cannot create track pipe: {e}")))?;
 
     let mut cmd = FfmpegCommand::new_with_path(&params.ffmpeg);
-    // Continue the stream clock across a restart. The rawvideo and raw-audio
-    // inputs restart at timestamp 0, so every input is shifted by the newest
-    // buffered stream end (`-itsoffset` applies to the following `-i`).
-    if input_offset > 0.0 {
-        cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
-    }
+    // Timestamp video by frame count. The pacer emits one frame per tick and
+    // blocks rather than drops, so the count is exact while the writer keeps
+    // up. It cannot recover when the writer is slower than the stream rate, so
+    // the writer measures its own lag and restarts the session before the video
+    // clock can fall minutes behind the audio (see `CLOCK_LAG_LIMIT`). Audio
+    // keeps its sample-count clock, which is already real time.
     cmd.args([
         "-hide_banner",
         "-loglevel",
@@ -618,15 +671,6 @@ fn start_session(
         &format!("{}x{}", params.video.width, params.video.height),
         "-framerate",
         &params.video.fps.to_string(),
-        // Timestamp video by frame count, not arrival time. The feed thread
-        // emits exactly one frame per tick and never skips one, so the frame
-        // count *is* the wall seconds elapsed and count-based stamps land on an
-        // exact grid. `-use_wallclock_as_timestamps` would trade that for
-        // arrival jitter of a few ms around each 16.7 ms tick, which is a
-        // needless A/V sync risk. Counting stays exact precisely because the
-        // feed re-sends the last frame on a tick the desktop had nothing new
-        // for, instead of leaving a hole that would shorten the timeline.
-        //
         // Read the pipes at native rate: the producers (capture, mixer) pace
         // the inputs themselves. `-re` on a raw-audio pipe is destructive: its
         // pacing cannot service 1024-byte packets (one every ~2.7ms), the input
@@ -647,9 +691,6 @@ fn start_session(
         match slot_for(*number) {
             Some(track_idx) => {
                 let url = &pipe_urls[track_idx];
-                if input_offset > 0.0 {
-                    cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
-                }
                 cmd.args([
                     "-f",
                     "f32le",
@@ -668,9 +709,6 @@ fn start_session(
                     "anullsrc=channel_layout={layout}:sample_rate={}",
                     params.sample_rate
                 );
-                if input_offset > 0.0 {
-                    cmd.args(["-itsoffset", &format!("{input_offset:.3}")]);
-                }
                 cmd.args(["-f", "lavfi", "-i", &anull]);
             }
         }
@@ -833,16 +871,25 @@ fn start_session(
     let stdin = child
         .take_stdin()
         .ok_or_else(|| MediaError::Ffmpeg("ffmpeg stdin unavailable".to_string()))?;
+    let child_pid = child.as_inner().id();
 
     // Video writer: connects the video pipe (one write per frame), drains
     // frames; on shutdown writes `q` to ffmpeg stdin so it finalizes the
     // current segment (stdin is no longer an input, so ffmpeg reads commands).
-    // Frames are written one per iteration — never drained in a batch — so
-    // fixed-rate FFmpeg timestamps and A/V timing stay unchanged.
+    // Frames are written one per iteration — never drained in a batch — so the
+    // fixed-rate frame stamps and A/V timing stay aligned.
     let capture_origin = params.capture_origin;
+    let video_fps = params.video.fps as f64;
     let writer_shutdown = shutdown.clone();
     let writer_flag = shutdown_flag.clone();
     let writer_err = err_tx.clone();
+    // Set while a frame is inside `write_all`. FFmpeg can stop draining the
+    // pipe (NVENC wedged, driver reset) while audio keeps flowing; `write_all`
+    // then blocks forever and the timeout in the receive loop never runs, so
+    // the whole video stream silently freezes. The watchdog below reads this
+    // and restarts FFmpeg, which rebuilds the encoder session.
+    let write_watch: Arc<Mutex<Option<std::time::Instant>>> = Arc::new(Mutex::new(None));
+    let writer_watch = write_watch.clone();
     // Audio-track stalls restart the session instead of failing the run, so
     // they report on a separate channel from the terminal `err_tx`.
     let (stall_tx, stall_rx) = crossbeam_channel::bounded::<String>(8);
@@ -866,6 +913,8 @@ fn start_session(
             // report; a high age or depth means the encoder is falling behind
             // and the buffer is going stale.
             let mut consumed: u64 = 0;
+            let mut written_total: u64 = 0;
+            let mut lag_base: Option<std::time::Instant> = None;
             let mut max_depth: usize = 0;
             let mut max_age: Duration = Duration::ZERO;
             // Pipe-write timing, tracked here rather than read from
@@ -910,8 +959,24 @@ fn start_session(
                         let age = capture_origin.elapsed().saturating_sub(frame.pts);
                         max_age = max_age.max(age);
                         let write_started = std::time::Instant::now();
-                        if writer.write_all(&frame.data).is_err() {
+                        *writer_watch.lock() = Some(write_started);
+                        let write_result = writer.write_all(&frame.data);
+                        *writer_watch.lock() = None;
+                        if write_result.is_err() {
                             break; // ffmpeg closed the pipe; monitor reports exit
+                        }
+                        written_total += 1;
+                        let base = *lag_base.get_or_insert(write_started);
+                        let expected = base.elapsed().as_secs_f64() * video_fps;
+                        let lag = expected - written_total as f64;
+                        if lag > CLOCK_LAG_LIMIT.as_secs_f64() * video_fps {
+                            error!(
+                                lag_secs = lag / video_fps,
+                                pid = child_pid,
+                                "video timeline is behind the wall clock; restarting ffmpeg to resynchronize"
+                            );
+                            kill_process(child_pid);
+                            break;
                         }
                         let write = write_started.elapsed();
                         write_total += write;
@@ -1000,6 +1065,38 @@ fn start_session(
             );
         })
         .map_err(|e| MediaError::General(format!("cannot spawn video writer: {e}")))?;
+
+    // A frame stuck in `write_all` means FFmpeg stopped draining the video
+    // pipe. The writer cannot time out from inside the blocking write, and
+    // audio keeps the session alive, so without this watchdog the buffer
+    // silently fills with the last captured frame for as long as the encoder
+    // stays wedged. Killing FFmpeg makes the write fail, the monitor report an
+    // exit, and the restart loop rebuild the encoder session.
+    let watchdog_done = Arc::new(AtomicBool::new(false));
+    let watchdog_done_thread = watchdog_done.clone();
+    let watchdog_watch = write_watch.clone();
+    let watchdog = thread::Builder::new()
+        .name("segmenter-watchdog".to_string())
+        .spawn(move || {
+            while !watchdog_done_thread.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(250));
+                if watchdog_done_thread.load(Ordering::SeqCst) {
+                    break;
+                }
+                let started = *watchdog_watch.lock();
+                let Some(started) = started else { continue };
+                let stalled = started.elapsed();
+                if stalled > STALL_TIMEOUT {
+                    error!(
+                        stalled_secs = stalled.as_secs_f64(),
+                        pid = child_pid,
+                        "video pipe write blocked; restarting ffmpeg to rebuild the encoder"
+                    );
+                    kill_process(child_pid);
+                }
+            }
+        })
+        .map_err(|e| MediaError::General(format!("cannot spawn segmenter watchdog: {e}")))?;
 
     // Track writers: connect the pre-created pipes, then stream blocks.
     let mut track_writers = Vec::with_capacity(track_pipes.len());
@@ -1125,15 +1222,19 @@ fn start_session(
         video: video_writer,
         tracks: track_writers,
         monitor,
+        watchdog,
+        watchdog_done,
     })
 }
 
 /// Start the FFmpeg segmenter and supervise its sessions. FFmpeg runs in a
 /// session that can be torn down and restarted with fresh pipes when it exits
-/// unexpectedly; the segment numbering and stream clock continue across the
-/// restart so the rolling buffer (and any save) survives. A shutdown request
-/// ends the current session normally. Returns a `Receiver` that resolves when
-/// the segmenter has finished finalizing its last segment.
+/// unexpectedly; the segment numbering continues across the restart so a fresh
+/// child cannot overwrite a recorded segment. Each session's media timeline
+/// starts at zero again, which is safe because the store indexes by duration and
+/// file identity rather than by a cross-session clock. A shutdown request ends
+/// the current session normally. Returns a `Receiver` that resolves when the
+/// segmenter has finished finalizing its last segment.
 pub fn spawn_segmenter(
     params: SegmenterParams,
     store: Arc<SegmentStore>,
@@ -1151,17 +1252,18 @@ pub fn spawn_segmenter(
             let buffer_dir = params.buffer_dir.clone();
             let keep = params.keep;
             let mut last_sizes_seen: HashMap<String, u64> = HashMap::new();
+            let mut probe_failures: HashMap<String, u32> = HashMap::new();
             let mut limiter = RateLimiter::new(Duration::from_secs(5));
             let mut consecutive_restarts: u32 = 0;
 
             loop {
                 let session_started = Instant::now();
-                // Continue the stream clock and segment numbering across a
-                // restart so a fresh child resumes where the previous one died
-                // instead of resetting the buffer's timeline or overwriting a
-                // recorded segment.
-                let input_offset = store.newest_end_seconds();
+                // Segment numbering continues across a restart so a fresh child
+                // cannot overwrite a recorded segment. Each session's timestamps
+                // start at zero again; the store indexes by duration and file
+                // identity, so that is enough to keep the rolling window valid.
                 let start_number = highest_segment_index(&buffer_dir);
+                let mut session_end = 0.0f64;
                 let session = match start_session(
                     &params,
                     &video_rx,
@@ -1169,7 +1271,6 @@ pub fn spawn_segmenter(
                     &shutdown,
                     &err_tx,
                     shutdown_flag.clone(),
-                    input_offset,
                     start_number,
                 ) {
                     Ok(session) => session,
@@ -1187,6 +1288,8 @@ pub fn spawn_segmenter(
                         &params.ffmpeg,
                         &mut last_sizes_seen,
                         &mut limiter,
+                        &mut session_end,
+                        &mut probe_failures,
                     );
                     store.prune(keep);
                     if shutting_down {
@@ -1261,15 +1364,19 @@ pub fn spawn_segmenter(
 /// The segment list is used when present, but it is *not* the source of truth:
 /// FFmpeg buffers its list writes, so rows can appear seconds late or in
 /// bursts. Segments are instead discovered from the buffer directory (FFmpeg
-/// creates each segment file the moment it opens it); stream times come from
-/// the list when the row is available, otherwise from probing the closed file
-/// with FFmpeg. This keeps indexing timely regardless of list flush timing.
+/// creates each segment file the moment it opens it); durations come from the
+/// list when the row is available, otherwise from probing the closed file with
+/// FFmpeg. `session_end` carries the running end time within the current
+/// session, because `-reset_timestamps` restarts the list at zero on every
+/// session. This keeps indexing timely regardless of list flush timing.
 fn scan_segments(
     buffer_dir: &std::path::Path,
     store: &SegmentStore,
     ffmpeg: &std::path::Path,
     last_sizes: &mut HashMap<String, u64>,
     limiter: &mut RateLimiter,
+    session_end: &mut f64,
+    probe_failures: &mut HashMap<String, u32>,
 ) {
     // Best-effort list: filename -> (duration, cumulative stream end).
     let list = read_segment_list(buffer_dir);
@@ -1329,20 +1436,32 @@ fn scan_segments(
         }
         // Closed: FFmpeg finished the file. Resolve stream times from the
         // list when its row is present, otherwise probe the file itself.
-        let (duration, stream_end) = if let Some(entry) = list.get(&name).copied() {
-            entry
+        let duration = if let Some((duration, end)) = list.get(&name).copied() {
+            *session_end = end;
+            duration
         } else {
-            let prev_end = store.newest_end_seconds();
             match probe_duration_seconds(ffmpeg, &path) {
-                Some(duration) if duration > 0.0 => (duration, prev_end + duration),
+                Some(duration) if duration > 0.0 => {
+                    probe_failures.remove(&name);
+                    *session_end += duration;
+                    duration
+                }
                 _ => {
-                    if dbg {
+                    let failures = probe_failures.entry(name.clone()).or_insert(0);
+                    *failures += 1;
+                    if *failures >= 3 {
+                        // A partial segment from a killed FFmpeg can never
+                        // finalize, so stop re-probing it every second.
+                        store.mark_ignored(&name);
+                        warn!(name = %name, "ignoring unfinalized segment from an interrupted session");
+                    } else if dbg {
                         eprintln!("SCANDIR: {name} probe failed size={size} prev={previous:?}");
                     }
                     continue; // not decodable yet; retry on the next scan
                 }
             }
         };
+        let stream_end = *session_end;
         if dbg {
             eprintln!("SCANDIR: {name} RECORD size={size} end={stream_end:.2}");
         }
@@ -1364,7 +1483,9 @@ fn scan_segments(
     }
 }
 
-/// Parse the segment list file into `filename -> (duration_seconds, stream_end_seconds)`.
+/// Parse the segment list file into `filename -> (duration_seconds, end_seconds)`.
+/// Times are relative to the current session: `-reset_timestamps` rebases the
+/// list at every FFmpeg start.
 fn read_segment_list(buffer_dir: &std::path::Path) -> HashMap<String, (f64, f64)> {
     let mut map = HashMap::new();
     let Ok(content) = std::fs::read_to_string(buffer_dir.join("segments.txt")) else {
@@ -1388,7 +1509,10 @@ fn read_segment_list(buffer_dir: &std::path::Path) -> HashMap<String, (f64, f64)
 
 /// Probe a closed segment with FFmpeg and return its duration in seconds.
 /// Header probing (`-i`) is enough for MKV: the duration is in the header.
-fn probe_duration_seconds(ffmpeg: &std::path::Path, path: &std::path::Path) -> Option<f64> {
+pub(crate) fn probe_duration_seconds(
+    ffmpeg: &std::path::Path,
+    path: &std::path::Path,
+) -> Option<f64> {
     let output = std::process::Command::new(ffmpeg)
         .creation_flags(0x0800_0000) // CREATE_NO_WINDOW: no console flash
         .args(["-hide_banner", "-i"])

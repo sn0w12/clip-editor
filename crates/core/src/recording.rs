@@ -14,7 +14,7 @@ use screencap::config::{
 };
 use screencap::replay::{ReplayController, ReplayEvent};
 
-use crate::events::{emit, EventSink, SharedSink};
+use crate::events::{EventSink, SharedSink};
 use crate::types::{
     err, RecordingErrorPayload, RecordingHealthPayload, RecordingProfile, RecordingProgressPayload,
     RecordingSavedPayload, RecordingStatePayload,
@@ -454,123 +454,130 @@ fn spawn_forwarder(
 }
 
 fn forward_event(event: &ReplayEvent, status: &Mutex<RecordingStatus>, sink: &dyn EventSink) {
-    let mut status = status.lock();
-    match event {
-        ReplayEvent::Started { width, height, fps } => {
-            status.running = true;
-            status.error = None;
-            emit(
-                sink,
-                "recording-state",
-                RecordingStatePayload {
-                    running: true,
-                    available_seconds: 0.0,
-                    target_seconds: status.target_seconds,
-                    saving: status.saving,
-                    error: None,
-                },
-            );
-            emit(
-                sink,
-                "recording-started",
-                serde_json::json!({ "width": width, "height": height, "fps": fps }),
-            );
-        }
-        ReplayEvent::BufferProgress {
-            available_seconds,
-            target_seconds,
-        } => {
-            status.available_seconds = *available_seconds;
-            status.target_seconds = *target_seconds;
-            emit(
-                sink,
-                "recording-progress",
-                RecordingProgressPayload {
-                    available_seconds: *available_seconds,
-                    target_seconds: *target_seconds,
-                },
-            );
-        }
-        ReplayEvent::CaptureHealth(health) => {
-            // Forward every second: the settings page renders the encoder and
-            // the measured rates, and turns `warning` into a visible alert.
-            emit(
-                sink,
-                "recording-health",
-                RecordingHealthPayload {
-                    encoder: health.encoder.clone(),
-                    target_fps: health.target_fps,
-                    delivered_fps: health.delivered_fps,
-                    readback_ms: health.readback_ms,
-                    readback_p95_ms: health.readback_p95_ms,
-                    acquires_per_sec: health.acquires_per_sec,
-                    slow_map_waits: health.slow_map_waits,
-                    readback_latency_p95_ms: health.readback_latency_p95_ms,
-                    max_queue_depth: health.max_queue_depth,
-                    frame_age_ms: health.frame_age_ms,
-                    write_ms_per_frame: health.write_ms_per_frame,
-                    warning: health.warning.clone(),
-                },
-            );
-        }
-        ReplayEvent::Saving => {
-            status.saving = true;
-            emit(sink, "recording-saving", ());
-        }
-        ReplayEvent::Saved { path } => {
-            status.saving = false;
-            emit(
-                sink,
-                "recording-saved",
-                RecordingSavedPayload {
-                    path: path.to_string_lossy().into_owned(),
-                },
-            );
-        }
-        ReplayEvent::Error { message, fatal } => {
-            status.saving = false;
-            if *fatal {
-                status.running = false;
-                status.error = Some(message.clone());
-            }
-            emit(
-                sink,
-                "recording-error",
-                RecordingErrorPayload {
-                    message: message.clone(),
-                    fatal: *fatal,
-                },
-            );
-            if *fatal {
-                emit(
-                    sink,
+    // Sinks deliver synchronously on this thread, and a host listener that
+    // reads the recording state back (`update_tray_recording_label`) locks
+    // `status` again. Emitting while the lock is held deadlocks the forwarder,
+    // so payloads are collected here and emitted after the guard is dropped.
+    let mut pending: Vec<(&'static str, serde_json::Value)> = Vec::new();
+    {
+        let mut status = status.lock();
+        match event {
+            ReplayEvent::Started { width, height, fps } => {
+                status.running = true;
+                status.error = None;
+                pending.push((
                     "recording-state",
-                    RecordingStatePayload {
+                    to_value(RecordingStatePayload {
+                        running: true,
+                        available_seconds: 0.0,
+                        target_seconds: status.target_seconds,
+                        saving: status.saving,
+                        error: None,
+                    }),
+                ));
+                pending.push((
+                    "recording-started",
+                    serde_json::json!({ "width": width, "height": height, "fps": fps }),
+                ));
+            }
+            ReplayEvent::BufferProgress {
+                available_seconds,
+                target_seconds,
+            } => {
+                status.available_seconds = *available_seconds;
+                status.target_seconds = *target_seconds;
+                pending.push((
+                    "recording-progress",
+                    to_value(RecordingProgressPayload {
+                        available_seconds: *available_seconds,
+                        target_seconds: *target_seconds,
+                    }),
+                ));
+            }
+            ReplayEvent::CaptureHealth(health) => {
+                // Forward every second: the settings page renders the encoder
+                // and the measured rates, and turns `warning` into a visible
+                // alert.
+                pending.push((
+                    "recording-health",
+                    to_value(RecordingHealthPayload {
+                        encoder: health.encoder.clone(),
+                        target_fps: health.target_fps,
+                        delivered_fps: health.delivered_fps,
+                        readback_ms: health.readback_ms,
+                        readback_p95_ms: health.readback_p95_ms,
+                        acquires_per_sec: health.acquires_per_sec,
+                        slow_map_waits: health.slow_map_waits,
+                        readback_latency_p95_ms: health.readback_latency_p95_ms,
+                        max_queue_depth: health.max_queue_depth,
+                        frame_age_ms: health.frame_age_ms,
+                        write_ms_per_frame: health.write_ms_per_frame,
+                        warning: health.warning.clone(),
+                    }),
+                ));
+            }
+            ReplayEvent::Saving => {
+                status.saving = true;
+                pending.push(("recording-saving", serde_json::Value::Null));
+            }
+            ReplayEvent::Saved { path } => {
+                status.saving = false;
+                pending.push((
+                    "recording-saved",
+                    to_value(RecordingSavedPayload {
+                        path: path.to_string_lossy().into_owned(),
+                    }),
+                ));
+            }
+            ReplayEvent::Error { message, fatal } => {
+                status.saving = false;
+                if *fatal {
+                    status.running = false;
+                    status.error = Some(message.clone());
+                }
+                pending.push((
+                    "recording-error",
+                    to_value(RecordingErrorPayload {
+                        message: message.clone(),
+                        fatal: *fatal,
+                    }),
+                ));
+                if *fatal {
+                    pending.push((
+                        "recording-state",
+                        to_value(RecordingStatePayload {
+                            running: false,
+                            available_seconds: status.available_seconds,
+                            target_seconds: status.target_seconds,
+                            saving: false,
+                            error: Some(message.clone()),
+                        }),
+                    ));
+                }
+            }
+            ReplayEvent::Stopped => {
+                status.running = false;
+                status.saving = false;
+                pending.push((
+                    "recording-state",
+                    to_value(RecordingStatePayload {
                         running: false,
                         available_seconds: status.available_seconds,
                         target_seconds: status.target_seconds,
                         saving: false,
-                        error: Some(message.clone()),
-                    },
-                );
+                        error: None,
+                    }),
+                ));
             }
         }
-        ReplayEvent::Stopped => {
-            status.running = false;
-            status.saving = false;
-            emit(
-                sink,
-                "recording-state",
-                RecordingStatePayload {
-                    running: false,
-                    available_seconds: status.available_seconds,
-                    target_seconds: status.target_seconds,
-                    saving: false,
-                    error: None,
-                },
-            );
-        }
     }
+    for (name, payload) in pending {
+        sink.emit_json(name, payload);
+    }
+}
+
+fn to_value<T: serde::Serialize>(payload: T) -> serde_json::Value {
+    serde_json::to_value(payload).unwrap_or(serde_json::Value::Null)
 }
 
 #[cfg(test)]
@@ -682,5 +689,34 @@ mod tests {
         assert_eq!(config.audio.processes[0].executable, "Discord.exe");
         assert_eq!(config.audio.processes[0].tags, vec!["tracked".to_string()]);
         assert!(config.audio.processes[0].include_children);
+    }
+
+    #[test]
+    fn forwarding_does_not_hold_status_across_emit() {
+        struct ReentrantSink(Arc<Mutex<RecordingStatus>>);
+
+        impl EventSink for ReentrantSink {
+            fn emit_json(&self, _event: &str, _payload: serde_json::Value) {
+                self.0.lock().running = false;
+            }
+        }
+
+        let status = Arc::new(Mutex::new(RecordingStatus::default()));
+        let sink = Arc::new(ReentrantSink(status.clone()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            forward_event(
+                &ReplayEvent::Started {
+                    width: 1920,
+                    height: 1080,
+                    fps: 60,
+                },
+                &status,
+                sink.as_ref(),
+            );
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("forwarding must release the status lock before emitting");
     }
 }

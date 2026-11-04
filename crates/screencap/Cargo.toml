@@ -19,7 +19,7 @@ toml_edit = "0.22"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 global-hotkey = "0.8"
-cpal = "0.18"
+cpal = { version = "0.18", features = ["realtime"] }
 rubato = "4.0"
 sysinfo = "0.39"
 ffmpeg-sidecar = { version = "2.5", features = ["named_pipes"] }

@@ -156,14 +156,14 @@ pub fn spawn_pacer(
                         .recv_timeout((next_tick - now).min(Duration::from_millis(50)));
                     continue;
                 }
-                // A tick the pacer missed while the writer was blocked does not
-                // need to be replayed as a burst of duplicates: those advance
-                // the frame-count clock but write repeat frames, and the writer
-                // restarts the session once the count falls behind the wall
-                // clock. Resume on the current tick instead.
-                if now >= next_tick + interval * 10 {
-                    next_tick = now;
-                }
+                // Never rebase `next_tick` to `now`: FFmpeg stamps this input by
+                // frame count, so every tick skipped here moves the picture
+                // later on the stream while the audio keeps its wall-clock
+                // position, and the clip plays with the sound behind the
+                // picture. A tick the writer blocked through is replayed as a
+                // duplicate frame instead, which keeps the frame index on the
+                // wall timeline. A pipe that never recovers is bounded by the
+                // writer's `CLOCK_LAG_LIMIT` restart, not by dropping ticks.
                 // What the capture published since the last tick, else the
                 // previous frame again. The duplication only delivers a frame
                 // when the desktop changes, so a quiet stretch re-sends rather
@@ -893,6 +893,43 @@ mod capture_stats_tests {
             b.snapshot().acquires,
             0,
             "each stats block owns its counters"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn pacer_replays_ticks_it_missed_before_starting() {
+        let origin = Instant::now() - Duration::from_millis(500);
+        let (tx, rx) = crossbeam_channel::bounded(128);
+        let (shutdown_tx, shutdown_rx) = crossbeam_channel::unbounded::<()>();
+        spawn_pacer(
+            VideoInfo {
+                width: 2,
+                height: 2,
+                fps: 50,
+            },
+            origin,
+            tx,
+            rx.clone(),
+            shutdown_rx,
+            Arc::new(Mutex::new(Latest::default())),
+            Arc::new(StopState::default()),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .expect("pacer spawns");
+
+        let mut frames = 0;
+        let deadline = Instant::now() + Duration::from_millis(150);
+        while Instant::now() < deadline {
+            if rx.recv_timeout(Duration::from_millis(5)).is_ok() {
+                frames += 1;
+            }
+        }
+        let _ = shutdown_tx.send(());
+        assert!(
+            frames >= 20,
+            "500 ms at 50 fps is 25 missed ticks; dropping them shifts the \
+             picture 0.5 s later than the audio, and only {frames} frames arrived"
         );
     }
 }

@@ -409,6 +409,31 @@ impl Drop for Worker {
     }
 }
 
+/// Register the calling thread with MMCSS "Pro Audio" so the audio engine
+/// schedules it above the encode and capture threads. A client descheduled past
+/// the engine buffer gets silence-flagged packets, which reach the clip as
+/// holes, so this is the difference between a clean capture and a crackling one.
+fn raise_capture_priority() {
+    use windows::Win32::System::Threading::{
+        AvSetMmThreadCharacteristicsW, GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
+    };
+    let task: Vec<u16> = "Pro Audio\0".encode_utf16().collect();
+    let mut task_index = 0u32;
+    // SAFETY: `task` is NUL-terminated and outlives the call; the call only
+    // registers the current thread with MMCSS.
+    let registered = unsafe {
+        AvSetMmThreadCharacteristicsW(windows::core::PCWSTR(task.as_ptr()), &mut task_index)
+    };
+    if registered.is_err() {
+        // MMCSS is unavailable on some hosts (VMs, stripped images); a priority
+        // bump still keeps the client ahead of the encoder threads.
+        // SAFETY: pseudo-handle for the calling thread.
+        unsafe {
+            let _ = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+        }
+    }
+}
+
 /// Capture loop for one process root.
 fn run_worker(
     pid: u32,
@@ -423,6 +448,7 @@ fn run_worker(
     channels: u16,
 ) {
     let _ = initialize_mta();
+    raise_capture_priority();
     let key = info.key.clone();
 
     let client = match AudioClient::new_application_loopback_client(pid, include_children) {
@@ -496,6 +522,10 @@ fn run_worker(
     // (the loopback delivers continuous silence during a quiet stretch, so
     // block *count* never idles; content does).
     let mut last_sound_wall = std::time::Instant::now();
+    // Packets where the engine reported lost samples. A nonzero count is the
+    // difference between "the game went quiet" and "the capture client was
+    // too slow", which is otherwise invisible in the clip.
+    let mut discontinuities: u64 = 0;
 
     loop {
         if stop_rx.try_recv().is_ok() || shutdown.try_recv().is_ok() {
@@ -521,9 +551,28 @@ fn run_worker(
             match capture.get_next_packet_size() {
                 Ok(Some(0)) | Ok(None) => break,
                 Ok(Some(_frames)) => match capture.read_from_device(&mut read_buf) {
-                    Ok((read, _info)) => {
-                        let bytes = read as usize * bytes_per_frame;
-                        f32s_from_le_into(&read_buf[..bytes], &mut samples);
+                    Ok((read, info)) => {
+                        let frames = read as usize;
+                        if info.flags.silent {
+                            // A silent packet's buffer contents are undefined;
+                            // treat it as the silence the engine is reporting
+                            // instead of reading stale bytes as audio.
+                            samples.clear();
+                            samples.resize(frames * LOOPBACK_CHANNELS as usize, 0.0);
+                        } else {
+                            let bytes = frames * bytes_per_frame;
+                            f32s_from_le_into(&read_buf[..bytes], &mut samples);
+                        }
+                        if info.flags.data_discontinuity {
+                            discontinuities += 1;
+                            if limiter.should_emit() {
+                                warn!(
+                                    source = %key.0,
+                                    discontinuities,
+                                    "loopback capture lost samples (data discontinuity)"
+                                );
+                            }
+                        }
                         let source: &[f32] = if channels != LOOPBACK_CHANNELS {
                             convert_channels_into(
                                 &samples,
